@@ -1,5 +1,6 @@
 import SQLite from "@db/SQLiteCompat";
 import { BaseModel, types } from "expo-sqlite-orm";
+import CatalogService from "@services/catalogService";
 
 export default class Product extends BaseModel {
   constructor(obj) {
@@ -44,7 +45,34 @@ export default class Product extends BaseModel {
     };
   }
 
+  static async query(options = {}) {
+    const config = await CatalogService.getCatalogConfig();
+    if (config.mode === "ONLINE") {
+      const page = options?.page ?? 1;
+      const limit = options?.limit ?? 20;
+      const priceClass = options?.priceClass ?? options?.classPrice ?? 1;
+      return await CatalogService.queryCatalogPage({
+        searchText: "",
+        page,
+        limit,
+        priceClass,
+      });
+    }
+
+    return await super.query(options);
+  }
+
   static async findLikeName(name, classPrice = 1, limit = 20, lista = '') {
+    const config = await CatalogService.getCatalogConfig();
+    if (config.mode === "ONLINE") {
+      return await CatalogService.findCatalogLikeName({
+        name,
+        classPrice,
+        limit,
+        page: 1,
+      });
+    }
+
     const page = 1;
     const search = String(name ?? "").toLowerCase();
     const searchLike = `%${search}%`;
@@ -62,6 +90,14 @@ export default class Product extends BaseModel {
   }
 
   static async findByCode(code, lista = '') {
+    const config = await CatalogService.getCatalogConfig();
+    if (config.mode === "ONLINE") {
+      return await CatalogService.findCatalogByCode({
+        code,
+        classPrice: 1,
+      });
+    }
+
     const rawCode = String(code ?? "").trim();
     const searchCode = rawCode;
     const searchCodeLower = rawCode.toLowerCase();
@@ -173,6 +209,14 @@ export default class Product extends BaseModel {
   }
 
   static async findByCodes(codes = [], lista = '') {
+    const config = await CatalogService.getCatalogConfig();
+    if (config.mode === "ONLINE") {
+      return await CatalogService.findCatalogByCodes({
+        codes,
+        classPrice: 1,
+      });
+    }
+
     const rawCodes = Array.from(new Set((codes || []).map(c => String(c ?? "").trim()).filter(Boolean)));
     if (rawCodes.length === 0) return [];
 
@@ -258,6 +302,14 @@ export default class Product extends BaseModel {
   }
 
   static async findByBarcodePrefix(scannedCode, lista = '') {
+    const config = await CatalogService.getCatalogConfig();
+    if (config.mode === "ONLINE") {
+      return await CatalogService.findCatalogByBarcodePrefix({
+        scannedCode,
+        classPrice: 1,
+      });
+    }
+
     const rawCode = String(scannedCode ?? "").trim();
     const normalizedCode = rawCode.replace(/\s+/g, "").replace(/[^0-9a-z]/gi, "");
     if (!normalizedCode) return [];

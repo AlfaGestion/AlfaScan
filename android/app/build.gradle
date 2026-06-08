@@ -87,9 +87,9 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
-    namespace 'com.alfa.deposito.v2'
+    namespace 'com.alfagestion.alfalector'
     defaultConfig {
-        applicationId 'com.alfa.deposito.v2'
+        applicationId 'com.alfagestion.alfalector'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1

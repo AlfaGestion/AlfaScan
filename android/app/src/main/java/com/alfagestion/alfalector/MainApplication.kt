@@ -1,4 +1,4 @@
-package com.alfa.deposito.v2
+package com.alfagestion.alfalector
 
 import android.app.Application
 import android.content.res.Configuration

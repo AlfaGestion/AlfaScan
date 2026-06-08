@@ -47,6 +47,7 @@
     "react-native-screens": "~4.16.0",
     "react-native-signature-canvas": "^4.4.1",
     "react-native-sunmi-v2-printer": "^1.0.3",
+    "react-native-mssql": "^0.1.4",
     "react-native-tab-view": "^4.0.5",
     "react-native-vector-icons": "^10.2.0",
     "react-native-webview": "13.15.0"
@@ -59,5 +60,5 @@
   },
   "private": true,
   "version": "1.0.0",
-  "name": "alfadeposito"
+  "name": "alfalector"
 }

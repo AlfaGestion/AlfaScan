@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "AlfaDeposito",
-    "slug": "alfadeposito",
+    "name": "AlfaLector",
+    "slug": "alfalector",
     "version": "1.3.0",
     "orientation": "default",
     "icon": "./assets/icon.png",
@@ -27,7 +27,7 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#FFFFFF"
       },
-      "package": "com.alfa.deposito.v2"
+      "package": "com.alfagestion.alfalector"
     },
     "web": {
       "favicon": "./assets/favicon.png"

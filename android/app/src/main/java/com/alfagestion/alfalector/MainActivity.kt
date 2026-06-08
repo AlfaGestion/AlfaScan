@@ -1,4 +1,4 @@
-package com.alfa.deposito.v2
+package com.alfagestion.alfalector
 import expo.modules.splashscreen.SplashScreenManager
 
 import android.os.Build
