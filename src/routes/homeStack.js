@@ -1,37 +1,18 @@
-import React from 'react';
-import { NavigationContainer } from '@react-navigation/native';
-import { createStackNavigator } from '@react-navigation/stack';
+import React from "react";
+import { NavigationContainer } from "@react-navigation/native";
+import { createStackNavigator } from "@react-navigation/stack";
 
+import AboutScreen from "@screens/AboutScreen";
 import ConfigurationScreen from "@screens/configurationScreen";
-import AccountBalanceScreen from "@screens/Accounts/AccountBalanceScreen";
-import AccountScreen from "@screens/Accounts/AccountScreen";
-import AccountsScreen from "@screens/Accounts/AccountsScreen";
 import HomeScreen from "@screens/homeScreen";
-import ListOrdersScreen from "@screens/Orders/listOrdersScreen";
-import NewOrderScreen from "@screens/Orders/newOrderScreen";
-import NewStockScreen from "@screens/Orders/newStockScreen";
-import OrderDetailScreen from "@screens/Orders/orderDetailScreen";
-import OrdersRemoteScreen from "@screens/Orders/ordersRemoteScreen";
-import NewPaymentScreen from "@screens/Payments/newPaymentScreen";
-import PaymentsRemoteScreen from "@screens/Payments/paymentsRemoteScreen";
-import PaymentsScreen from "@screens/Payments/paymentsScreen";
+import PrintHistoryScreen from "@screens/PrintHistoryScreen";
 import ProductsScreen from "@screens/Products/listProductsScreen";
 import ProductScreen from "@screens/Products/productScreen";
 import ProductStockScreen from "@screens/Products/productStockScreen";
-import ProductStockScreen2 from "@screens/Products/productStockScreen2";
-import SendPendingsScreen from "@screens/Sync/SendPendingsScreen";
 import SyncScreen from "@screens/Sync/SyncScreen";
-import NewTaskScreen from "@screens/Tasks/newTaskScreen";
-import TasksScreen from "@screens/Tasks/tasksScreen";
-import VisitsScreen from "@screens/Sellers/VisitsScreen";
-import NewAccountScreen from "@screens/Accounts/NewAccountScreen";
-import OrderTabNavigator from "../routes/OrderTabNavigator"; // Si este es un tab navigator
-import OrderViewTab from './OrderViewTab';
-import CartProviderContainer from './CartProviderContainer';
-import CartStockContainer from './CartStockContainer';
-import Colors from '@styles/Colors';
-import { Fonts } from '@styles/Theme';
-import { useThemeConfig } from '@context/ThemeContext';
+import Colors from "@styles/Colors";
+import { Fonts } from "@styles/Theme";
+import { useThemeConfig } from "@context/ThemeContext";
 
 const Stack = createStackNavigator();
 
@@ -39,88 +20,23 @@ const HomeStack = () => {
   const { darkMode } = useThemeConfig();
 
   return (
-  <NavigationContainer>
+    <NavigationContainer>
       <Stack.Navigator
         initialRouteName="HomeScreen"
         screenOptions={{
           headerTintColor: darkMode ? "#E8F0F8" : Colors.DGREY,
           headerStyle: { backgroundColor: darkMode ? "#16212D" : Colors.SURFACE },
-          headerTitleStyle: { fontFamily: Fonts.display, letterSpacing: 0.4, color: darkMode ? "#E8F0F8" : Colors.DGREY },
+          headerTitleStyle: {
+            fontFamily: Fonts.display,
+            letterSpacing: 0.4,
+            color: darkMode ? "#E8F0F8" : Colors.DGREY,
+          },
         }}
       >
         <Stack.Screen
           name="HomeScreen"
           component={HomeScreen}
-          options={{ title: "Inicio", headerLeft: () => { } }}
-        />
-        <Stack.Screen
-          name="SyncScreen"
-          component={SyncScreen}
-          options={{ title: "Sincronización" }}
-        />
-        <Stack.Screen
-          name="VisitsScreen"
-          component={VisitsScreen}
-          options={{ title: "Ruta Diaria" }}
-        />
-        <Stack.Screen
-          name="ProductsScreen"
-          component={ProductsScreen}
-          options={{ title: "Artículos" }}
-        />
-        <Stack.Screen
-          name="ProductScreen"
-          component={ProductScreen}
-          options={{ title: "Ficha de Articulo" }}
-        />
-        <Stack.Screen
-          name="AccountsScreen"
-          component={AccountsScreen}
-          options={{ title: "Proveedores" }}
-        />
-        <Stack.Screen
-          name="AccountScreen"
-          component={AccountScreen}
-          options={{ title: "Ficha de Cliente" }}
-        />
-        <Stack.Screen
-          name="ListOrdersScreen"
-          component={ListOrdersScreen}
-          options={{ title: "Comprobantes" }}
-        />
-        <Stack.Screen
-          name="NewOrderScreen"
-          // component={NewOrderScreen}
-          component={CartProviderContainer}
-          // component={OrderTabNavigator} // Si es un tab navigator
-          options={{ title: "Nueva recepción" }}
-        />
-        <Stack.Screen
-          name="NewStockScreen"
-          // component={NewStockScreen}
-          component={CartStockContainer}
-          // component={OrderTabNavigator} // Si es un tab navigator
-          options={{ title: "Nuevo movimiento de stock" }}
-        />
-        <Stack.Screen
-          name="EditOrderScreen"
-          component={CartProviderContainer}
-          options={{ title: "Editar recepción" }}
-        />
-        <Stack.Screen
-          name="ProductStockScreen"
-          component={ProductStockScreen}
-          options={{ title: "Consulta de stock" }}
-        />
-        <Stack.Screen
-          name="ProductStockScreen2"
-          component={ProductStockScreen2}
-          options={{ title: "Consulta de stock" }}
-        />
-        <Stack.Screen
-          name="AccountBalanceScreen"
-          component={AccountBalanceScreen}
-          options={{ title: "Cuenta Corriente" }}
+          options={{ headerShown: false }}
         />
         <Stack.Screen
           name="ConfigurationScreen"
@@ -128,52 +44,37 @@ const HomeStack = () => {
           options={{ title: "Configuración" }}
         />
         <Stack.Screen
-          name="PaymentsScreen"
-          component={PaymentsScreen}
-          options={{ title: "Cobranzas" }}
+          name="SyncScreen"
+          component={SyncScreen}
+          options={{ title: "Sincronización" }}
         />
         <Stack.Screen
-          name="PaymentsRemoteScreen"
-          component={PaymentsRemoteScreen}
-          options={{ title: "Consulta Cobranzas" }}
+          name="ProductsScreen"
+          component={ProductsScreen}
+          options={{ title: "Productos" }}
         />
         <Stack.Screen
-          name="NewPaymentScreen"
-          component={NewPaymentScreen}
-          options={{ title: "Carga de cobranzas" }}
+          name="ProductScreen"
+          component={ProductScreen}
+          options={{ title: "Ficha de artículo" }}
         />
         <Stack.Screen
-          name="OrdersRemoteScreen"
-          component={OrdersRemoteScreen}
-          options={{ title: "Consulta Pedidos" }}
+          name="ProductStockScreen"
+          component={ProductStockScreen}
+          options={{ title: "Consulta de stock" }}
         />
         <Stack.Screen
-          name="OrderDetailScreen"
-          component={OrderDetailScreen}
-          options={{ title: "Detalle de pedido" }}
+          name="PrintHistoryScreen"
+          component={PrintHistoryScreen}
+          options={{ title: "Historial de impresiones" }}
         />
         <Stack.Screen
-          name="TasksScreen"
-          component={TasksScreen}
-          options={{ title: "Tareas" }}
-        />
-        <Stack.Screen
-          name="NewTaskScreen"
-          component={NewTaskScreen}
-          options={{ title: "Nueva tarea" }}
-        />
-        <Stack.Screen
-          name="SendPendingsScreen"
-          component={SendPendingsScreen}
-          options={{ title: "Enviar pendientes" }}
-        />
-        <Stack.Screen
-          name="NewAccountScreen"
-          component={NewAccountScreen}
-          options={{ title: "Nuevo proveedor" }}
+          name="AboutScreen"
+          component={AboutScreen}
+          options={{ title: "Acerca de / versión" }}
         />
       </Stack.Navigator>
-  </NavigationContainer>
+    </NavigationContainer>
   );
 };
 

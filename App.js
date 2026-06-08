@@ -2,8 +2,6 @@ import { StatusBar } from "expo-status-bar";
 import { Text, TextInput } from "react-native";
 import { UserProvider } from "@context/UserContext";
 import { ThemeProvider, useThemeConfig } from "@context/ThemeContext";
-// Importa CartProvider desde el archivo donde vive el hook
-import { CartProvider } from "./src/hooks/useCart"; // <--- Ajusta esta ruta a la real
 import HomeStack from "@routes/homeStack"
 import Colors from "@styles/Colors";
 import { Fonts } from "@styles/Theme";
@@ -28,9 +26,7 @@ const App = () => {
   return (
     <ThemeProvider>
       <UserProvider>
-        <CartProvider>
-          <AppContent />
-        </CartProvider>
+        <AppContent />
       </UserProvider>
     </ThemeProvider>
   );

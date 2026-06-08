@@ -1,14 +1,19 @@
 {
   "expo": {
-    "name": "AlfaLector",
-    "slug": "alfalector",
+    "name": "AlfaScan",
+    "slug": "alfascan",
     "version": "1.3.0",
     "orientation": "default",
     "icon": "./assets/icon.png",
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#ffffff",
+      "dark": {
+        "image": "./assets/splashDark.png",
+        "resizeMode": "contain",
+        "backgroundColor": "#0F1720"
+      }
     },
     "updates": {
       "enabled": false,
@@ -24,13 +29,13 @@
     "android": {
       "runtimeVersion": "1.0.1",
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
+        "foregroundImage": "./assets/icon.png",
         "backgroundColor": "#FFFFFF"
       },
       "package": "com.alfagestion.alfalector"
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/icon.png"
     },
     "extra": {
       "eas": {

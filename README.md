@@ -1,86 +1,207 @@
-# AlfaLector
+# AlfaScan
 
-App React Native para lector Sunmi con impresora interna de 80 mm.
+Aplicacion React Native / Expo orientada a dispositivos Sunmi para busqueda de articulos, escaneo de codigo de barras, consulta de precios, sincronizacion y preparacion de impresiones.
 
-## Objetivo
+## Flujo principal
 
-Esta base toma la estructura de `AlfaDepositos` y la adapta para lectura de artículos/precios con:
+- Buscar por codigo de barras, descripcion o codigo interno.
+- Escanear con camara o lector.
+- Ver descripcion, codigo de barra, precio, stock y ultima sincronizacion.
+- Preparar impresiones para los formatos:
+  - Gondola
+  - Producto
+  - Precio Chico
+  - Personalizado
 
-- Modo `SQL Online`
-- Modo `SQL Local`
-- Sincronización local reutilizable
-- Impresión interna Sunmi
+## Estructura actual
 
-## Requisitos
+- `Home`
+  - Busqueda rapida y acceso a impresion.
+  - Menu lateral con configuracion, sincronizacion, productos, historial y acerca de.
+- `Configuracion`
+  - AlfaNet / API
+  - SQL Local
+  - SQL Online
+  - Formatos de impresion
+- `Sincronizacion`
+  - Sincronizacion del catalogo para SQL Local.
+- `Historial de impresiones`
+  - Registros locales de los formatos preparados desde la pantalla principal.
 
-- Android con Sunmi y impresora interna
-- Build nativo de Expo/React Native, no Expo Go
-- Servidor SQL Server accesible desde el dispositivo
+## Configuracion AlfaNet / API
 
-## Configuración SQL
+Use este modo cuando la app deba consumir el web service de Alfa Gestion.
 
-La configuración está en la pantalla `Configuración`.
+Campos:
 
-### Campos principales
+- Ruta web service
+- Codigo cuenta AlfaNet
+- Usuario
+- Password
+- ID Base
+- Timeout
+- Usar SSL
 
-- `SQL_MODE`
-  - `ONLINE`: consulta directa al servidor
-  - `LOCAL`: sincroniza y luego usa SQLite local
-- `SQL_CONNECTION_MODE`
-  - `AUTO`
-  - `SERVER`
-  - `IP`
-  - `INSTANCE`
-  - `PORT`
-  - `CUSTOM`
-- `SQL_SERVER`
-  - Acepta `NOMBRE_SERVIDOR`, `IP`, `IP\\INSTANCIA`, `NOMBRE\\INSTANCIA` o `NOMBRE,PUERTO`
-- `SQL_INSTANCE`
-- `SQL_PORT`
-- `SQL_USER`
-- `SQL_PASSWORD`
-- `SQL_DATABASE`
-- `SQL_TABLE_VIEW`
-  - Ejemplos: `dbo.Articulos`, `dbo.vw_Articulos`, `dbo.Precios`
+Pasos:
 
-### Sincronización local
+1. Abrir `Configuracion`.
+2. Seleccionar `AlfaNet / API`.
+3. Completar los campos requeridos.
+4. Probar la conexion.
+5. Guardar la configuracion.
 
-Cuando `SQL_MODE = LOCAL`, la app puede sincronizar el catálogo con el botón:
+## Configuracion SQL Local
 
-- `Sincronizar catálogo SQL local`
+Use este modo cuando la app deba sincronizar el catalogo desde el SQL del cliente hacia la base local del dispositivo.
 
-La sincronización usa una tabla staging para no borrar el catálogo local hasta terminar la descarga correctamente.
+Campos:
 
-## Impresión Sunmi
+- Servidor SQL
+- Instancia SQL opcional
+- Puerto opcional
+- Base de datos
+- Usuario
+- Contrasena
+- Tabla o vista de articulos
+- Campo codigo de barra
+- Campo descripcion
+- Campo precio
+- Campo stock opcional
+- Timeout SQL
 
-La app mantiene impresión con `react-native-sunmi-v2-printer` para el hardware integrado Sunmi.
+Pasos:
 
-### Notas
+1. Abrir `Configuracion`.
+2. Seleccionar `SQL Local`.
+3. Completar servidor, base, usuario, contrasena y tabla/vista.
+4. Verificar el nombre de las columnas configuradas.
+5. Probar la conexion.
+6. Guardar la configuracion.
+7. Ejecutar `Sincronizar ahora` desde configuracion o entrar en `Sincronizacion`.
 
-- La impresión está pensada para papel de 80 mm.
-- El proyecto requiere un build nativo con la dependencia de Sunmi instalada.
-- La impresión actual usa texto monoespaciado y separadores simples, compatible con tickets/etiquetas básicos.
+## Configuracion SQL Online
 
-## Cómo cambiar la configuración
+Use este modo cuando la app deba consultar directamente el servidor SQL en la misma red.
 
-1. Abrir `Configuración`.
-2. Completar:
-   - `Modo SQL`
-   - `Servidor SQL`
-   - `Usuario SQL`
-   - `Contraseña SQL`
-   - `Base de datos SQL`
-   - `Tabla o vista de artículos`
-   - `Modo de conexión`
-3. Guardar con `Grabar`.
-4. Si se usa `SQL Local`, ejecutar `Sincronizar catálogo SQL local`.
+Campos:
 
-## Compatibilidad SQL Server
+- Servidor SQL
+- Instancia SQL opcional
+- Puerto opcional
+- Base de datos
+- Usuario
+- Contrasena
+- Tabla o vista de articulos
+- Campo codigo de barra
+- Campo descripcion
+- Campo precio
+- Campo stock opcional
+- Timeout SQL
 
-La capa de consulta evita depender de funciones modernas innecesarias y apunta a sintaxis compatible con versiones antiguas y nuevas de SQL Server.
+Pasos:
+
+1. Abrir `Configuracion`.
+2. Seleccionar `SQL Online`.
+3. Completar los campos SQL.
+4. Probar la conexion.
+5. Guardar la configuracion.
+
+## Formatos de impresion
+
+La pantalla de configuracion permite editar hasta 4 formatos.
+
+Formatos incluidos por defecto:
+
+1. Gondola
+2. Producto
+3. Precio Chico
+4. Personalizado
+
+Cada formato permite ajustar:
+
+- Nombre
+- Ancho de papel
+- Tamano de fuente de descripcion
+- Tamano de fuente de precio
+- Mostrar codigo de barra
+- Mostrar precio
+- Mostrar descripcion
+- Mostrar stock
+- Mostrar fecha
+- Mostrar nombre de empresa
+- Mostrar codigo interno
+- Cantidad de copias
+- Margen superior
+- Margen inferior
+- Alineacion
+- Precio en negrita
+- Vista previa antes de imprimir
+
+## Compatibilidad SQL
+
+La capa SQL se mantiene simple para maximizar compatibilidad con:
+
+- SQL Server 2008
+- SQL Server 2012
+- SQL Server 2016
+- SQL Server 2019
+- SQL Server 2022
+- SQL Server 2026 o superior
+
+La idea es usar consultas simples basadas en `SELECT`, `WHERE` y parametros, sin depender de funciones modernas que rompan compatibilidad con versiones antiguas.
+
+Formatos de servidor soportados:
+
+- `SERVIDOR`
+- `IP`
+- `SERVIDOR\INSTANCIA`
+- `IP\INSTANCIA`
+- `IP,PUERTO`
+- `SERVIDOR,PUERTO`
+
+## Impresion Sunmi
+
+El proyecto esta preparado para `react-native-sunmi-v2-printer`.
+
+Notas:
+
+- El foco principal es papel de `80 mm`.
+- Tambien se contemplan `58 mm` y etiquetas personalizadas.
+- Los botones de impresion de la Home dejan registrado el formato elegido y la estructura de datos del articulo para la siguiente etapa de integracion nativa completa.
+
+## Como compilar para Android / Sunmi
+
+Requisitos:
+
+- Node.js instalado
+- Android Studio y SDK configurados
+- JDK compatible con React Native / Expo
+- Dispositivo Sunmi conectado por USB o build instalado en el equipo
+
+Comandos:
+
+```bash
+npm install
+npm run android
+```
+
+Para un build de produccion con EAS:
+
+```bash
+eas build -p android
+```
+
+Recomendaciones para Sunmi:
+
+- Usar build nativo, no Expo Go.
+- Probar la camara, el lector integrado y la impresora interna en el dispositivo real.
+- Verificar que la app tenga permisos de camara y red segun el modo de conexion elegido.
+
+## Persistencia local
+
+La configuracion se guarda localmente en la base del proyecto, por lo que no es necesario hardcodear servidores, tablas ni campos.
 
 ## Observaciones
 
-- El proyecto usa la tabla local `products` como cache del catálogo.
-- Para que `SQL Online` funcione directamente desde el dispositivo, la app usa un módulo nativo Android (`react-native-mssql`).
-- Si el servidor expone una vista con nombres de columnas estándar, la integración es más simple y estable.
+- La Home nueva de AlfaScan reemplaza el flujo viejo de deposito en la navegacion principal.
+- Las pantallas heredadas que no aplican al nuevo escenario quedaron fuera del menu principal.

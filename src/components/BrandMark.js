@@ -2,9 +2,9 @@ import { Image, Text, StyleSheet, View } from "react-native";
 import Colors from "@styles/Colors";
 import { Fonts, Shadow } from "@styles/Theme";
 
-import alfaLogo from "../../assets/alfa_new_logo_editable.png";
+import alfaLogo from "../../assets/icon.png";
 
-export default function BrandMark({ label = "Alfa Depositos", size = 64, logoSource = alfaLogo, darkMode = false }) {
+export default function BrandMark({ label = "AlfaScan", size = 64, logoSource = alfaLogo, darkMode = false }) {
   const logoSize = size;
 
   return (
