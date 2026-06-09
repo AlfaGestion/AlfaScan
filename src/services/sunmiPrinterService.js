@@ -400,7 +400,7 @@ export const printLabel = async (formatConfig = {}, product = {}, options = {}) 
         showNumber: item.showNumber,
       });
     } else if (item.type === "logo") {
-      await printText(item.value || "AlfaScan", { align: item.align, fontSize: item.fontSize });
+      await printText(item.value || item.sampleText || "", { align: item.align, fontSize: item.fontSize });
     } else {
       await printText(item.value || item.sampleText || "", {
         align: item.align,

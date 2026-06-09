@@ -5,6 +5,7 @@ import {
   printSimpleProductLabel,
   printText,
 } from "@services/sunmiPrinterService";
+import { getCompanyNameFromSqlConfig } from "@services/catalogService";
 import { NativeModules } from "react-native";
 
 const formatCurrency = (value) => {
@@ -51,8 +52,11 @@ export const printArticle = async ({ article, formatKey = "product", format = nu
   const barcode = String(article?.codigoBarra ?? article?.codigoBarras ?? article?.code ?? "").trim();
   const internalCode = String(article?.codigoInterno ?? article?.codigoArticulo ?? article?.code ?? "").trim();
   const price = formatCurrency(article?.precio ?? article?.price1 ?? article?.price ?? 0);
+  const companyName = String(article?.companyName ?? "").trim() || (await getCompanyNameFromSqlConfig().catch(() => ""));
 
-  await printText("AlfaScan", { align: "center", fontSize: normalizedKey === "gondola" ? 20 : 18 });
+  if (companyName) {
+    await printText(companyName, { align: "center", fontSize: normalizedKey === "gondola" ? 20 : 18 });
+  }
   if (barcode) {
     await printBarcode(barcode, {
       barcodeType: "EAN13",

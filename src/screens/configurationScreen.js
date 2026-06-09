@@ -18,7 +18,7 @@ import Configuration from "@db/Configuration";
 import Colors from "@styles/Colors";
 import { Fonts, Radii, Shadow } from "@styles/Theme";
 import { useThemeConfig } from "@context/ThemeContext";
-import { syncCatalogToLocal } from "@services/catalogService";
+import { getCompanyNameFromSqlConfig, syncCatalogToLocal } from "@services/catalogService";
 import {
   closeSql,
   connectSql,
@@ -50,6 +50,7 @@ const THEME_OPTIONS = [
 
 const defaultConfig = {
   CONNECTION_TYPE: "LOCAL",
+  COMPANY_NAME: "",
   API_URI: "",
   API_ACCOUNT_CODE: "",
   API_USER: "",
@@ -298,9 +299,11 @@ export default function ConfigurationScreen({ navigation }) {
     await Configuration.createTable();
     const rows = await Configuration.query();
     const map = loadConfigMap(rows);
+    const companyName = String(map.COMPANY_NAME ?? map.SQL_COMPANY_NAME ?? "").trim();
 
     const nextConfig = {
       ...defaultConfig,
+      COMPANY_NAME: companyName,
       CONNECTION_TYPE: normalizeMode(map.CONNECTION_TYPE || map.SQL_MODE),
       API_URI: String(map.API_URI ?? "").trim(),
       API_ACCOUNT_CODE: String(
@@ -340,6 +343,13 @@ export default function ConfigurationScreen({ navigation }) {
 
     if (nextConfig.CONNECTION_TYPE === "API" && !nextConfig.API_URI) {
       nextConfig.API_URI = DEFAULT_API_URI;
+    }
+
+    if (!nextConfig.COMPANY_NAME && nextConfig.CONNECTION_TYPE === "ONLINE") {
+      const sqlCompanyName = await getCompanyNameFromSqlConfig().catch(() => "");
+      if (sqlCompanyName) {
+        nextConfig.COMPANY_NAME = sqlCompanyName;
+      }
     }
 
     setActiveMode(nextConfig.CONNECTION_TYPE);
@@ -426,6 +436,7 @@ export default function ConfigurationScreen({ navigation }) {
 
       const payload = [
         ["CONNECTION_TYPE", activeMode],
+        ["COMPANY_NAME", config.COMPANY_NAME],
         [
           "SQL_MODE",
           activeMode === "ONLINE"
@@ -667,6 +678,17 @@ export default function ConfigurationScreen({ navigation }) {
             Defina el modo de conexión principal y los datos esenciales de
             acceso.
           </Text>
+
+          <ConfigItem
+            type="input"
+            title="Nombre de empresa"
+            field="COMPANY_NAME"
+            placeholder="Nano Distribuciones"
+            value={config.COMPANY_NAME}
+            handleChange={handleChange}
+            darkMode={darkMode}
+            helperText="Se usarÃ¡ como encabezado de impresiÃ³n si estÃ¡ cargado."
+          />
 
           <View style={styles.modeRow}>
             {MODE_OPTIONS.map((item) => (

@@ -188,7 +188,7 @@ const baseTemplate = {
       maxLines: 1,
       zIndex: 5,
       valueKey: "companyName",
-      sampleText: "Alfa Gestión",
+      sampleText: "Nano Distribuciones",
     },
     {
       key: "logo",
@@ -524,11 +524,14 @@ const formatFieldValue = (element, product = {}, fallback = "") => {
     internalCode: product.codigoInterno ?? product.codigoArticulo ?? product.code ?? "",
     stock: product.stock ?? product.Stock ?? "",
     date: product.fechaActualizacion ?? product.FechaActualizacion ?? "",
-    companyName: product.companyName ?? "Alfa Gestión",
+    companyName: product.companyName ?? "",
     logo: "ALFA",
   };
   const raw = lookup[key];
   if (raw === undefined || raw === null || raw === "") {
+    if (key === "companyName") {
+      return fallback || "";
+    }
     return fallback || element.sampleText || "";
   }
 
@@ -602,5 +605,5 @@ export const createSampleProduct = () => ({
   precio: 12500,
   stock: 25,
   fechaActualizacion: new Date().toISOString(),
-  companyName: "Alfa Gestión",
+  companyName: "Nano Distribuciones",
 });
