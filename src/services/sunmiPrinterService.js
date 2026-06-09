@@ -443,18 +443,12 @@ export const printSimpleProductLabel = async (formatKey = "product", product = {
       diagnostics?.innerPrinterAvailable,
   );
 
-  console.log("[PRINT] Home button pressed");
-  console.log("[PRINT] formatKey", key);
-  console.log("[PRINT] printer available", printerAvailable);
-  console.log("[PRINT] Native modules keys:", Object.keys(NativeModules || {}));
-
   if (!printerAvailable) {
     throw new Error(diagnostics?.error || diagnostics?.printerStatus?.message || "No se pudo conectar con la impresora.");
   }
 
   const module = getSimplePrintModule();
   console.log("[PRINT] using module", module ? "SunmiDiagnostics" : "none");
-  console.log("[PRINT] has printSimpleProductLabel", Boolean(module && typeof module.printSimpleProductLabel === "function"));
   if (!module || typeof module.printSimpleProductLabel !== "function") {
     throw new Error("SunmiDiagnostics existe pero no expone printSimpleProductLabel. Recompilá la app con npx expo run:android.");
   }
