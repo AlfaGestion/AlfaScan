@@ -59,7 +59,7 @@ const defaultConfig = {
 };
 
 const loadConfigMap = (rows) =>
-  rows.reduce((acc, item) => {
+  (Array.isArray(rows) ? rows : []).reduce((acc, item) => {
     acc[String(item.key ?? "").trim()] = item.value;
     return acc;
   }, {});
@@ -353,6 +353,50 @@ export default function ConfigurationAdditionalScreen({ navigation }) {
             placeholder="15"
             value={config.SQL_TIMEOUT}
             keyboardType="numeric"
+            handleChange={handleChange}
+            darkMode={darkMode}
+          />
+          <ConfigItem
+            type="checkbox"
+            title="Usar imagen de producto"
+            field="USE_PRODUCT_IMAGE"
+            value={config.USE_PRODUCT_IMAGE}
+            handleChange={handleChange}
+            darkMode={darkMode}
+          />
+          <ConfigItem
+            type="input"
+            title="Ruta origen de imÃ¡genes"
+            field="PRODUCT_IMAGE_BASE_PATH"
+            placeholder="file:///... o https://..."
+            value={config.PRODUCT_IMAGE_BASE_PATH}
+            handleChange={handleChange}
+            darkMode={darkMode}
+          />
+          <ConfigItem
+            type="input"
+            title="ExtensiÃ³n por defecto"
+            field="PRODUCT_IMAGE_DEFAULT_EXTENSION"
+            placeholder="jpg"
+            value={config.PRODUCT_IMAGE_DEFAULT_EXTENSION}
+            handleChange={handleChange}
+            darkMode={darkMode}
+          />
+          <ConfigItem
+            type="input"
+            title="Extensiones permitidas"
+            field="PRODUCT_IMAGE_ALLOWED_EXTENSIONS"
+            placeholder="jpg,jpeg,png"
+            value={config.PRODUCT_IMAGE_ALLOWED_EXTENSIONS}
+            handleChange={handleChange}
+            darkMode={darkMode}
+          />
+          <ConfigItem
+            type="select"
+            title="TamaÃ±o imagen en Home"
+            field="PRODUCT_IMAGE_HOME_SIZE"
+            value={config.PRODUCT_IMAGE_HOME_SIZE}
+            options={IMAGE_SIZE_OPTIONS}
             handleChange={handleChange}
             darkMode={darkMode}
           />

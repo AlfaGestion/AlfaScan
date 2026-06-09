@@ -8,6 +8,7 @@ import ConfigurationScreen from "@screens/configurationScreen";
 import HomeScreen from "@screens/homeScreen";
 import PrintConfigurationScreen from "@screens/PrintConfigurationScreen";
 import PrintHistoryScreen from "@screens/PrintHistoryScreen";
+import SunmiDiagnosticsScreen from "@screens/SunmiDiagnosticsScreen";
 import ProductScreen from "@screens/Products/productScreen";
 import ProductStockScreen from "@screens/Products/productStockScreen";
 import ProductsScreen from "@screens/Products/listProductsScreen";
@@ -46,6 +47,11 @@ const HomeStack = () => {
           name="PrintConfigurationScreen"
           component={PrintConfigurationScreen}
           options={{ title: "Configurar impresión" }}
+        />
+        <Stack.Screen
+          name="SunmiDiagnosticsScreen"
+          component={SunmiDiagnosticsScreen}
+          options={{ title: "Diagnóstico Sunmi" }}
         />
         <Stack.Screen name="SyncScreen" component={SyncScreen} options={{ title: "Sincronización" }} />
         <Stack.Screen name="ProductsScreen" component={ProductsScreen} options={{ title: "Productos" }} />

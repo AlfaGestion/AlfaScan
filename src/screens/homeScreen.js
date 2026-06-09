@@ -2,30 +2,35 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Image,
   Keyboard,
   Modal,
   Pressable,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
+  Vibration,
   View,
 } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 import BrandMark from "@components/BrandMark";
+import ProductImage from "@components/ProductImage";
 import Colors from "@styles/Colors";
 import { Fonts, Radii, Shadow } from "@styles/Theme";
 import Configuration from "@db/Configuration";
 import { appendPrintHistory } from "@services/printHistory";
 import { printArticle } from "@services/printerService";
 import { searchArticle } from "@services/articleService";
+import { getPrinterStatus, initPrinter } from "@services/sunmiPrinterService";
 import { useThemeConfig } from "@context/ThemeContext";
+
+import alfaLogo from "../../assets/alfa_logo.png";
 
 const MENU_ITEMS = [
   { key: "config", label: "Configuración", screen: "ConfigurationScreen", icon: "settings-outline" },
@@ -36,28 +41,44 @@ const MENU_ITEMS = [
 ];
 
 const PRINT_BUTTONS = [
-  { key: "gondola", label: "Gónd." },
-  { key: "product", label: "Prod." },
+  { key: "gondola", label: "Góndola" },
+  { key: "product", label: "Producto" },
   { key: "small", label: "Chico" },
   { key: "custom", label: "Pers." },
 ];
 
+const IMAGE_SIZE_MAP = {
+  SMALL: { width: 72, height: 72 },
+  MEDIUM: { width: 92, height: 92 },
+  LARGE: { width: 114, height: 114 },
+};
+
+const loadConfigMap = (rows) =>
+  (Array.isArray(rows) ? rows : []).reduce((acc, item) => {
+    acc[String(item.key ?? "").trim()] = item.value;
+    return acc;
+  }, {});
+
 const formatCurrency = (value) => {
   const amount = Number(value ?? 0);
-  if (!Number.isFinite(amount)) {
-    return "$ 0.00";
-  }
-  return amount.toLocaleString("es-AR", {
-    style: "currency",
-    currency: "ARS",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
+  return Number.isFinite(amount)
+    ? amount.toLocaleString("es-AR", {
+        style: "currency",
+        currency: "ARS",
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      })
+    : (0).toLocaleString("es-AR", {
+        style: "currency",
+        currency: "ARS",
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      });
 };
 
 const formatDateTime = (value) => {
   if (!value) {
-    return "Sin sincronización";
+    return "";
   }
 
   const date = new Date(value);
@@ -71,6 +92,33 @@ const formatDateTime = (value) => {
   }).format(date);
 };
 
+const formatRelativeSync = (value) => {
+  if (!value) {
+    return "Sin sincronizar";
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "Sin sincronizar";
+  }
+
+  const diffMinutes = Math.max(0, Math.round((Date.now() - date.getTime()) / 60000));
+  if (diffMinutes < 1) {
+    return "Sincronizado hace instantes";
+  }
+  if (diffMinutes < 60) {
+    return `Sincronizado hace ${diffMinutes} min`;
+  }
+
+  const diffHours = Math.round(diffMinutes / 60);
+  if (diffHours < 24) {
+    return `Sincronizado hace ${diffHours} h`;
+  }
+
+  const diffDays = Math.round(diffHours / 24);
+  return `Sincronizado hace ${diffDays} d`;
+};
+
 export default function HomeScreen({ navigation }) {
   const [query, setQuery] = useState("");
   const [article, setArticle] = useState(null);
@@ -79,29 +127,83 @@ export default function HomeScreen({ navigation }) {
   const [menuVisible, setMenuVisible] = useState(false);
   const [scannerVisible, setScannerVisible] = useState(false);
   const [lastSyncAt, setLastSyncAt] = useState("");
+  const [printerStatus, setPrinterStatus] = useState(() => getPrinterStatus());
+  const [screenConfig, setScreenConfig] = useState({
+    connectionType: "LOCAL",
+    sqlMode: "LOCAL",
+    useStockColumn: false,
+    useProductImage: false,
+    productImageHomeSize: "MEDIUM",
+  });
   const [permission, requestPermission] = useCameraPermissions();
-  const scanningRef = useRef(false);
+
+  const lastScanRef = useRef({ code: "", at: 0 });
+  const scanLockRef = useRef(false);
   const { darkMode } = useThemeConfig();
   const insets = useSafeAreaInsets();
 
-  const loadSyncInfo = useCallback(async () => {
+  const loadHomeConfig = useCallback(async () => {
     try {
       await Configuration.createTable();
-      const syncValue = await Configuration.getConfigValue("LAST_SYNC_AT");
-      setLastSyncAt(String(syncValue ?? "").trim());
+      const rows = await Configuration.query();
+      const map = loadConfigMap(rows);
+
+      const connectionType = String(map.CONNECTION_TYPE ?? map.SQL_MODE ?? "LOCAL")
+        .trim()
+        .toUpperCase();
+      const sqlMode = String(map.SQL_MODE ?? "LOCAL").trim().toUpperCase();
+      const useStockColumn = Configuration.isTruthyConfigValue(
+        map.SQL_USE_STOCK_COLUMN ?? map.SQL_USE_STOCK,
+      );
+      const useProductImage = Configuration.isTruthyConfigValue(
+        map.USE_PRODUCT_IMAGE ?? map.CARGA_IMAGENES,
+      );
+      const productImageHomeSize = String(
+        map.PRODUCT_IMAGE_HOME_SIZE ?? "MEDIUM",
+      )
+        .trim()
+        .toUpperCase();
+
+      setScreenConfig({
+        connectionType,
+        sqlMode,
+        useStockColumn,
+        useProductImage,
+        productImageHomeSize,
+      });
+      setLastSyncAt(String(map.LAST_SYNC_AT ?? "").trim());
     } catch (e) {
       setLastSyncAt("");
+      setScreenConfig((current) => ({
+        ...current,
+        connectionType: "LOCAL",
+        sqlMode: "LOCAL",
+        useStockColumn: false,
+        useProductImage: false,
+        productImageHomeSize: "MEDIUM",
+      }));
     }
   }, []);
 
+  useFocusEffect(
+    useCallback(() => {
+      loadHomeConfig();
+    }, [loadHomeConfig]),
+  );
+
+  const refreshPrinterStatus = useCallback(async () => {
+    const status = await initPrinter();
+    setPrinterStatus(status || getPrinterStatus());
+  }, []);
+
   useEffect(() => {
-    loadSyncInfo();
-  }, [loadSyncInfo]);
+    refreshPrinterStatus();
+  }, [refreshPrinterStatus]);
 
   useFocusEffect(
     useCallback(() => {
-      loadSyncInfo();
-    }, [loadSyncInfo])
+      refreshPrinterStatus();
+    }, [refreshPrinterStatus]),
   );
 
   const themeStyles = useMemo(
@@ -116,8 +218,16 @@ export default function HomeScreen({ navigation }) {
       accentDark: "#0B5FA5",
       inputBg: darkMode ? "#152332" : Colors.WHITE,
     }),
-    [darkMode]
+    [darkMode],
   );
+
+  const showSyncInfo =
+    screenConfig.connectionType === "API" || screenConfig.sqlMode === "LOCAL";
+
+  const showStock = screenConfig.useStockColumn && article?.stock !== null && article?.stock !== undefined;
+  const showProductImage = screenConfig.useProductImage && Boolean(article?.codigoInterno || article?.codigoBarra);
+  const productImageSize = IMAGE_SIZE_MAP[screenConfig.productImageHomeSize] || IMAGE_SIZE_MAP.MEDIUM;
+  const syncLabel = useMemo(() => formatRelativeSync(lastSyncAt), [lastSyncAt]);
 
   const executeSearch = useCallback(
     async (rawValue) => {
@@ -129,26 +239,26 @@ export default function HomeScreen({ navigation }) {
       try {
         if (!value) {
           setArticle(null);
-          setMessage("Ingresa o escanea un codigo para buscar.");
+          setMessage("Ingresá o escaneá un código para buscar.");
           return;
         }
 
         const result = await searchArticle(value);
         if (!result) {
           setArticle(null);
-          setMessage("No se encontro el articulo.");
+          setMessage("No se encontró el artículo.");
           return;
         }
 
         setArticle(result);
       } catch (e) {
         setArticle(null);
-        setMessage(e?.message || "No se pudo buscar el articulo.");
+        setMessage(e?.message || "No se pudo buscar el artículo.");
       } finally {
         setLoading(false);
       }
     },
-    []
+    [],
   );
 
   const ensureCameraPermission = useCallback(async () => {
@@ -164,8 +274,8 @@ export default function HomeScreen({ navigation }) {
     Alert.alert(
       "Sin permiso",
       result?.canAskAgain
-        ? "Debes permitir el acceso a la camara para escanear."
-        : "El permiso de camara fue denegado. Activarlo desde los ajustes del dispositivo."
+        ? "Tenés que permitir el acceso a la cámara para escanear."
+        : "El permiso de cámara fue denegado. Activarlo desde los ajustes del dispositivo.",
     );
     return false;
   }, [permission, requestPermission]);
@@ -173,36 +283,62 @@ export default function HomeScreen({ navigation }) {
   const handleScanPress = useCallback(async () => {
     Keyboard.dismiss();
     if (await ensureCameraPermission()) {
+      lastScanRef.current = { code: "", at: 0 };
+      scanLockRef.current = false;
       setScannerVisible(true);
     }
   }, [ensureCameraPermission]);
 
   const handleBarcodeScanned = useCallback(
     async ({ data }) => {
-      if (scanningRef.current) {
+      if (scanLockRef.current) {
         return;
       }
 
-      scanningRef.current = true;
-      try {
-        setScannerVisible(false);
-        setQuery(String(data ?? ""));
-        await executeSearch(data);
-      } finally {
-        scanningRef.current = false;
+      const code = String(data ?? "").trim();
+      if (!code) {
+        return;
       }
+
+      const now = Date.now();
+      if (
+        lastScanRef.current.code === code &&
+        now - lastScanRef.current.at < 1000
+      ) {
+        return;
+      }
+
+      scanLockRef.current = true;
+      lastScanRef.current = { code, at: now };
+
+      try {
+        Vibration.vibrate(40);
+      } catch (e) {
+        // ignore vibration errors
+      }
+
+      setScannerVisible(false);
+      await executeSearch(code);
     },
-    [executeSearch]
+    [executeSearch],
   );
 
   const handlePrint = useCallback(
     async (formatKey) => {
       if (!article) {
-        setMessage("Busque un artículo antes de imprimir.");
+        setMessage("Buscá un artículo antes de imprimir.");
         return;
       }
 
       try {
+        await refreshPrinterStatus();
+        const currentStatus = getPrinterStatus();
+        setPrinterStatus(currentStatus);
+        if (!currentStatus.available) {
+          Alert.alert("Impresora", currentStatus.message || "Impresora no detectada.");
+          return;
+        }
+
         const format = PRINT_BUTTONS.find((item) => item.key === formatKey)?.label || formatKey;
         await printArticle({ article, formatKey });
         await appendPrintHistory({
@@ -211,10 +347,10 @@ export default function HomeScreen({ navigation }) {
           article,
         });
       } catch (e) {
-        setMessage(e?.message || "No se pudo imprimir el artículo.");
+        Alert.alert("Impresora", e?.message || "No se pudo imprimir el artículo.");
       }
     },
-    [article]
+    [article, refreshPrinterStatus],
   );
 
   const clearSearch = useCallback(() => {
@@ -223,7 +359,14 @@ export default function HomeScreen({ navigation }) {
     setMessage("");
   }, []);
 
-  const lastSyncLabel = useMemo(() => formatDateTime(lastSyncAt), [lastSyncAt]);
+  const articleImageKey = article?.codigoInterno || article?.codigoBarra || "";
+  const articleImageVisible = showProductImage && Boolean(articleImageKey);
+  const printerStatusLabel =
+    printerStatus.mode === "SIMULATION"
+      ? "Impresora no detectada. Modo simulación activo."
+      : printerStatus.available
+        ? "Impresora lista"
+        : printerStatus.message || "Impresora no detectada.";
 
   return (
     <SafeAreaView style={[styles.root, { backgroundColor: themeStyles.background }]}>
@@ -231,17 +374,39 @@ export default function HomeScreen({ navigation }) {
         <View style={styles.scannerContainer}>
           <CameraView
             style={StyleSheet.absoluteFillObject}
-            onBarcodeScanned={scannerVisible ? handleBarcodeScanned : undefined}
+            autofocus="on"
             barcodeScannerSettings={{
-              barcodeTypes: ["ean13", "ean8", "code128", "code39", "code93", "upc_a", "upc_e", "qr"],
+              barcodeTypes: ["ean13", "ean8", "upc_a", "upc_e", "code128", "code39", "code93"],
             }}
+            onBarcodeScanned={scannerVisible ? handleBarcodeScanned : undefined}
           />
-          <View style={styles.scannerOverlay}>
-            <View style={styles.scannerCard}>
-              <Text style={styles.scannerTitle}>Encuadre el codigo de barras</Text>
-              <Text style={styles.scannerSubtitle}>El lector registrara el primer codigo valido detectado.</Text>
-              <TouchableOpacity style={styles.scannerCloseButton} onPress={() => setScannerVisible(false)}>
-                <Text style={styles.scannerCloseText}>Cancelar</Text>
+
+          <View pointerEvents="box-none" style={styles.scannerOverlay}>
+            <TouchableOpacity
+              style={styles.scannerCloseFloating}
+              onPress={() => setScannerVisible(false)}
+            >
+              <Ionicons name="close" size={18} color={Colors.WHITE} />
+            </TouchableOpacity>
+
+            <View style={styles.scannerGuideWrap}>
+              <Text style={styles.scannerGuideTitle}>Apuntá al código de barras</Text>
+              <Text style={styles.scannerGuideText}>Se cerrará solo al leerlo.</Text>
+            </View>
+
+            <View style={styles.scannerFrame}>
+              <View style={styles.scannerCornerTopLeft} />
+              <View style={styles.scannerCornerTopRight} />
+              <View style={styles.scannerCornerBottomLeft} />
+              <View style={styles.scannerCornerBottomRight} />
+            </View>
+
+            <View style={styles.scannerBottomSheet}>
+              <Text style={styles.scannerBottomText}>
+                Apuntá al código de barras y mantenelo dentro del marco.
+              </Text>
+              <TouchableOpacity style={styles.scannerCancelButton} onPress={() => setScannerVisible(false)}>
+                <Text style={styles.scannerCancelText}>Cancelar</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -272,34 +437,41 @@ export default function HomeScreen({ navigation }) {
         </View>
       </Modal>
 
-      <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingBottom: 188 + insets.bottom },
+        ]}
+        keyboardShouldPersistTaps="handled"
+      >
         <View style={[styles.headerCard, { backgroundColor: themeStyles.surface }, Shadow.md]}>
-          <View style={styles.headerTopRow}>
-            <TouchableOpacity style={styles.menuButton} onPress={() => setMenuVisible(true)}>
-              <Ionicons name="menu" size={26} color={themeStyles.text} />
-            </TouchableOpacity>
+          <TouchableOpacity style={[styles.headerIconButton, { backgroundColor: themeStyles.surfaceAlt }]} onPress={() => setMenuVisible(true)}>
+            <Ionicons name="menu" size={24} color={themeStyles.text} />
+          </TouchableOpacity>
 
-            <View style={styles.brandWrap}>
-              <BrandMark label="AlfaScan" size={72} darkMode={darkMode} />
-            </View>
-
-            <TouchableOpacity style={styles.menuButton} onPress={() => navigation.navigate("ConfigurationScreen")}>
-              <Ionicons name="settings-outline" size={24} color={themeStyles.text} />
-            </TouchableOpacity>
+          <View style={styles.headerBrand}>
+            <Image source={alfaLogo} style={styles.headerLogo} resizeMode="contain" />
+            <Text style={[styles.headerBrandText, { color: themeStyles.text }]} numberOfLines={1}>
+              AlfaScan
+            </Text>
           </View>
 
-          <Text style={[styles.subtitle, { color: themeStyles.muted }]}>
-            Búsqueda por código, escaneo rápido e impresión directa.
-          </Text>
+          <TouchableOpacity
+            style={[styles.headerIconButton, { backgroundColor: themeStyles.surfaceAlt }]}
+            onPress={() => navigation.navigate("ConfigurationScreen")}
+          >
+            <Ionicons name="settings-outline" size={22} color={themeStyles.text} />
+          </TouchableOpacity>
         </View>
 
         <View style={[styles.searchCard, { backgroundColor: themeStyles.surface }, Shadow.sm]}>
-          <Text style={[styles.sectionLabel, { color: themeStyles.text }]}>Código de barras o artículo</Text>
+          <Text style={[styles.sectionLabel, { color: themeStyles.text }]}>Buscar artículo</Text>
+
           <View style={[styles.searchRow, { borderColor: themeStyles.border, backgroundColor: themeStyles.inputBg }]}>
             <TextInput
               value={query}
               onChangeText={setQuery}
-              placeholder="Ingresar o escanear código"
+              placeholder="Buscar o escanear..."
               placeholderTextColor={themeStyles.muted}
               style={[styles.searchInput, { color: themeStyles.text }]}
               returnKeyType="search"
@@ -307,11 +479,11 @@ export default function HomeScreen({ navigation }) {
               autoCorrect={false}
               autoCapitalize="none"
             />
-            {!!query && (
+            {!!query ? (
               <TouchableOpacity style={styles.searchAction} onPress={clearSearch}>
                 <Ionicons name="close-circle" size={20} color={themeStyles.muted} />
               </TouchableOpacity>
-            )}
+            ) : null}
             <TouchableOpacity style={styles.searchAction} onPress={() => executeSearch(query)}>
               <Ionicons name="search" size={22} color={themeStyles.accent} />
             </TouchableOpacity>
@@ -321,16 +493,18 @@ export default function HomeScreen({ navigation }) {
             style={[styles.scanButton, { backgroundColor: themeStyles.accent }]}
             onPress={handleScanPress}
           >
-            <Ionicons name="barcode-outline" size={20} color={Colors.WHITE} />
-            <Text style={styles.scanButtonText}>Abrir cámara / lector</Text>
+            <Ionicons name="camera-outline" size={20} color={Colors.WHITE} />
+            <Text style={styles.scanButtonText}>Escanear</Text>
           </TouchableOpacity>
 
-          <View style={[styles.syncInfo, { backgroundColor: themeStyles.surfaceAlt, borderColor: themeStyles.border }]}>
-            <Ionicons name="time-outline" size={18} color={themeStyles.accent} />
-            <Text style={[styles.syncInfoText, { color: themeStyles.text }]}>
-              Última sincronización: {lastSyncLabel}
-            </Text>
-          </View>
+          {showSyncInfo ? (
+            <View style={[styles.syncInfo, { backgroundColor: themeStyles.surfaceAlt, borderColor: themeStyles.border }]}>
+              <Ionicons name="time-outline" size={17} color={themeStyles.accent} />
+              <Text style={[styles.syncInfoText, { color: themeStyles.text }]} numberOfLines={1}>
+                {syncLabel}
+              </Text>
+            </View>
+          ) : null}
         </View>
 
         <View style={[styles.resultCard, { backgroundColor: themeStyles.surface }, Shadow.sm]}>
@@ -341,55 +515,84 @@ export default function HomeScreen({ navigation }) {
 
           {article ? (
             <View>
-              <Text style={[styles.articleDescription, { color: themeStyles.text }]}>{article.descripcion}</Text>
+              <View style={[styles.resultHero, articleImageVisible && styles.resultHeroWithImage]}>
+                <View style={styles.resultMainColumn}>
+                  <Text style={[styles.articleDescription, { color: themeStyles.text }]}>
+                    {article.descripcion}
+                  </Text>
 
-              <View style={styles.articleRow}>
-                <Text style={[styles.articleLabel, { color: themeStyles.muted }]}>Código interno</Text>
-                <Text style={[styles.articleValue, { color: themeStyles.text }]}>{article.codigoInterno || "-"}</Text>
-              </View>
-
-              <View style={styles.articleRow}>
-                <Text style={[styles.articleLabel, { color: themeStyles.muted }]}>Código de barra</Text>
-                <Text style={[styles.articleValue, { color: themeStyles.text }]}>{article.codigoBarra || "-"}</Text>
-              </View>
-
-              <View style={styles.priceBox}>
-                <Text style={[styles.priceLabel, { color: themeStyles.muted }]}>Precio</Text>
-                <Text style={[styles.priceValue, { color: themeStyles.accentDark }]}>{formatCurrency(article.precio)}</Text>
-              </View>
-
-              {article.stock !== null && article.stock !== undefined ? (
-                <View style={styles.articleRow}>
-                  <Text style={[styles.articleLabel, { color: themeStyles.muted }]}>Stock</Text>
-                  <Text style={[styles.articleValue, { color: themeStyles.text }]}>{article.stock}</Text>
+                  <View style={styles.priceBox}>
+                    <Text style={[styles.priceLabel, { color: themeStyles.muted }]}>Precio</Text>
+                    <Text style={[styles.priceValue, { color: themeStyles.accentDark }]}>
+                      {formatCurrency(article.precio)}
+                    </Text>
+                  </View>
                 </View>
-              ) : null}
 
-              {article.fechaActualizacion ? (
+                {articleImageVisible ? (
+                  <View
+                    style={[
+                      styles.imageCard,
+                      {
+                        backgroundColor: themeStyles.surfaceAlt,
+                        borderColor: themeStyles.border,
+                      },
+                    ]}
+                  >
+                    <ProductImage
+                      fileName={articleImageKey}
+                      widthImage={productImageSize.width}
+                      heightImage={productImageSize.height}
+                      containerStyle={styles.imageInner}
+                    />
+                  </View>
+                ) : null}
+              </View>
+
+              <View style={styles.detailBlock}>
                 <View style={styles.articleRow}>
-                  <Text style={[styles.articleLabel, { color: themeStyles.muted }]}>Actualizado</Text>
+                  <Text style={[styles.articleLabel, { color: themeStyles.muted }]}>Código interno</Text>
                   <Text style={[styles.articleValue, { color: themeStyles.text }]}>
-                    {formatDateTime(article.fechaActualizacion)}
+                    {article.codigoInterno || "-"}
                   </Text>
                 </View>
-              ) : null}
+
+                <View style={styles.articleRow}>
+                  <Text style={[styles.articleLabel, { color: themeStyles.muted }]}>Código de barra</Text>
+                  <Text style={[styles.articleValue, { color: themeStyles.text }]}>
+                    {article.codigoBarra || "-"}
+                  </Text>
+                </View>
+
+                {showStock ? (
+                  <View style={styles.articleRow}>
+                    <Text style={[styles.articleLabel, { color: themeStyles.muted }]}>Stock</Text>
+                    <Text style={[styles.articleValue, { color: themeStyles.text }]}>
+                      {article.stock}
+                    </Text>
+                  </View>
+                ) : null}
+
+                {article.fechaActualizacion ? (
+                  <View style={styles.articleRow}>
+                    <Text style={[styles.articleLabel, { color: themeStyles.muted }]}>Actualizado</Text>
+                    <Text style={[styles.articleValue, { color: themeStyles.text }]}>
+                      {formatDateTime(article.fechaActualizacion)}
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
             </View>
           ) : (
             <View style={styles.emptyState}>
               <Ionicons name="barcode-outline" size={34} color={themeStyles.muted} />
               <Text style={[styles.emptyStateText, { color: themeStyles.muted }]}>
-                Busque o escanee un articulo para ver su descripcion, precio y stock.
+                Buscá o escaneá un artículo para ver su descripción, precio y stock.
               </Text>
             </View>
           )}
 
           {!!message ? <Text style={[styles.messageText, { color: themeStyles.accentDark }]}>{message}</Text> : null}
-        </View>
-
-        <View style={styles.footerInfo}>
-          <Text style={[styles.footerText, { color: themeStyles.muted }]}>
-            AlfaScan listo para dispositivos Sunmi y uso en mostrador.
-          </Text>
         </View>
       </ScrollView>
 
@@ -399,11 +602,29 @@ export default function HomeScreen({ navigation }) {
           {
             backgroundColor: themeStyles.surface,
             borderTopColor: themeStyles.border,
-            paddingBottom: Math.max(insets.bottom, 10),
+            paddingBottom: Math.max(insets.bottom, 12),
           },
           Shadow.md,
         ]}
       >
+        <View style={styles.printStatusRow}>
+          <Ionicons
+            name={printerStatus.available ? "print-outline" : "information-circle-outline"}
+            size={16}
+            color={printerStatus.available ? themeStyles.accent : themeStyles.muted}
+          />
+          <Text
+            style={[
+              styles.printStatusText,
+              { color: printerStatus.available ? themeStyles.text : themeStyles.muted },
+            ]}
+            numberOfLines={1}
+          >
+            {printerStatusLabel}
+          </Text>
+        </View>
+
+        <View style={styles.printButtonsRow}>
         {PRINT_BUTTONS.map((button) => (
           <TouchableOpacity
             key={button.key}
@@ -425,14 +646,15 @@ export default function HomeScreen({ navigation }) {
                 styles.printButtonText,
                 { color: article ? themeStyles.text : themeStyles.muted },
               ]}
-              numberOfLines={1}
+              numberOfLines={2}
               adjustsFontSizeToFit
-              minimumFontScale={0.82}
+              minimumFontScale={0.8}
             >
               {button.label}
             </Text>
           </TouchableOpacity>
         ))}
+        </View>
       </View>
     </SafeAreaView>
   );
@@ -444,35 +666,40 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: 16,
-    paddingBottom: 116,
   },
   headerCard: {
     borderRadius: Radii.xl,
-    padding: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
     marginBottom: 14,
-  },
-  headerTopRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    gap: 10,
   },
-  menuButton: {
+  headerIconButton: {
     width: 42,
     height: 42,
     borderRadius: 21,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.14)",
   },
-  brandWrap: {
+  headerBrand: {
     flex: 1,
+    flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
   },
-  subtitle: {
-    marginTop: 8,
-    textAlign: "center",
-    fontFamily: Fonts.body,
-    fontSize: 13,
+  headerLogo: {
+    width: 28,
+    height: 28,
+  },
+  headerBrandText: {
+    fontFamily: Fonts.display,
+    fontSize: 18,
+    fontWeight: "700",
+    letterSpacing: 0.2,
   },
   searchCard: {
     borderRadius: Radii.xl,
@@ -490,11 +717,11 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     borderWidth: 1,
     paddingHorizontal: 12,
-    minHeight: 52,
+    minHeight: 56,
   },
   searchInput: {
     flex: 1,
-    fontSize: 16,
+    fontSize: 17,
     fontFamily: Fonts.body,
     paddingVertical: 10,
   },
@@ -505,7 +732,7 @@ const styles = StyleSheet.create({
   scanButton: {
     marginTop: 12,
     borderRadius: 16,
-    minHeight: 48,
+    minHeight: 50,
     paddingHorizontal: 16,
     flexDirection: "row",
     alignItems: "center",
@@ -521,7 +748,7 @@ const styles = StyleSheet.create({
     marginTop: 12,
     borderRadius: 14,
     borderWidth: 1,
-    paddingVertical: 10,
+    paddingVertical: 9,
     paddingHorizontal: 12,
     flexDirection: "row",
     alignItems: "center",
@@ -541,13 +768,61 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 6,
+    marginBottom: 10,
+  },
+  resultHero: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+  },
+  resultHeroWithImage: {
+    alignItems: "flex-start",
+  },
+  resultMainColumn: {
+    flex: 1,
+    minWidth: 0,
   },
   articleDescription: {
     fontSize: 22,
     lineHeight: 28,
     fontFamily: Fonts.display,
     marginBottom: 12,
+  },
+  priceBox: {
+    marginTop: 2,
+    marginBottom: 8,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    borderRadius: 18,
+    backgroundColor: "rgba(30,136,229,0.08)",
+  },
+  priceLabel: {
+    fontSize: 12,
+    textTransform: "uppercase",
+    letterSpacing: 0.8,
+    marginBottom: 2,
+    fontFamily: Fonts.display,
+  },
+  priceValue: {
+    fontSize: 30,
+    lineHeight: 34,
+    fontFamily: Fonts.display,
+  },
+  imageCard: {
+    borderRadius: 18,
+    borderWidth: 1,
+    padding: 8,
+    minWidth: 110,
+    minHeight: 110,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  imageInner: {
+    minWidth: 0,
+    minHeight: 0,
+  },
+  detailBlock: {
+    marginTop: 6,
   },
   articleRow: {
     flexDirection: "row",
@@ -567,29 +842,10 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: Fonts.body,
   },
-  priceBox: {
-    marginTop: 4,
-    marginBottom: 10,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    borderRadius: 16,
-    backgroundColor: "rgba(30,136,229,0.08)",
-  },
-  priceLabel: {
-    fontSize: 12,
-    textTransform: "uppercase",
-    letterSpacing: 0.8,
-    marginBottom: 2,
-    fontFamily: Fonts.display,
-  },
-  priceValue: {
-    fontSize: 28,
-    fontFamily: Fonts.display,
-  },
   emptyState: {
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 20,
+    paddingVertical: 18,
   },
   emptyStateText: {
     marginTop: 10,
@@ -608,44 +864,42 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    flexDirection: "row",
-    gap: 8,
     paddingHorizontal: 10,
     paddingTop: 10,
-    paddingBottom: 12,
     borderTopWidth: 1,
   },
-  printGrid: {
+  printStatusRow: {
     flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "space-between",
-    gap: 10,
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 8,
+    paddingHorizontal: 4,
+  },
+  printStatusText: {
+    flex: 1,
+    fontSize: 12,
+    fontFamily: Fonts.body,
+  },
+  printButtonsRow: {
+    flexDirection: "row",
+    gap: 8,
   },
   printButton: {
     flex: 1,
-    minHeight: 58,
+    minHeight: 70,
     borderRadius: Radii.lg,
-    paddingHorizontal: 10,
+    paddingHorizontal: 6,
     paddingVertical: 10,
-    flexDirection: "row",
+    flexDirection: "column",
     alignItems: "center",
-    gap: 10,
+    justifyContent: "center",
+    gap: 6,
   },
   printButtonText: {
-    flex: 1,
+    textAlign: "center",
     fontSize: 11,
     lineHeight: 13,
     fontFamily: Fonts.display,
-  },
-  footerInfo: {
-    marginTop: 16,
-    alignItems: "center",
-  },
-  footerText: {
-    textAlign: "center",
-    fontSize: 12,
-    lineHeight: 18,
-    fontFamily: Fonts.body,
   },
   scannerContainer: {
     flex: 1,
@@ -653,39 +907,125 @@ const styles = StyleSheet.create({
   },
   scannerOverlay: {
     ...StyleSheet.absoluteFillObject,
-    justifyContent: "flex-end",
-    padding: 18,
+    paddingHorizontal: 18,
+    paddingTop: 18,
+    paddingBottom: 20,
+    justifyContent: "space-between",
+    alignItems: "center",
   },
-  scannerCard: {
-    backgroundColor: "rgba(15,23,32,0.88)",
-    borderRadius: 18,
-    padding: 18,
+  scannerCloseFloating: {
+    alignSelf: "flex-end",
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(15,23,32,0.7)",
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.14)",
   },
-  scannerTitle: {
+  scannerGuideWrap: {
+    alignSelf: "stretch",
+    alignItems: "center",
+    backgroundColor: "rgba(15,23,32,0.78)",
+    borderRadius: 18,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.14)",
+  },
+  scannerGuideTitle: {
     color: Colors.WHITE,
     fontSize: 18,
     fontFamily: Fonts.display,
     textAlign: "center",
   },
-  scannerSubtitle: {
-    marginTop: 8,
+  scannerGuideText: {
+    marginTop: 4,
     color: "#D8E4EE",
     fontSize: 13,
     textAlign: "center",
     lineHeight: 18,
     fontFamily: Fonts.body,
   },
-  scannerCloseButton: {
-    marginTop: 14,
+  scannerFrame: {
+    width: "84%",
+    maxWidth: 320,
+    aspectRatio: 1.45,
+    borderRadius: 24,
+    borderWidth: 2,
+    borderColor: "rgba(255,255,255,0.9)",
+    backgroundColor: "rgba(255,255,255,0.04)",
+    marginVertical: 12,
+  },
+  scannerCornerTopLeft: {
+    position: "absolute",
+    top: -2,
+    left: -2,
+    width: 28,
+    height: 28,
+    borderTopWidth: 4,
+    borderLeftWidth: 4,
+    borderColor: Colors.WHITE,
+    borderTopLeftRadius: 18,
+  },
+  scannerCornerTopRight: {
+    position: "absolute",
+    top: -2,
+    right: -2,
+    width: 28,
+    height: 28,
+    borderTopWidth: 4,
+    borderRightWidth: 4,
+    borderColor: Colors.WHITE,
+    borderTopRightRadius: 18,
+  },
+  scannerCornerBottomLeft: {
+    position: "absolute",
+    bottom: -2,
+    left: -2,
+    width: 28,
+    height: 28,
+    borderBottomWidth: 4,
+    borderLeftWidth: 4,
+    borderColor: Colors.WHITE,
+    borderBottomLeftRadius: 18,
+  },
+  scannerCornerBottomRight: {
+    position: "absolute",
+    bottom: -2,
+    right: -2,
+    width: 28,
+    height: 28,
+    borderBottomWidth: 4,
+    borderRightWidth: 4,
+    borderColor: Colors.WHITE,
+    borderBottomRightRadius: 18,
+  },
+  scannerBottomSheet: {
+    alignSelf: "stretch",
+    backgroundColor: "rgba(15,23,32,0.88)",
+    borderRadius: 18,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.14)",
+  },
+  scannerBottomText: {
+    color: "#D8E4EE",
+    fontSize: 13,
+    textAlign: "center",
+    lineHeight: 18,
+    fontFamily: Fonts.body,
+  },
+  scannerCancelButton: {
+    marginTop: 12,
     alignSelf: "center",
     backgroundColor: "#D64545",
     paddingVertical: 12,
     paddingHorizontal: 26,
     borderRadius: 999,
   },
-  scannerCloseText: {
+  scannerCancelText: {
     color: Colors.WHITE,
     fontFamily: Fonts.display,
     fontSize: 14,

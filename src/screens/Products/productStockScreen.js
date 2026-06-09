@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useState } from "react";
 import { ActivityIndicator, Image, Text, View } from "react-native";
-import SafeAreaView from "react-native-safe-area-view";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 import Product from "@db/Product";
 import Configuration from "@db/Configuration";

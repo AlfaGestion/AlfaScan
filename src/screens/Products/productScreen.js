@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useState } from "react";
 import { ScrollView, Text, TouchableOpacity, View } from "react-native";
-import SafeAreaView from "react-native-safe-area-view";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { currencyFormat } from "@libraries/utils";
 
 import { productScreenStyles } from "@styles/ProductStyle";

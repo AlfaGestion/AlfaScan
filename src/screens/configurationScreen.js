@@ -73,7 +73,7 @@ const defaultConfig = {
 };
 
 const loadConfigMap = (rows) =>
-  rows.reduce((acc, item) => {
+  (Array.isArray(rows) ? rows : []).reduce((acc, item) => {
     acc[String(item.key ?? "").trim()] = item.value;
     return acc;
   }, {});
@@ -902,6 +902,13 @@ export default function ConfigurationScreen({ navigation }) {
           >
             <Ionicons name="print-outline" size={18} color={Colors.WHITE} />
             <Text style={styles.actionButtonText}>Configurar impresión</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.actionButton, { backgroundColor: theme.success }]}
+            onPress={() => navigation.navigate("SunmiDiagnosticsScreen")}
+          >
+            <Ionicons name="medkit-outline" size={18} color={Colors.WHITE} />
+            <Text style={styles.actionButtonText}>Diagnóstico Sunmi</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.actionButton, { backgroundColor: theme.accent }]}

@@ -1,88 +1,75 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
+import { Alert, ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import ConfigItem from "@components/ConfigItem";
+import PrintPreview from "@components/print/PrintPreview";
+import PrintPropertiesPanel from "@components/print/PrintPropertiesPanel";
 import Colors from "@styles/Colors";
 import { Fonts, Radii, Shadow } from "@styles/Theme";
 import { useThemeConfig } from "@context/ThemeContext";
-import { DEFAULT_PRINT_FORMATS, loadPrintFormats, savePrintFormats } from "@services/printFormats";
+import {
+  createSampleProduct,
+  DEFAULT_PRINT_FORMATS,
+  getDefaultPrintFormat,
+  loadPrintFormats,
+  renderPrintLayout,
+  savePrintFormats,
+} from "@services/printFormats";
+import { printArticle } from "@services/printerService";
 
-const PAPER_OPTIONS = [
-  { label: "58 mm", value: "58" },
-  { label: "80 mm", value: "80" },
-  { label: "Personalizado", value: "custom" },
-];
-
-const ALIGNMENT_OPTIONS = [
+const GENERAL_ALIGNMENT_OPTIONS = [
   { label: "Izquierda", value: "left" },
   { label: "Centro", value: "center" },
   { label: "Derecha", value: "right" },
 ];
 
-const formatPreviewDate = () =>
-  new Intl.DateTimeFormat("es-AR", {
-    dateStyle: "short",
-    timeStyle: "short",
-  }).format(new Date());
-
-const normalizeFormat = (format = {}, fallback = {}) => ({
-  ...fallback,
-  ...format,
-  name: String(format.name ?? fallback.name ?? ""),
-  paperWidth: String(format.paperWidth ?? fallback.paperWidth ?? "80"),
-  customPaperWidth: String(format.customPaperWidth ?? fallback.customPaperWidth ?? ""),
-  descriptionFontSize: String(format.descriptionFontSize ?? fallback.descriptionFontSize ?? "16"),
-  priceFontSize: String(format.priceFontSize ?? fallback.priceFontSize ?? "24"),
-  copies: String(format.copies ?? fallback.copies ?? "1"),
-  marginTop: String(format.marginTop ?? fallback.marginTop ?? "0"),
-  marginBottom: String(format.marginBottom ?? fallback.marginBottom ?? "0"),
-  alignment: String(format.alignment ?? fallback.alignment ?? "center"),
-  showDescription: Boolean(format.showDescription ?? fallback.showDescription),
-  showPrice: Boolean(format.showPrice ?? fallback.showPrice),
-  showBarcode: Boolean(format.showBarcode ?? fallback.showBarcode),
-  showStock: Boolean(format.showStock ?? fallback.showStock),
-  showDate: Boolean(format.showDate ?? fallback.showDate),
-  showCompanyName: Boolean(format.showCompanyName ?? fallback.showCompanyName),
-  showInternalCode: Boolean(format.showInternalCode ?? fallback.showInternalCode),
-  boldPrice: Boolean(format.boldPrice ?? fallback.boldPrice),
-  previewBeforePrint: Boolean(format.previewBeforePrint ?? fallback.previewBeforePrint),
+const createVisibilityMap = () => ({
+  showDescription: "description",
+  showPrice: "price",
+  showBarcode: "barcode",
+  showStock: "stock",
+  showDate: "date",
+  showCompanyName: "companyName",
+  showInternalCode: "internalCode",
+  showLogo: "logo",
 });
 
-const paperWidthToPx = (format) => {
-  if (String(format.paperWidth) === "58") return 240;
-  if (String(format.paperWidth) === "80") return 320;
-  const custom = parseInt(String(format.customPaperWidth ?? "").trim(), 10);
-  if (Number.isFinite(custom) && custom >= 200) return Math.min(custom, 420);
-  return 280;
+const clone = (value) => JSON.parse(JSON.stringify(value));
+
+const syncElementVisibility = (format, flagKey, visible) => {
+  const visibilityMap = createVisibilityMap(format);
+  const targetKey = visibilityMap[flagKey];
+  const next = { ...format, [flagKey]: Boolean(visible) };
+  if (!targetKey || !Array.isArray(format.elements)) {
+    return next;
+  }
+
+  next.elements = format.elements.map((element) =>
+    element.key === targetKey ? { ...element, visible: Boolean(visible) } : element,
+  );
+  return next;
 };
 
-const BarcodePreview = ({ darkMode, theme }) => (
-  <View style={[styles.barcodeBox, { borderColor: theme.border, backgroundColor: theme.surfaceAlt }]}>
-    <View style={styles.barcodeBars}>
-      {Array.from({ length: 18 }).map((_, index) => (
-        <View
-          key={index}
-          style={[
-            styles.barcodeBar,
-            {
-              width: index % 3 === 0 ? 3 : index % 2 === 0 ? 2 : 1,
-              height: index % 4 === 0 ? 26 : 20,
-              backgroundColor: darkMode ? "#E8F0F8" : "#1B1B1B",
-            },
-          ]}
-        />
-      ))}
-    </View>
-    <Text style={[styles.barcodeText, { color: theme.text }]}>1234567890123</Text>
-  </View>
-);
+const normalizeElementValue = (field, value) => {
+  if (["visible", "uppercase", "showSymbol", "thousandSeparator", "showNumber"].includes(field)) {
+    return Boolean(value);
+  }
+  if (["fontSize", "x", "y", "width", "height", "decimals", "maxLines", "zIndex"].includes(field)) {
+    const parsed = parseInt(String(value ?? "").trim(), 10);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return String(value ?? "").trim();
+};
+
+const getSelectedElement = (format, selectedKey) =>
+  (format?.elements || []).find((element) => element.key === selectedKey) || null;
 
 const FormatTabs = ({ formats, activeIndex, onChange, theme }) => (
   <View style={styles.tabsRow}>
-    {formats.map((item, index) => {
+    {(Array.isArray(formats) ? formats : []).map((item, index) => {
       const active = activeIndex === index;
       return (
         <TouchableOpacity
@@ -103,9 +90,19 @@ const FormatTabs = ({ formats, activeIndex, onChange, theme }) => (
   </View>
 );
 
+const SectionTitle = ({ children, theme }) => (
+  <Text style={[styles.sectionTitle, { color: theme.text }]}>{children}</Text>
+);
+
 export default function PrintConfigurationScreen() {
   const [formats, setFormats] = useState(DEFAULT_PRINT_FORMATS);
   const [activeIndex, setActiveIndex] = useState(0);
+  const [selectedElementKey, setSelectedElementKey] = useState("description");
+  const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [status, setStatus] = useState("");
+  const [previewLayout, setPreviewLayout] = useState(null);
+  const [loading, setLoading] = useState(true);
   const { darkMode } = useThemeConfig();
   const insets = useSafeAreaInsets();
 
@@ -120,12 +117,26 @@ export default function PrintConfigurationScreen() {
       accent: "#1E88E5",
       accentDark: "#0B5FA5",
     }),
-    [darkMode]
+    [darkMode],
   );
 
+  const safeFormats = Array.isArray(formats) && formats.length > 0 ? formats : DEFAULT_PRINT_FORMATS;
+  const activeFormat = safeFormats[activeIndex] || safeFormats[0] || DEFAULT_PRINT_FORMATS[0];
+  const selectedElement = getSelectedElement(activeFormat, selectedElementKey);
+  const previewProduct = useMemo(() => createSampleProduct(), []);
+
+  const refreshPreviewLayout = useCallback(() => {
+    setPreviewLayout(renderPrintLayout(activeFormat, previewProduct));
+  }, [activeFormat, previewProduct]);
+
   const load = useCallback(async () => {
-    const data = await loadPrintFormats();
-    setFormats(data.map((item, index) => normalizeFormat(item, DEFAULT_PRINT_FORMATS[index])));
+    setLoading(true);
+    try {
+      const data = await loadPrintFormats();
+      setFormats(Array.isArray(data) && data.length > 0 ? data : DEFAULT_PRINT_FORMATS);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -135,110 +146,435 @@ export default function PrintConfigurationScreen() {
   useFocusEffect(
     useCallback(() => {
       load();
-    }, [load])
+    }, [load]),
   );
 
-  const activeFormat = formats[activeIndex] || formats[0] || DEFAULT_PRINT_FORMATS[0];
-  const effectiveWidth = paperWidthToPx(activeFormat);
+  useEffect(() => {
+    refreshPreviewLayout();
+  }, [refreshPreviewLayout]);
 
-  const updateFormat = (field, value) => {
-    setFormats((current) =>
-      current.map((item, index) => (index === activeIndex ? { ...item, [field]: value } : item))
+  useEffect(() => {
+    if (!selectedElement && activeFormat?.elements?.length > 0) {
+      const firstVisible = activeFormat.elements.find((element) => element.visible) || activeFormat.elements[0];
+      setSelectedElementKey(firstVisible?.key || "");
+    }
+  }, [activeFormat, selectedElement]);
+
+  useLayoutEffect(() => {
+    refreshPreviewLayout();
+  }, [refreshPreviewLayout]);
+
+  const updateActiveFormat = useCallback(
+    (updater) => {
+      setFormats((current) => {
+        const source = Array.isArray(current) && current.length > 0 ? current : DEFAULT_PRINT_FORMATS;
+        return source.map((item, index) => (index === activeIndex ? updater(item) : item));
+      });
+    },
+    [activeIndex],
+  );
+
+  const updateFormatField = useCallback(
+    (field, value) => {
+      updateActiveFormat((current) => ({ ...current, [field]: value }));
+    },
+    [updateActiveFormat],
+  );
+
+  const updateElementField = useCallback(
+    (field, value) => {
+      updateActiveFormat((current) => ({
+        ...current,
+        elements: (current.elements || []).map((element) =>
+          element.key === selectedElementKey
+            ? { ...element, [field]: normalizeElementValue(field, value) }
+            : element,
+        ),
+      }));
+    },
+    [selectedElementKey, updateActiveFormat],
+  );
+
+  const moveElement = useCallback(
+    (key, nextX, nextY) => {
+      updateActiveFormat((current) => ({
+        ...current,
+        elements: (current.elements || []).map((element) =>
+          element.key === key ? { ...element, x: Math.max(0, Math.round(nextX)), y: Math.max(0, Math.round(nextY)) } : element,
+        ),
+      }));
+    },
+    [updateActiveFormat],
+  );
+
+  const handleQuickAction = useCallback(
+    (action) => {
+      if (!selectedElement) {
+        return;
+      }
+
+      const layout = renderPrintLayout(activeFormat, previewProduct);
+      const baseHeight = layout.scale > 0 ? layout.paperHeightPx / layout.scale : 320;
+      const baseWidth = 320;
+
+      const apply = (patch) => {
+        updateElementField("x", patch.x ?? selectedElement.x);
+        updateElementField("y", patch.y ?? selectedElement.y);
+        if (patch.fontSize !== undefined) {
+          updateElementField("fontSize", patch.fontSize);
+        }
+        if (patch.zIndex !== undefined) {
+          updateElementField("zIndex", patch.zIndex);
+        }
+      };
+
+      switch (action) {
+        case "fontUp":
+          updateElementField("fontSize", Number(selectedElement.fontSize || 16) + 2);
+          break;
+        case "fontDown":
+          updateElementField("fontSize", Math.max(8, Number(selectedElement.fontSize || 16) - 2));
+          break;
+        case "moveUp":
+          apply({ y: Math.max(0, Number(selectedElement.y || 0) - 4) });
+          break;
+        case "moveDown":
+          apply({ y: Math.max(0, Number(selectedElement.y || 0) + 4) });
+          break;
+        case "moveLeft":
+          apply({ x: Math.max(0, Number(selectedElement.x || 0) - 4) });
+          break;
+        case "moveRight":
+          apply({ x: Math.max(0, Number(selectedElement.x || 0) + 4) });
+          break;
+        case "centerX":
+          apply({ x: Math.max(0, Math.round((baseWidth - Number(selectedElement.width || 0)) / 2)) });
+          break;
+        case "centerY":
+          apply({ y: Math.max(0, Math.round((baseHeight - Number(selectedElement.height || 0)) / 2)) });
+          break;
+        case "bringFront": {
+          const maxZ = Math.max(...(activeFormat.elements || []).map((element) => Number(element.zIndex || 1)));
+          updateElementField("zIndex", maxZ + 1);
+          break;
+        }
+        case "sendBack": {
+          const minZ = Math.min(...(activeFormat.elements || []).map((element) => Number(element.zIndex || 1)));
+          updateElementField("zIndex", Math.max(1, minZ - 1));
+          break;
+        }
+        default:
+          break;
+      }
+    },
+    [activeFormat, previewProduct, selectedElement, updateElementField],
+  );
+
+  const save = async () => {
+    setSaving(true);
+    setStatus("");
+    try {
+      await savePrintFormats(formats);
+      setStatus("Diseño de impresión guardado correctamente.");
+    } catch (e) {
+      setStatus(e?.message || "No se pudo guardar el diseño.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const restoreDesign = () => {
+    Alert.alert(
+      "Restaurar diseño",
+      "Esto volverá el formato actual al diseño inicial. ¿Querés continuar?",
+      [
+        { text: "Cancelar", style: "cancel" },
+        {
+          text: "Restaurar",
+          style: "destructive",
+          onPress: () => {
+            const fresh = getDefaultPrintFormat(activeFormat.key);
+            setFormats((current) =>
+              current.map((item, index) => (index === activeIndex ? fresh : item)),
+            );
+            setSelectedElementKey(fresh.elements?.find((item) => item.visible)?.key || fresh.elements?.[0]?.key || "");
+            setStatus("Diseño restaurado.");
+          },
+        },
+      ],
     );
   };
 
-  const save = async () => {
-    await savePrintFormats(formats);
+  const printTest = async () => {
+    if (testing) {
+      return;
+    }
+
+    setTesting(true);
+    setStatus("");
+    try {
+      await printArticle({ article: previewProduct, formatKey: activeFormat.key, format: activeFormat });
+      setStatus("Prueba de impresión enviada.");
+    } catch (e) {
+      setStatus(e?.message || "No se pudo imprimir la prueba.");
+    } finally {
+      setTesting(false);
+    }
   };
 
-  const previewStyle = {
-    width: effectiveWidth,
-    maxWidth: "100%",
-  };
+  const toggleFlag = useCallback(
+    (field, value) => {
+      updateActiveFormat((current) => syncElementVisibility(current, field, value));
+    },
+    [updateActiveFormat],
+  );
+
+  const previewPaperInfo = previewLayout
+    ? `${activeFormat.paperWidth === "custom" ? "Personalizado" : `${activeFormat.paperWidth} mm`} • alto estimado ${Math.round(
+        previewLayout.paperHeightPx,
+      )} px`
+    : "";
+
+  const formatActionsDisabled = saving || testing || loading;
 
   return (
     <View style={[styles.root, { backgroundColor: theme.background }]}>
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: 28 + insets.bottom }]}>
-        <View style={[styles.card, { backgroundColor: theme.surface }, Shadow.sm]}>
+        <View style={[styles.headerCard, { backgroundColor: theme.surface }, Shadow.md]}>
           <Text style={[styles.title, { color: theme.text }]}>Configurar impresión</Text>
           <Text style={[styles.subtitle, { color: theme.muted }]}>
-            Edite cada formato y vea el ticket en vivo antes de imprimir.
+            Diseñá la etiqueta, tocá un elemento para moverlo y guardá el layout completo por formato.
           </Text>
 
-          <FormatTabs formats={formats} activeIndex={activeIndex} onChange={setActiveIndex} theme={theme} />
-
-          <View style={[styles.editorCard, { borderColor: theme.border, backgroundColor: theme.surfaceAlt }]}>
-            <ConfigItem type="input" title="Nombre" field="name" placeholder="Góndola" value={activeFormat.name} handleChange={updateFormat} darkMode={darkMode} />
-            <ConfigItem
-              type="select"
-              title="Ancho papel"
-              field="paperWidth"
-              value={activeFormat.paperWidth}
-              options={PAPER_OPTIONS}
-              handleChange={updateFormat}
-              darkMode={darkMode}
-            />
-            {String(activeFormat.paperWidth) === "custom" ? (
-              <ConfigItem type="input" title="Ancho personalizado" field="customPaperWidth" placeholder="320" value={activeFormat.customPaperWidth || ""} keyboardType="numeric" handleChange={updateFormat} darkMode={darkMode} />
-            ) : null}
-            <ConfigItem type="input" title="Tamaño fuente descripción" field="descriptionFontSize" placeholder="16" value={activeFormat.descriptionFontSize} keyboardType="numeric" handleChange={updateFormat} darkMode={darkMode} />
-            <ConfigItem type="input" title="Tamaño fuente precio" field="priceFontSize" placeholder="24" value={activeFormat.priceFontSize} keyboardType="numeric" handleChange={updateFormat} darkMode={darkMode} />
-            <ConfigItem type="select" title="Alineación" field="alignment" value={activeFormat.alignment} options={ALIGNMENT_OPTIONS} handleChange={updateFormat} darkMode={darkMode} />
-            <ConfigItem type="input" title="Cantidad de copias" field="copies" placeholder="1" value={activeFormat.copies} keyboardType="numeric" handleChange={updateFormat} darkMode={darkMode} />
-            <ConfigItem type="input" title="Margen superior" field="marginTop" placeholder="0" value={activeFormat.marginTop} keyboardType="numeric" handleChange={updateFormat} darkMode={darkMode} />
-            <ConfigItem type="input" title="Margen inferior" field="marginBottom" placeholder="0" value={activeFormat.marginBottom} keyboardType="numeric" handleChange={updateFormat} darkMode={darkMode} />
-            <ConfigItem type="checkbox" title="Mostrar descripción" field="showDescription" value={activeFormat.showDescription} handleChange={updateFormat} darkMode={darkMode} />
-            <ConfigItem type="checkbox" title="Mostrar precio" field="showPrice" value={activeFormat.showPrice} handleChange={updateFormat} darkMode={darkMode} />
-            <ConfigItem type="checkbox" title="Mostrar código de barra" field="showBarcode" value={activeFormat.showBarcode} handleChange={updateFormat} darkMode={darkMode} />
-            <ConfigItem type="checkbox" title="Mostrar stock" field="showStock" value={activeFormat.showStock} handleChange={updateFormat} darkMode={darkMode} />
-            <ConfigItem type="checkbox" title="Mostrar fecha" field="showDate" value={activeFormat.showDate} handleChange={updateFormat} darkMode={darkMode} />
-            <ConfigItem type="checkbox" title="Mostrar empresa" field="showCompanyName" value={activeFormat.showCompanyName} handleChange={updateFormat} darkMode={darkMode} />
-            <ConfigItem type="checkbox" title="Mostrar código interno" field="showInternalCode" value={activeFormat.showInternalCode} handleChange={updateFormat} darkMode={darkMode} />
-            <ConfigItem type="checkbox" title="Negrita precio" field="boldPrice" value={activeFormat.boldPrice} handleChange={updateFormat} darkMode={darkMode} />
-            <ConfigItem type="checkbox" title="Vista previa antes de imprimir" field="previewBeforePrint" value={activeFormat.previewBeforePrint} handleChange={updateFormat} darkMode={darkMode} />
-          </View>
-
-          <TouchableOpacity style={[styles.saveButton, { backgroundColor: theme.accentDark }]} onPress={save}>
-            <Ionicons name="save-outline" size={18} color={Colors.WHITE} />
-            <Text style={styles.saveButtonText}>Guardar formatos</Text>
-          </TouchableOpacity>
-        </View>
-
-        <View style={[styles.previewWrap, { backgroundColor: theme.surface }, Shadow.sm]}>
-          <Text style={[styles.previewTitle, { color: theme.text }]}>Vista previa</Text>
-          <View style={[styles.previewPaper, { width: previewStyle.width, backgroundColor: Colors.WHITE, borderColor: theme.border }]}>
-            <Text
-              style={[
-                styles.previewDescription,
-                {
-                  fontSize: Number(activeFormat.descriptionFontSize || 16),
-                  textAlign: activeFormat.alignment,
-                },
-              ]}
+          <View style={styles.headerActions}>
+            <TouchableOpacity
+              style={[styles.actionButton, { backgroundColor: theme.accent }]}
+              onPress={printTest}
+              disabled={formatActionsDisabled}
             >
-              {activeFormat.showDescription ? activeFormat.name || "Descripción" : " "}
-            </Text>
-            {activeFormat.showPrice ? (
-              <Text
-                style={[
-                  styles.previewPrice,
-                  {
-                    fontSize: Number(activeFormat.priceFontSize || 24),
-                    textAlign: activeFormat.alignment,
-                    fontWeight: activeFormat.boldPrice ? "700" : "400",
-                  },
-                ]}
-              >
-                $ 12.345,67
-              </Text>
-            ) : null}
-            {activeFormat.showBarcode ? <BarcodePreview darkMode={false} theme={theme} /> : null}
-            {activeFormat.showStock ? <Text style={[styles.previewMeta, { color: theme.text }]}>Stock: 12</Text> : null}
-            {activeFormat.showDate ? <Text style={[styles.previewMeta, { color: theme.text }]}>{formatPreviewDate()}</Text> : null}
-            {activeFormat.showCompanyName ? <Text style={[styles.previewMeta, { color: theme.text }]}>AlfaScan</Text> : null}
-            {activeFormat.showInternalCode ? <Text style={[styles.previewMeta, { color: theme.text }]}>Cod. interno: A123</Text> : null}
+              {testing ? <ActivityIndicator color={Colors.WHITE} /> : <Ionicons name="print-outline" size={18} color={Colors.WHITE} />}
+              <Text style={styles.actionButtonText}>Imprimir prueba</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.actionButton, { backgroundColor: theme.accentDark }]}
+              onPress={save}
+              disabled={formatActionsDisabled}
+            >
+              {saving ? <ActivityIndicator color={Colors.WHITE} /> : <Ionicons name="save-outline" size={18} color={Colors.WHITE} />}
+              <Text style={styles.actionButtonText}>Guardar</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.actionButton, { backgroundColor: "#D64545" }]}
+              onPress={restoreDesign}
+              disabled={formatActionsDisabled}
+            >
+              <Ionicons name="refresh-outline" size={18} color={Colors.WHITE} />
+              <Text style={styles.actionButtonText}>Restaurar diseño</Text>
+            </TouchableOpacity>
           </View>
+
+          <FormatTabs formats={formats} activeIndex={activeIndex} onChange={setActiveIndex} theme={theme} />
+          <Text style={[styles.paperInfo, { color: theme.muted }]}>{previewPaperInfo}</Text>
         </View>
+
+        <View style={[styles.card, { backgroundColor: theme.surface }, Shadow.sm]}>
+          {loading ? (
+            <View style={styles.loadingState}>
+              <ActivityIndicator size="large" color={theme.accent} />
+              <Text style={[styles.loadingText, { color: theme.muted }]}>Cargando formatos...</Text>
+            </View>
+          ) : (
+            <PrintPreview
+              title="Vista previa editable"
+              format={activeFormat}
+              product={previewProduct}
+              selectedElementKey={selectedElementKey}
+              onSelectElement={setSelectedElementKey}
+              onMoveElement={moveElement}
+              editable
+              theme={theme}
+            />
+          )}
+        </View>
+
+        <View style={[styles.card, { backgroundColor: theme.surface }, Shadow.sm]}>
+          <SectionTitle theme={theme}>Editor de elementos</SectionTitle>
+          <PrintPropertiesPanel
+            element={selectedElement}
+            onChange={updateElementField}
+            onQuickAction={handleQuickAction}
+            onToggleVisible={(value) => updateElementField("visible", value)}
+            theme={theme}
+            darkMode={darkMode}
+          />
+        </View>
+
+        <View style={[styles.card, { backgroundColor: theme.surface }, Shadow.sm]}>
+          <SectionTitle theme={theme}>Configuración tradicional</SectionTitle>
+          <ConfigItem
+            type="input"
+            title="Nombre del formato"
+            field="name"
+            placeholder="Góndola"
+            value={activeFormat.name}
+            handleChange={updateFormatField}
+            darkMode={darkMode}
+          />
+          <ConfigItem
+            type="select"
+            title="Ancho papel"
+            field="paperWidth"
+            value={activeFormat.paperWidth}
+            options={[
+              { label: "58 mm", value: "58" },
+              { label: "80 mm", value: "80" },
+              { label: "Personalizado", value: "custom" },
+            ]}
+            handleChange={updateFormatField}
+            darkMode={darkMode}
+          />
+          {String(activeFormat.paperWidth) === "custom" ? (
+            <>
+              <ConfigItem
+                type="input"
+                title="Ancho personalizado"
+                field="customPaperWidth"
+                placeholder="320"
+                value={activeFormat.customPaperWidth || ""}
+                keyboardType="numeric"
+                handleChange={updateFormatField}
+                darkMode={darkMode}
+              />
+              <ConfigItem
+                type="input"
+                title="Alto personalizado"
+                field="customPaperHeight"
+                placeholder="360"
+                value={activeFormat.customPaperHeight || ""}
+                keyboardType="numeric"
+                handleChange={updateFormatField}
+                darkMode={darkMode}
+              />
+            </>
+          ) : null}
+          <ConfigItem
+            type="input"
+            title="Cantidad de copias"
+            field="copies"
+            placeholder="1"
+            value={activeFormat.copies}
+            keyboardType="numeric"
+            handleChange={updateFormatField}
+            darkMode={darkMode}
+          />
+          <ConfigItem
+            type="input"
+            title="Margen superior"
+            field="marginTop"
+            placeholder="0"
+            value={activeFormat.marginTop}
+            keyboardType="numeric"
+            handleChange={updateFormatField}
+            darkMode={darkMode}
+          />
+          <ConfigItem
+            type="input"
+            title="Margen inferior"
+            field="marginBottom"
+            placeholder="0"
+            value={activeFormat.marginBottom}
+            keyboardType="numeric"
+            handleChange={updateFormatField}
+            darkMode={darkMode}
+          />
+          <ConfigItem
+            type="select"
+            title="Alineación general"
+            field="alignment"
+            value={activeFormat.alignment}
+            options={GENERAL_ALIGNMENT_OPTIONS}
+            handleChange={updateFormatField}
+            darkMode={darkMode}
+          />
+          <ConfigItem
+            type="checkbox"
+            title="Mostrar descripción"
+            field="showDescription"
+            value={activeFormat.showDescription}
+            handleChange={(field, value) => toggleFlag(field, value)}
+            darkMode={darkMode}
+          />
+          <ConfigItem
+            type="checkbox"
+            title="Mostrar precio"
+            field="showPrice"
+            value={activeFormat.showPrice}
+            handleChange={(field, value) => toggleFlag(field, value)}
+            darkMode={darkMode}
+          />
+          <ConfigItem
+            type="checkbox"
+            title="Mostrar código de barra"
+            field="showBarcode"
+            value={activeFormat.showBarcode}
+            handleChange={(field, value) => toggleFlag(field, value)}
+            darkMode={darkMode}
+          />
+          <ConfigItem
+            type="checkbox"
+            title="Mostrar código interno"
+            field="showInternalCode"
+            value={activeFormat.showInternalCode}
+            handleChange={(field, value) => toggleFlag(field, value)}
+            darkMode={darkMode}
+          />
+          <ConfigItem
+            type="checkbox"
+            title="Mostrar stock"
+            field="showStock"
+            value={activeFormat.showStock}
+            handleChange={(field, value) => toggleFlag(field, value)}
+            darkMode={darkMode}
+          />
+          <ConfigItem
+            type="checkbox"
+            title="Mostrar fecha"
+            field="showDate"
+            value={activeFormat.showDate}
+            handleChange={(field, value) => toggleFlag(field, value)}
+            darkMode={darkMode}
+          />
+          <ConfigItem
+            type="checkbox"
+            title="Mostrar empresa"
+            field="showCompanyName"
+            value={activeFormat.showCompanyName}
+            handleChange={(field, value) => toggleFlag(field, value)}
+            darkMode={darkMode}
+          />
+          <ConfigItem
+            type="checkbox"
+            title="Mostrar logo"
+            field="showLogo"
+            value={activeFormat.showLogo}
+            handleChange={(field, value) => toggleFlag(field, value)}
+            darkMode={darkMode}
+          />
+          <ConfigItem
+            type="checkbox"
+            title="Vista previa antes de imprimir"
+            field="previewBeforePrint"
+            value={activeFormat.previewBeforePrint}
+            handleChange={updateFormatField}
+            darkMode={darkMode}
+          />
+        </View>
+
+        {!!status ? (
+          <View style={[styles.statusCard, { backgroundColor: theme.surface }, Shadow.sm]}>
+            <Text style={[styles.statusText, { color: theme.text }]}>{status}</Text>
+          </View>
+        ) : null}
       </ScrollView>
     </View>
   );
@@ -252,13 +588,13 @@ const styles = StyleSheet.create({
     padding: 16,
     paddingBottom: 28,
   },
-  card: {
+  headerCard: {
     borderRadius: Radii.xl,
     padding: 18,
     marginBottom: 14,
   },
   title: {
-    fontSize: 22,
+    fontSize: 24,
     fontFamily: Fonts.display,
     marginBottom: 8,
   },
@@ -266,13 +602,33 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
     fontFamily: Fonts.body,
+    marginBottom: 14,
+  },
+  headerActions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
     marginBottom: 12,
+  },
+  actionButton: {
+    minHeight: 42,
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  actionButtonText: {
+    color: Colors.WHITE,
+    fontFamily: Fonts.display,
+    fontSize: 13,
   },
   tabsRow: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 8,
-    marginBottom: 12,
+    marginTop: 4,
   },
   tabChip: {
     minHeight: 40,
@@ -285,76 +641,39 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.display,
     fontSize: 13,
   },
-  editorCard: {
-    borderWidth: 1,
-    borderRadius: Radii.lg,
-    padding: 14,
-  },
-  saveButton: {
-    marginTop: 12,
-    minHeight: 48,
-    borderRadius: 16,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 10,
-  },
-  saveButtonText: {
-    color: Colors.WHITE,
-    fontFamily: Fonts.display,
-    fontSize: 14,
-  },
-  previewWrap: {
-    borderRadius: Radii.xl,
-    padding: 18,
-  },
-  previewTitle: {
-    fontSize: 18,
-    fontFamily: Fonts.display,
-    marginBottom: 12,
-  },
-  previewPaper: {
-    borderWidth: 1,
-    borderRadius: 16,
-    paddingHorizontal: 12,
-    paddingVertical: 14,
-    alignSelf: "center",
-  },
-  previewDescription: {
-    color: "#111827",
-    marginBottom: 8,
-    fontFamily: Fonts.display,
-  },
-  previewPrice: {
-    color: "#0B5FA5",
-    marginBottom: 10,
-    fontFamily: Fonts.display,
-  },
-  previewMeta: {
-    marginTop: 6,
+  paperInfo: {
+    marginTop: 10,
     fontSize: 12,
     fontFamily: Fonts.body,
   },
-  barcodeBox: {
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingVertical: 10,
-    paddingHorizontal: 10,
-    marginTop: 6,
+  card: {
+    borderRadius: Radii.xl,
+    padding: 16,
+    marginBottom: 14,
   },
-  barcodeBars: {
-    flexDirection: "row",
-    alignItems: "flex-end",
+  sectionTitle: {
+    fontSize: 18,
+    fontFamily: Fonts.display,
+    marginBottom: 10,
+  },
+  loadingState: {
+    paddingVertical: 34,
+    alignItems: "center",
     justifyContent: "center",
-    gap: 3,
   },
-  barcodeBar: {
-    borderRadius: 1,
+  loadingText: {
+    marginTop: 10,
+    fontSize: 13,
+    fontFamily: Fonts.body,
   },
-  barcodeText: {
-    textAlign: "center",
-    fontSize: 11,
-    marginTop: 6,
-    fontFamily: Fonts.mono,
+  statusCard: {
+    borderRadius: Radii.xl,
+    padding: 16,
+    marginBottom: 14,
+  },
+  statusText: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontFamily: Fonts.body,
   },
 });

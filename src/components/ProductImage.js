@@ -1,155 +1,224 @@
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { ActivityIndicator, Image, StyleSheet, View } from "react-native";
+
 import Configuration from "@db/Configuration";
 import { useThemeConfig } from "@context/ThemeContext";
-import * as FileSystem from 'expo-file-system';
-import { useEffect, useState } from 'react';
-import { ActivityIndicator, Image, StyleSheet, View } from 'react-native';
 
-// const fallbackImage = require('./assets/default.png');
 import imgProduct from "@icons/articulos.png";
 import imgProductDark from "@icons/articulos_b.png";
 
-export default function ProductImage({ fileName, reload = false, widthImage = 200, heightImage = 200, cancelaCarga = false }) {
-    const [imageUri, setImageUri] = useState(null);
-    const [error, setError] = useState(false);
-    const { darkMode } = useThemeConfig();
+const DEFAULT_EXTENSIONS = ["jpg", "jpeg", "png"];
 
-    const loadConfig = async () => {
-        if (cancelaCarga) {
-            setImageUri(null);
-            setError(true);
-            return;
-        }
-        try {
-            await Configuration.createTable();
-        } catch (e) {
-            setError(true);
-            return;
-        }
+const normalizeExtensions = (value) => {
+  const list = String(value ?? "")
+    .split(",")
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
+  const unique = [...new Set(list.length > 0 ? list : DEFAULT_EXTENSIONS)];
+  return unique;
+};
 
-        // const files = await FileSystem.readDirectoryAsync(FileSystem.documentDirectory);
+const normalizeExtension = (value) => {
+  const cleaned = String(value ?? "").trim().toLowerCase();
+  return cleaned || "jpg";
+};
 
-        // for (const file of files) {
-        //     if (file.endsWith('.jpg')) {
-        //         await FileSystem.deleteAsync(FileSystem.documentDirectory + file, { idempotent: true });
-        //     }
-        // }
+const normalizeBasePath = (value) => {
+  const base = String(value ?? "").trim();
+  if (!base) {
+    return "";
+  }
 
-        let cargaImagenes;
-        try {
-            cargaImagenes = await Configuration.getConfigValue("CARGA_IMAGENES");
-        } catch (e) {
-            setError(true);
-            return;
-        }
+  if (/^[A-Za-z]:[\\/]/.test(base)) {
+    return "";
+  }
 
-        if (cargaImagenes == '1') {
-            let data;
-            try {
-                data = await Configuration.getConfig("ALFA_ACCOUNT");
-            } catch (e) {
-                setError(true);
-                return;
-            }
-            if (data) {
-                setImageUri(null)
-                setError(false)
-                const imageUrl = `https://alfanet.com.ar/ac/public/assets/images/${data[0]?.value}/${fileName}.jpg`
-                loadImage(FileSystem.documentDirectory + fileName + '.jpg', imageUrl);
-            } else {
-                setError(true)
-            }
-        } else {
-            setError(true)
-        }
+  return base.replace(/\\/g, "/");
+};
+
+const joinPath = (base, fileName) => {
+  const cleanBase = String(base ?? "").trim().replace(/\/+$/g, "");
+  const cleanFile = String(fileName ?? "").trim().replace(/^\/+/g, "");
+  if (!cleanBase) {
+    return cleanFile;
+  }
+
+  if (/^(https?:\/\/|file:\/\/|content:\/\/)/i.test(cleanBase)) {
+    return `${cleanBase}/${cleanFile}`;
+  }
+
+  if (cleanBase.startsWith("/")) {
+    return `file://${cleanBase}/${cleanFile}`;
+  }
+
+  return "";
+};
+
+const buildLegacyRemoteBase = async (fileName) => {
+  const accountRows = await Configuration.getConfig("ALFA_ACCOUNT");
+  const account = String(accountRows?.[0]?.value ?? "").trim();
+  if (!account) {
+    return "";
+  }
+
+  return `https://alfanet.com.ar/ac/public/assets/images/${account}/${fileName}`;
+};
+
+export default function ProductImage({
+  fileName,
+  reload = false,
+  widthImage = 200,
+  heightImage = 200,
+  cancelaCarga = false,
+  containerStyle,
+}) {
+  const { darkMode } = useThemeConfig();
+  const [loading, setLoading] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const [attemptIndex, setAttemptIndex] = useState(0);
+  const [candidates, setCandidates] = useState([]);
+
+  const placeholderSource = darkMode ? imgProductDark : imgProduct;
+
+  const loadConfiguration = useCallback(async () => {
+    if (cancelaCarga || !String(fileName ?? "").trim()) {
+      setCandidates([]);
+      setAttemptIndex(0);
+      setFailed(true);
+      setLoading(false);
+      return;
     }
 
+    setLoading(true);
+    setFailed(false);
+    setAttemptIndex(0);
+    setCandidates([]);
 
-    const loadImage = async (localUri, imageUrl) => {
-        try {
-            const fileInfo = await FileSystem.getInfoAsync(localUri);
-            // console.log(fileInfo)
-            if (fileInfo.exists) {
-                if (fileInfo.size < 1500) {
-                    setError(true)
-                } else {
-                    setImageUri(localUri);
-                }
-            } else {
-                const downloaded = await FileSystem.downloadAsync(imageUrl, localUri);
-                // console.log(downloaded)
-                if (downloaded?.status == 404) {
-                    setError(true)
-                } else {
-                    setImageUri(downloaded.uri);
-                }
-            }
-        } catch (e) {
-            // console.warn('Fallo al cargar la imagen, usando fallback');
-            setError(true);
+    let hasCandidates = false;
+    try {
+      await Configuration.createTable();
+      const useProductImage = Configuration.isTruthyConfigValue(
+        (await Configuration.getConfigValue("USE_PRODUCT_IMAGE")) ||
+          (await Configuration.getConfigValue("CARGA_IMAGENES")),
+      );
+
+      if (!useProductImage) {
+        setFailed(true);
+        setLoading(false);
+        return;
+      }
+
+      const basePath = normalizeBasePath(
+        (await Configuration.getConfigValue("PRODUCT_IMAGE_BASE_PATH")) ||
+          (await Configuration.getConfigValue("PRODUCT_IMAGE_PATH")),
+      );
+      const defaultExtension = normalizeExtension(
+        await Configuration.getConfigValue("PRODUCT_IMAGE_DEFAULT_EXTENSION"),
+      );
+      const allowedExtensions = normalizeExtensions(
+        await Configuration.getConfigValue("PRODUCT_IMAGE_ALLOWED_EXTENSIONS"),
+      );
+      const normalizedFileName = String(fileName ?? "").trim();
+
+      const fileCandidates = [];
+      const uniqueExtensions = [
+        defaultExtension,
+        ...allowedExtensions.filter((item) => item !== defaultExtension),
+      ];
+
+      if (basePath) {
+        for (const extension of uniqueExtensions) {
+          const candidate = joinPath(
+            basePath,
+            `${normalizedFileName}.${extension}`,
+          );
+          if (candidate) {
+            fileCandidates.push(candidate);
+          }
         }
-    };
-
-    useEffect(() => {
-        if (reload) {
-            reloadImage()
+      } else {
+        const legacyBase = await buildLegacyRemoteBase(normalizedFileName);
+        if (legacyBase) {
+          fileCandidates.push(`${legacyBase}.${defaultExtension}`);
         }
-    }, [reload])
+      }
 
-    const reloadImage = async () => {
-        setImageUri(null)
-        setError(false)
-        await FileSystem.deleteAsync(FileSystem.documentDirectory + fileName + '.jpg', { idempotent: true })
+      if (fileCandidates.length === 0) {
+        setFailed(true);
+        setLoading(false);
+        return;
+      }
 
-        let data = await Configuration.getConfig("ALFA_ACCOUNT");
-        if (data) {
-            const imageUrl = `https://alfanet.com.ar/ac/public/assets/images/${data[0]?.value}/${fileName}.jpg`
-            // console.log(imageUrl)
-            loadImage(FileSystem.documentDirectory + fileName + '.jpg', imageUrl);
-        }
+      hasCandidates = true;
+      setCandidates(fileCandidates);
+    } catch (e) {
+      setCandidates([]);
+      setFailed(true);
+    } finally {
+      if (!hasCandidates) {
+        setLoading(false);
+      }
     }
+  }, [cancelaCarga, fileName]);
 
-    useEffect(() => {
-        if (cancelaCarga) {
-            setImageUri(null);
-            setError(true)
-        } else {
-            if (fileName) {
-                loadConfig()
-            }
-        }
-    }, [fileName, cancelaCarga]);
+  useEffect(() => {
+    loadConfiguration();
+  }, [loadConfiguration, reload]);
 
-    return (
-        <View style={styles.container}>
+  const activeSource = useMemo(() => candidates[attemptIndex] || "", [attemptIndex, candidates]);
 
-            {(imageUri && !error) ? (
-                <Image
-                    source={{ uri: imageUri }}
-                    resizeMode="contain"
+  const handleImageError = useCallback(() => {
+    setAttemptIndex((current) => {
+      const next = current + 1;
+      if (next < candidates.length) {
+        return next;
+      }
 
-                    style={{ width: widthImage, height: heightImage, borderRadius: 10 }}
-                />
-            ) : error ? (
-                <Image
-                    source={darkMode ? imgProductDark : imgProduct}
-                    style={{ width: widthImage, height: heightImage, borderRadius: 10 }}
-                />
-            ) : (
-                <ActivityIndicator size="large" color="#007AFF" />
-            )}
+      setFailed(true);
+      return current;
+    });
+  }, [candidates.length]);
+
+  const showPlaceholder = failed || !activeSource;
+
+  return (
+    <View style={[styles.container, containerStyle]}>
+      {loading && candidates.length === 0 && !failed ? (
+        <ActivityIndicator size="small" color="#1E88E5" />
+      ) : showPlaceholder ? (
+        <Image
+          source={placeholderSource}
+          style={{ width: widthImage, height: heightImage, borderRadius: 10 }}
+          resizeMode="contain"
+        />
+      ) : (
+        <Image
+          source={{ uri: activeSource }}
+          onError={handleImageError}
+          onLoadEnd={() => setLoading(false)}
+          style={{ width: widthImage, height: heightImage, borderRadius: 10 }}
+          resizeMode="contain"
+        />
+      )}
+      {loading && activeSource && !failed ? (
+        <View style={styles.loadingOverlay}>
+          <ActivityIndicator size="small" color="#1E88E5" />
         </View>
-    );
+      ) : null}
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    image: {
-        width: 200,
-        height: 200,
-        borderRadius: 10,
-    },
+  container: {
+    position: "relative",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.35)",
+  },
 });
