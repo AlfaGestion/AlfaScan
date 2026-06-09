@@ -1,4 +1,5 @@
 import Configuration from "@db/Configuration";
+import { getCatalogConfig } from "@services/catalogService";
 import {
   loadPrintFormatsFromSql,
   savePrintFormatsToSql,
@@ -485,9 +486,19 @@ export const normalizePrintFormats = (value) => {
 
 export const loadPrintFormats = async () => {
   await Configuration.createTable();
-  const sqlFormats = await loadPrintFormatsFromSql().catch(() => null);
-  if (sqlFormats) {
-    return normalizePrintConfig(sqlFormats);
+  const catalogConfig = await getCatalogConfig().catch(() => null);
+  const isOnlineMode = String(catalogConfig?.mode ?? "").trim().toUpperCase() === "ONLINE";
+  if (__DEV__) {
+    console.log("[PRINT_CONFIG] load mode", isOnlineMode ? "ONLINE" : "LOCAL");
+  }
+
+  if (isOnlineMode) {
+    const sqlFormats = await loadPrintFormatsFromSql().catch(() => null);
+    if (sqlFormats) {
+      return normalizePrintConfig(sqlFormats);
+    }
+
+    return null;
   }
 
   const raw = await Configuration.getConfigValue("PRINT_FORMATS_JSON");
