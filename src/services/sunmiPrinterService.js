@@ -435,8 +435,20 @@ const formatSimpleCurrency = (value) => {
       });
 };
 
-export const printSimpleProductLabel = async (formatKey = "product", product = {}) => {
-  const key = String(formatKey ?? "product").trim().toLowerCase();
+export const printSimpleProductLabel = async (payloadOrFormatKey = "product", productArg = {}) => {
+  const isPayloadObject =
+    payloadOrFormatKey &&
+    typeof payloadOrFormatKey === "object" &&
+    !Array.isArray(payloadOrFormatKey);
+
+  const input = isPayloadObject
+    ? payloadOrFormatKey
+    : {
+        formatKey: payloadOrFormatKey,
+        ...productArg,
+      };
+
+  const key = String(input?.formatKey ?? "product").trim().toLowerCase();
   const diagnostics = await getSunmiDiagnostics().catch(() => null);
   const printerAvailable = Boolean(
     diagnostics?.printerStatus?.available ||
@@ -463,12 +475,12 @@ export const printSimpleProductLabel = async (formatKey = "product", product = {
   }
 
   const payload = {
-    description: String(product?.descripcion ?? product?.name ?? "").trim(),
-    price: formatSimpleCurrency(product?.precio ?? product?.price1 ?? product?.price ?? 0),
-    barcode: String(product?.codigoBarra ?? product?.codigoBarras ?? product?.code ?? "").trim(),
-    internalCode: String(product?.codigoInterno ?? product?.codigoArticulo ?? product?.code ?? "").trim(),
+    description: String(input?.description ?? input?.descripcion ?? input?.name ?? "").trim(),
+    price: String(input?.price ?? formatSimpleCurrency(input?.precio ?? input?.price1 ?? input?.price ?? 0)).trim(),
+    barcode: String(input?.barcode ?? input?.codigoBarra ?? input?.codigoBarras ?? input?.code ?? "").trim(),
+    internalCode: String(input?.internalCode ?? input?.codigoInterno ?? input?.codigoArticulo ?? input?.code ?? "").trim(),
   };
-  const companyName = String(product?.companyName ?? "").trim() || (await getCompanyNameFromSqlConfig().catch(() => ""));
+  const companyName = String(input?.companyName ?? "").trim() || (await getCompanyNameFromSqlConfig().catch(() => ""));
   const safeCode = payload.barcode || payload.internalCode || "-";
 
   console.log("[PRINT] companyName", companyName || "");
@@ -488,7 +500,7 @@ export const printSimpleProductLabel = async (formatKey = "product", product = {
     barcode: payload.barcode,
     internalCode: payload.internalCode,
     companyName,
-    copies: Math.max(1, Number(product?.copies ?? 1) || 1),
+    copies: Math.max(1, Number(input?.copies ?? 1) || 1),
   });
   console.log("[PRINT] success");
 

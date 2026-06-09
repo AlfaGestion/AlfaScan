@@ -140,6 +140,7 @@ export default function HomeScreen({ navigation }) {
   });
   const [permission, requestPermission] = useCameraPermissions();
 
+  const latestArticleRef = useRef(null);
   const lastScanRef = useRef({ code: "", at: 0 });
   const scanLockRef = useRef(false);
   const cameraMountTimerRef = useRef(null);
@@ -273,6 +274,7 @@ export default function HomeScreen({ navigation }) {
         }
 
         setArticle(result);
+        latestArticleRef.current = result;
       } catch (e) {
         setArticle(null);
         setMessage(e?.message || "No se pudo buscar el artÃ­culo.");
@@ -337,6 +339,7 @@ export default function HomeScreen({ navigation }) {
       }
 
       setArticle(result);
+      latestArticleRef.current = result;
     } catch (e) {
       setArticle(null);
       setMessage(e?.message || "No se pudo buscar el artículo.");
@@ -463,7 +466,8 @@ export default function HomeScreen({ navigation }) {
 
   const handlePrint = useCallback(
     async (formatKey) => {
-      if (!article) {
+      const printableArticle = article || latestArticleRef.current;
+      if (!printableArticle) {
         setMessage("Buscá un artículo antes de imprimir.");
         return;
       }
@@ -471,11 +475,11 @@ export default function HomeScreen({ navigation }) {
       try {
         console.log("[PRINT] Home button pressed");
         console.log("[PRINT] formatKey", formatKey);
-        await printArticle({ article, formatKey });
+        await printArticle({ article: printableArticle, formatKey });
         await appendPrintHistory({
           formatKey,
           formatLabel: PRINT_BUTTONS.find((item) => item.key === formatKey)?.label || formatKey,
-          article,
+          article: printableArticle,
         });
         await refreshPrinterStatus();
         setPrinterStatus(getPrinterStatus());
@@ -490,6 +494,7 @@ export default function HomeScreen({ navigation }) {
   const clearSearch = useCallback(() => {
     setQuery("");
     setArticle(null);
+    latestArticleRef.current = null;
     setMessage("");
   }, []);
 

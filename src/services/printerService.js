@@ -30,6 +30,13 @@ const formatCurrency = (value) => {
 
 const delay = (ms = 0) => new Promise((resolve) => setTimeout(resolve, Math.max(0, Number(ms) || 0)));
 
+const normalizeFormatKey = (value) => {
+  if (value && typeof value === "object") {
+    return String(value.key ?? value.formatKey ?? "product").trim().toLowerCase();
+  }
+  return String(value ?? "product").trim().toLowerCase();
+};
+
 const resolveCompanyName = async ({ article, companyName } = {}) => {
   const manualCompanyName = String(companyName ?? "").trim();
   if (manualCompanyName) {
@@ -54,7 +61,7 @@ export const printArticle = async ({
     throw new Error("Buscá un artículo antes de imprimir.");
   }
 
-  const normalizedKey = String(formatKey ?? "product").trim().toLowerCase();
+  const normalizedKey = normalizeFormatKey(formatKey);
   const status = await initPrinter();
   const printerAvailable = Boolean(status?.available ?? getPrinterStatus().available);
 
