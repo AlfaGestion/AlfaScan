@@ -1,7 +1,7 @@
 import { NativeModules, Platform } from "react-native";
 import Constants from "expo-constants";
 
-import { renderPrintLayout } from "@services/printLayoutService";
+import { getDefaultPrintFormat, loadPrintFormats, renderPrintLayout } from "@services/printLayoutService";
 import { getCompanyNameFromSqlConfig } from "@services/catalogService";
 
 const INTEGRATION_NOT_IMPLEMENTED_MESSAGE = "Integración Sunmi no disponible en esta build.";
@@ -47,6 +47,30 @@ const setStatus = (nextStatus = {}) => {
 
 const normalizeText = (value) => String(value ?? "").trim();
 
+const parsePriceValue = (value) => {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  const raw = String(value ?? "").trim();
+  if (!raw) {
+    return 0;
+  }
+
+  const cleaned = raw.replace(/[^\d,.-]/g, "");
+  if (!cleaned) {
+    return 0;
+  }
+
+  const normalized =
+    cleaned.includes(",") && cleaned.includes(".")
+      ? cleaned.replace(/\./g, "").replace(",", ".")
+      : cleaned.replace(",", ".");
+
+  const amount = Number(normalized);
+  return Number.isFinite(amount) ? amount : 0;
+};
+
 const firstNonEmptyText = (...values) => {
   for (const value of values) {
     const text = normalizeText(value);
@@ -67,8 +91,6 @@ const callNativeAsync = async (module, methodName, ...args) => {
 
 const getDiagnosticsModule = () => NativeModules?.SunmiDiagnostics || null;
 const getLabelModule = () => NativeModules?.SunmiPrinterModule || NativeModules?.SunmiV2Printer || null;
-const getSimplePrintModule = () => NativeModules?.SunmiDiagnostics || null;
-
 const buildDeviceInfo = () => {
   const constants = Platform?.constants || {};
   return {
@@ -470,47 +492,50 @@ export const printSimpleProductLabel = async (payloadOrFormatKey = "product", pr
     throw new Error(diagnostics?.error || diagnostics?.printerStatus?.message || "No se pudo conectar con la impresora.");
   }
 
-  const module = getSimplePrintModule();
-  console.log("[PRINT] using module", module ? "SunmiDiagnostics" : "none");
-  if (!module || typeof module.printSimpleProductLabel !== "function") {
-    throw new Error("SunmiDiagnostics existe pero no expone printSimpleProductLabel. Recompilá la app con npx expo run:android.");
-  }
-
-  if (typeof module.bindPrinterService === "function") {
-    await module.bindPrinterService().catch(() => {});
-  } else if (typeof module.initPrinter === "function") {
-    await module.initPrinter().catch(() => {});
-  } else if (typeof module.printerInit === "function") {
-    await module.printerInit().catch(() => {});
-  }
-
+  const rawSource = input?.article ?? input?.product ?? input;
   const payload = {
-    description: String(input?.description ?? input?.descripcion ?? input?.name ?? "").trim(),
-    price: String(input?.price ?? formatSimpleCurrency(input?.precio ?? input?.price1 ?? input?.price ?? 0)).trim(),
+    description: String(
+      input?.description ??
+        input?.descripcion ??
+        rawSource?.description ??
+        rawSource?.descripcion ??
+        rawSource?.name ??
+        "",
+    ).trim(),
+    price: parsePriceValue(input?.price ?? input?.priceValue ?? rawSource?.precio ?? rawSource?.price1 ?? rawSource?.price ?? 0),
     barcode: firstNonEmptyText(
       input?.barcode,
-      input?.codigoBarra,
-      input?.CodigoBarra,
-      input?.codigoBarras,
-      input?.CodigoBarras,
-      input?.codigo,
-      input?.Codigo,
-      input?.code,
+      rawSource?.barcode,
+      rawSource?.codigoBarra,
+      rawSource?.CodigoBarra,
+      rawSource?.codigoBarras,
+      rawSource?.CodigoBarras,
+      rawSource?.codigo,
+      rawSource?.Codigo,
+      rawSource?.code,
     ),
     internalCode: firstNonEmptyText(
       input?.internalCode,
-      input?.codigoArticulo,
-      input?.CodigoArticulo,
-      input?.codigoInterno,
-      input?.CodigoInterno,
-      input?.codigo,
-      input?.Codigo,
-      input?.code,
+      rawSource?.internalCode,
+      rawSource?.codigoArticulo,
+      rawSource?.CodigoArticulo,
+      rawSource?.codigoInterno,
+      rawSource?.CodigoInterno,
+      rawSource?.codigo,
+      rawSource?.Codigo,
+      rawSource?.code,
     ),
   };
-  const companyName = String(input?.companyName ?? "").trim() || (await getCompanyNameFromSqlConfig().catch(() => ""));
+  const companyName =
+    String(input?.companyName ?? rawSource?.companyName ?? "").trim() ||
+    (await getCompanyNameFromSqlConfig().catch(() => ""));
+  const formatConfig =
+    input?.format && typeof input.format === "object"
+      ? input.format
+      : (await loadPrintFormats().catch(() => null))?.[key] || getDefaultPrintFormat(key);
   const safeCode = payload.internalCode || payload.barcode || "-";
 
+  console.log("[PRINT] using format", key);
   console.log("[PRINT] companyName", companyName || "");
   console.log("[PRINT] codes", {
     barcode: payload.barcode,
@@ -520,23 +545,35 @@ export const printSimpleProductLabel = async (payloadOrFormatKey = "product", pr
     formatKey: key,
     companyName: companyName || "",
     descripcionLength: payload.description.length,
-    precioTexto: payload.price,
+    precioTexto: formatSimpleCurrency(payload.price),
     codigo: safeCode,
   });
 
-  console.log("[PRINT] calling native Sunmi print");
-  await module.printSimpleProductLabel({
-    formatKey: key,
-    description: payload.description,
+  const printProduct = {
+    descripcion: payload.description,
+    name: payload.description,
+    precio: payload.price,
     price: payload.price,
+    price1: payload.price,
+    codigoBarra: payload.barcode,
+    CodigoBarra: payload.barcode,
+    codigoBarras: payload.barcode,
+    CodigoBarras: payload.barcode,
     barcode: payload.barcode,
+    code: payload.internalCode || payload.barcode,
+    codigo: payload.internalCode || payload.barcode,
+    codigoArticulo: payload.internalCode,
+    CodigoArticulo: payload.internalCode,
+    codigoInterno: payload.internalCode,
+    CodigoInterno: payload.internalCode,
     internalCode: payload.internalCode,
     companyName,
-    copies: Math.max(1, Number(input?.copies ?? 1) || 1),
-  });
+  };
+
+  const result = await printLabel(formatConfig, printProduct, { companyName, fallbackText: "" });
   console.log("[PRINT] success");
 
-  return { printed: true, payload, formatKey: key };
+  return { printed: true, payload, formatKey: key, layout: result?.layout || null };
 };
 
 export const printAlfaScanSmokeTest = async () => {

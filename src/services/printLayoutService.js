@@ -4,7 +4,6 @@ import {
   savePrintFormatsToSql,
   syncPrintFormatsFromSql,
 } from "@services/printSqlService";
-import { loadPrintFormatsFromSql } from "@services/printSqlService";
 
 export const PRINT_FORMAT_KEYS = ["gondola", "product", "small", "custom"];
 
@@ -537,8 +536,26 @@ const formatFieldValue = (element, product = {}, fallback = "") => {
   const lookup = {
     description: product.descripcion ?? product.name ?? "",
     price: product.precio ?? product.price1 ?? 0,
-    barcode: product.codigoBarra ?? product.codigoBarras ?? product.code ?? "",
-    internalCode: product.codigoInterno ?? product.codigoArticulo ?? product.code ?? "",
+    barcode:
+      product.codigoBarra ??
+      product.CodigoBarra ??
+      product.codigoBarras ??
+      product.CodigoBarras ??
+      product.barcode ??
+      product.codigo ??
+      product.Codigo ??
+      product.code ??
+      "",
+    internalCode:
+      product.codigoInterno ??
+      product.CodigoInterno ??
+      product.codigoArticulo ??
+      product.CodigoArticulo ??
+      product.internalCode ??
+      product.codigo ??
+      product.Codigo ??
+      product.code ??
+      "",
     stock: product.stock ?? product.Stock ?? "",
     date: product.fechaActualizacion ?? product.FechaActualizacion ?? "",
     companyName: product.companyName ?? "",

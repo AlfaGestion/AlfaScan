@@ -2,30 +2,15 @@ import { NativeModules } from "react-native";
 
 import { getCompanyNameFromSqlConfig } from "@services/catalogService";
 import {
+  getDefaultPrintFormat,
   getPrinterStatus,
   initPrinter,
+  loadPrintFormats,
+  printLabel,
   printSimpleProductLabel,
-  printText,
 } from "@services/sunmiPrinterService";
 
 const FRIENDLY_PRINT_ERROR_MESSAGE = "No se pudo imprimir. Revisá la impresora y volvé a intentar.";
-
-const formatCurrency = (value) => {
-  const amount = Number(value ?? 0);
-  return Number.isFinite(amount)
-    ? amount.toLocaleString("es-AR", {
-        style: "currency",
-        currency: "ARS",
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      })
-    : (0).toLocaleString("es-AR", {
-        style: "currency",
-        currency: "ARS",
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      });
-};
 
 const delay = (ms = 0) => new Promise((resolve) => setTimeout(resolve, Math.max(0, Number(ms) || 0)));
 
@@ -37,16 +22,6 @@ const normalizeFormatKey = (value) => {
 };
 
 const normalizeText = (value) => String(value ?? "").trim();
-
-const firstNonEmptyText = (...values) => {
-  for (const value of values) {
-    const text = normalizeText(value);
-    if (text) {
-      return text;
-    }
-  }
-  return "";
-};
 
 const resolveCompanyName = async ({ article, companyName } = {}) => {
   const manualCompanyName = String(companyName ?? "").trim();
@@ -86,87 +61,120 @@ export const printArticle = async ({
   const resolvedCompanyName = await resolveCompanyName({ article, companyName });
 
   if (diagnosticsModule && typeof diagnosticsModule.printSimpleProductLabel === "function") {
-    const barcode = firstNonEmptyText(
-      article?.codigoBarra,
-      article?.CodigoBarra,
-      article?.codigoBarras,
-      article?.CodigoBarras,
-      article?.codigo,
-      article?.Codigo,
-      article?.barcode,
-      article?.code,
-    );
-    const internalCode = firstNonEmptyText(
-      article?.codigoArticulo,
-      article?.CodigoArticulo,
-      article?.codigoInterno,
-      article?.CodigoInterno,
-      article?.codigo,
-      article?.Codigo,
-      article?.internalCode,
-      article?.code,
-    );
-
     return await printSimpleProductLabel({
       formatKey: normalizedKey,
-      description: String(article?.descripcion ?? article?.name ?? "").trim(),
-      price: formatCurrency(article?.precio ?? article?.price1 ?? article?.price ?? 0),
-      barcode,
-      internalCode,
+      article,
+      format,
       companyName: resolvedCompanyName,
       copies: 1,
     });
   }
 
   console.log("[PRINT] SunmiDiagnostics not available, trying fallback");
-  console.log("[PRINT] using direct Sunmi primitives");
-  console.log("[PRINT] calling native Sunmi print");
-
-  const description = String(article?.descripcion ?? article?.name ?? "").trim();
-  const barcode = firstNonEmptyText(
-    article?.codigoBarra,
-    article?.CodigoBarra,
-    article?.codigoBarras,
-    article?.CodigoBarras,
-    article?.codigo,
-    article?.Codigo,
-    article?.barcode,
-    article?.code,
+  const resolvedFormat =
+    format && typeof format === "object"
+      ? format
+      : (await loadPrintFormats().catch(() => null))?.[normalizedKey] || getDefaultPrintFormat(normalizedKey);
+  const fallbackProduct = {
+    descripcion: String(article?.descripcion ?? article?.description ?? article?.name ?? "").trim(),
+    name: String(article?.name ?? article?.descripcion ?? article?.description ?? "").trim(),
+    precio: Number(article?.precio ?? article?.price1 ?? article?.price ?? 0) || 0,
+    price: Number(article?.precio ?? article?.price1 ?? article?.price ?? 0) || 0,
+    price1: Number(article?.precio ?? article?.price1 ?? article?.price ?? 0) || 0,
+    codigoBarra: String(
+      article?.codigoBarra ||
+        article?.CodigoBarra ||
+        article?.codigoBarras ||
+        article?.CodigoBarras ||
+        article?.barcode ||
+        article?.codigo ||
+        article?.Codigo ||
+        article?.code ||
+        "",
+    ).trim(),
+    CodigoBarra: String(
+      article?.codigoBarra ||
+        article?.CodigoBarra ||
+        article?.codigoBarras ||
+        article?.CodigoBarras ||
+        article?.barcode ||
+        article?.codigo ||
+        article?.Codigo ||
+        article?.code ||
+        "",
+    ).trim(),
+    codigoBarras: String(
+      article?.codigoBarra ||
+        article?.CodigoBarra ||
+        article?.codigoBarras ||
+        article?.CodigoBarras ||
+        article?.barcode ||
+        article?.codigo ||
+        article?.Codigo ||
+        article?.code ||
+        "",
+    ).trim(),
+    CodigoBarras: String(
+      article?.codigoBarra ||
+        article?.CodigoBarra ||
+        article?.codigoBarras ||
+        article?.CodigoBarras ||
+        article?.barcode ||
+        article?.codigo ||
+        article?.Codigo ||
+        article?.code ||
+        "",
+    ).trim(),
+    barcode: String(
+      article?.codigoBarra ||
+        article?.CodigoBarra ||
+        article?.codigoBarras ||
+        article?.CodigoBarras ||
+        article?.barcode ||
+        article?.codigo ||
+        article?.Codigo ||
+        article?.code ||
+        "",
+    ).trim(),
+    code: String(
+      article?.codigoArticulo ||
+        article?.CodigoArticulo ||
+        article?.codigoInterno ||
+        article?.CodigoInterno ||
+        article?.codigoBarra ||
+        article?.CodigoBarra ||
+        article?.barcode ||
+        article?.code ||
+        "",
+    ).trim(),
+    codigo: String(
+      article?.codigoArticulo ||
+        article?.CodigoArticulo ||
+        article?.codigoInterno ||
+        article?.CodigoInterno ||
+        article?.codigoBarra ||
+        article?.CodigoBarra ||
+        article?.barcode ||
+        article?.code ||
+        "",
+    ).trim(),
+    codigoArticulo: String(article?.codigoArticulo ?? article?.CodigoArticulo ?? article?.codigoInterno ?? article?.CodigoInterno ?? "").trim(),
+    CodigoArticulo: String(article?.codigoArticulo ?? article?.CodigoArticulo ?? article?.codigoInterno ?? article?.CodigoInterno ?? "").trim(),
+    codigoInterno: String(article?.codigoInterno ?? article?.CodigoInterno ?? article?.codigoArticulo ?? article?.CodigoArticulo ?? "").trim(),
+    CodigoInterno: String(article?.codigoInterno ?? article?.CodigoInterno ?? article?.codigoArticulo ?? article?.CodigoArticulo ?? "").trim(),
+    internalCode: String(article?.internalCode ?? article?.codigoInterno ?? article?.CodigoInterno ?? article?.codigoArticulo ?? article?.CodigoArticulo ?? "").trim(),
+    companyName: resolvedCompanyName,
+  };
+  const fallbackResult = await printLabel(
+    resolvedFormat,
+    fallbackProduct,
+    {
+      companyName: resolvedCompanyName,
+    },
   );
-  const internalCode = firstNonEmptyText(
-    article?.codigoArticulo,
-    article?.CodigoArticulo,
-    article?.codigoInterno,
-    article?.CodigoInterno,
-    article?.codigo,
-    article?.Codigo,
-    article?.internalCode,
-    article?.code,
-  );
-  const price = formatCurrency(article?.precio ?? article?.price1 ?? article?.price ?? 0);
-
-  if (resolvedCompanyName) {
-    await printText(resolvedCompanyName, { align: "center", fontSize: normalizedKey === "gondola" ? 20 : 18 });
-  }
-  if (description) {
-    await printText(description, {
-      align: "center",
-      fontSize: normalizedKey === "gondola" ? 22 : normalizedKey === "small" ? 18 : 20,
-    });
-  }
-  if (price) {
-    await printText(price, {
-      align: "center",
-      fontSize: normalizedKey === "gondola" ? 32 : 28,
-    });
-  }
-  const codeText = internalCode || barcode;
-  if (codeText) {
-    await printText(`Cod: ${codeText}`, { align: "left", fontSize: 18 });
-  }
 
   console.log("[PRINT] success");
-  return { printed: true, formatKey: normalizedKey };
+  return { printed: true, formatKey: normalizedKey, layout: fallbackResult?.layout || null };
 };
 
 export const printLabelsBatch = async (items = [], formatKey = "product", options = {}) => {
@@ -205,18 +213,18 @@ export const printLabelsBatch = async (items = [], formatKey = "product", option
       const message = String(error?.message || error || "").trim();
       summary.errors.push({
         index,
-        code: firstNonEmptyText(
-          article?.codigoArticulo,
-          article?.CodigoArticulo,
-          article?.codigoInterno,
-          article?.CodigoInterno,
-          article?.codigoBarra,
-          article?.CodigoBarra,
-          article?.codigoBarras,
-          article?.CodigoBarras,
-          article?.codigo,
-          article?.Codigo,
-          article?.code,
+        code: normalizeText(
+          article?.codigoArticulo ||
+            article?.CodigoArticulo ||
+            article?.codigoInterno ||
+            article?.CodigoInterno ||
+            article?.codigoBarra ||
+            article?.CodigoBarra ||
+            article?.codigoBarras ||
+            article?.CodigoBarras ||
+            article?.codigo ||
+            article?.Codigo ||
+            article?.code,
         ),
         message,
       });
