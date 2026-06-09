@@ -467,6 +467,14 @@ export const printSimpleProductLabel = async (formatKey = "product", product = {
     barcode: String(product?.codigoBarra ?? product?.codigoBarras ?? product?.code ?? "").trim(),
     internalCode: String(product?.codigoInterno ?? product?.codigoArticulo ?? product?.code ?? "").trim(),
   };
+  const safeCode = payload.barcode || payload.internalCode || "-";
+
+  console.log("[PRINT] payload", {
+    formatKey: key,
+    descripcionLength: payload.description.length,
+    precioTexto: payload.price,
+    codigo: safeCode,
+  });
 
   console.log("[PRINT] calling native Sunmi print");
   await module.printSimpleProductLabel(

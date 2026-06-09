@@ -423,7 +423,6 @@ public class SunmiDiagnosticsModule extends ReactContextBaseJavaModule {
     String key = String.valueOf(formatKey == null ? "" : formatKey).trim().toLowerCase(Locale.ROOT);
     String desc = String.valueOf(description == null ? "" : description).trim();
     String priceText = String.valueOf(price == null ? "" : price).trim();
-    String barcodeText = String.valueOf(barcode == null ? "" : barcode).trim();
     String internalText = String.valueOf(internalCode == null ? "" : internalCode).trim();
 
     callPrinterCommand(callback -> service.printerInit(callback));
@@ -451,11 +450,6 @@ public class SunmiDiagnosticsModule extends ReactContextBaseJavaModule {
     callPrinterCommand(callback -> service.setFontSize(titleSize, callback));
     callPrinterCommand(callback -> service.printText("AlfaScan", callback));
     callPrinterCommand(callback -> service.lineWrap(1, callback));
-
-    if (!barcodeText.isEmpty() && ("product".equals(key) || "gondola".equals(key) || "custom".equals(key) || "small".equals(key))) {
-      callPrinterCommand(callback -> service.printBarCode(barcodeText, 2, "small".equals(key) ? 100 : 130, 2, 2, callback));
-      callPrinterCommand(callback -> service.lineWrap(1, callback));
-    }
 
     if (!desc.isEmpty()) {
       callPrinterCommand(callback -> service.setFontSize(descSize, callback));
