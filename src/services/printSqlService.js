@@ -236,40 +236,60 @@ export const loadPrintFormatsFromSql = async () => {
     await connectPrintSql();
     connected = true;
 
-    const headerRows = await executeSql(`
-      SELECT IdReporte, Codigo, Nombre, Descripcion, AnchoPapelMm, AltoMm, Activo, EsPredeterminado
-      FROM dbo.Scan_Reporte
-      WHERE Codigo IN (${PRINT_CODES.map(sqlLiteral).join(", ")})
-        AND ISNULL(Activo, 1) = 1
-    `);
+    const loadRows = async (activeOnly = true) => {
+      const activeClause = activeOnly ? "AND ISNULL(r.Activo, 1) = 1" : "";
+      const headerRows = await executeSql(`
+        SELECT r.IdReporte, r.Codigo, r.Nombre, r.Descripcion, r.AnchoPapelMm, r.AltoMm, r.Activo, r.EsPredeterminado
+        FROM dbo.Scan_Reporte r
+        WHERE r.Codigo IN (${PRINT_CODES.map(sqlLiteral).join(", ")})
+        ${activeClause}
+      `);
 
-    const detailRows = await executeSql(`
-      SELECT
-        r.Codigo,
-        d.IdReporte,
-        d.TipoElemento,
-        d.Campo,
-        d.TextoFijo,
-        d.X,
-        d.Y,
-        d.Ancho,
-        d.Alto,
-        d.TamanoFuente,
-        d.Negrita,
-        d.Alineacion,
-        d.Visible,
-        d.Orden,
-        d.MaxLineas,
-        d.Mayuscula
-      FROM dbo.Scan_ReporteDetalle d
-      INNER JOIN dbo.Scan_Reporte r ON r.IdReporte = d.IdReporte
-      WHERE r.Codigo IN (${PRINT_CODES.map(sqlLiteral).join(", ")})
-        AND ISNULL(r.Activo, 1) = 1
-      ORDER BY r.Codigo, d.Orden, d.IdDetalle
-    `);
+      const detailRows = await executeSql(`
+        SELECT
+          r.Codigo,
+          d.IdReporte,
+          d.TipoElemento,
+          d.Campo,
+          d.TextoFijo,
+          d.X,
+          d.Y,
+          d.Ancho,
+          d.Alto,
+          d.TamanoFuente,
+          d.Negrita,
+          d.Alineacion,
+          d.Visible,
+          d.Orden,
+          d.MaxLineas,
+          d.Mayuscula
+        FROM dbo.Scan_ReporteDetalle d
+        INNER JOIN dbo.Scan_Reporte r ON r.IdReporte = d.IdReporte
+        WHERE r.Codigo IN (${PRINT_CODES.map(sqlLiteral).join(", ")})
+        ${activeClause}
+        ORDER BY r.Codigo, d.Orden, d.IdDetalle
+      `);
 
-    const headers = Array.isArray(headerRows) ? headerRows : headerRows?.rows || headerRows?.recordset || [];
-    const details = Array.isArray(detailRows) ? detailRows : detailRows?.rows || detailRows?.recordset || [];
+      const headers = Array.isArray(headerRows) ? headerRows : headerRows?.rows || headerRows?.recordset || [];
+      const details = Array.isArray(detailRows) ? detailRows : detailRows?.rows || detailRows?.recordset || [];
+
+      return { headers, details };
+    };
+
+    let { headers, details } = await loadRows(true);
+    if (!headers.length && !details.length) {
+      if (__DEV__) {
+        console.log("[PRINT_SQL] no active rows, retrying without active filter");
+      }
+      ({ headers, details } = await loadRows(false));
+    }
+
+    if (__DEV__) {
+      console.log("[PRINT_SQL] rows", {
+        headers: headers.length,
+        details: details.length,
+      });
+    }
 
     if (!headers.length && !details.length) {
       return null;
@@ -288,6 +308,10 @@ export const loadPrintFormatsFromSql = async () => {
         .sort((a, b) => toInt(a.Orden ?? a.orden, 0) - toInt(b.Orden ?? b.orden, 0))
         .map((row, index) => mapSqlDetailToElement(row, index));
       loaded[code] = mapSqlHeaderToFormat(header, i, elements);
+    }
+
+    if (__DEV__) {
+      console.log("[PRINT_SQL] loaded codes", Object.keys(loaded));
     }
 
     return Object.keys(loaded).length ? loaded : null;
