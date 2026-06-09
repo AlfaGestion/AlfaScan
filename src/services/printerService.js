@@ -4,7 +4,6 @@ import { getCompanyNameFromSqlConfig } from "@services/catalogService";
 import {
   getPrinterStatus,
   initPrinter,
-  printBarcode,
   printSimpleProductLabel,
   printText,
 } from "@services/sunmiPrinterService";
@@ -35,6 +34,18 @@ const normalizeFormatKey = (value) => {
     return String(value.key ?? value.formatKey ?? "product").trim().toLowerCase();
   }
   return String(value ?? "product").trim().toLowerCase();
+};
+
+const normalizeText = (value) => String(value ?? "").trim();
+
+const firstNonEmptyText = (...values) => {
+  for (const value of values) {
+    const text = normalizeText(value);
+    if (text) {
+      return text;
+    }
+  }
+  return "";
 };
 
 const resolveCompanyName = async ({ article, companyName } = {}) => {
@@ -75,12 +86,33 @@ export const printArticle = async ({
   const resolvedCompanyName = await resolveCompanyName({ article, companyName });
 
   if (diagnosticsModule && typeof diagnosticsModule.printSimpleProductLabel === "function") {
+    const barcode = firstNonEmptyText(
+      article?.codigoBarra,
+      article?.CodigoBarra,
+      article?.codigoBarras,
+      article?.CodigoBarras,
+      article?.codigo,
+      article?.Codigo,
+      article?.barcode,
+      article?.code,
+    );
+    const internalCode = firstNonEmptyText(
+      article?.codigoArticulo,
+      article?.CodigoArticulo,
+      article?.codigoInterno,
+      article?.CodigoInterno,
+      article?.codigo,
+      article?.Codigo,
+      article?.internalCode,
+      article?.code,
+    );
+
     return await printSimpleProductLabel({
       formatKey: normalizedKey,
       description: String(article?.descripcion ?? article?.name ?? "").trim(),
       price: formatCurrency(article?.precio ?? article?.price1 ?? article?.price ?? 0),
-      barcode: String(article?.codigoBarra ?? article?.codigoBarras ?? article?.code ?? "").trim(),
-      internalCode: String(article?.codigoInterno ?? article?.codigoArticulo ?? article?.code ?? "").trim(),
+      barcode,
+      internalCode,
       companyName: resolvedCompanyName,
       copies: 1,
     });
@@ -91,35 +123,46 @@ export const printArticle = async ({
   console.log("[PRINT] calling native Sunmi print");
 
   const description = String(article?.descripcion ?? article?.name ?? "").trim();
-  const barcode = String(article?.codigoBarra ?? article?.codigoBarras ?? article?.code ?? "").trim();
-  const internalCode = String(article?.codigoInterno ?? article?.codigoArticulo ?? article?.code ?? "").trim();
+  const barcode = firstNonEmptyText(
+    article?.codigoBarra,
+    article?.CodigoBarra,
+    article?.codigoBarras,
+    article?.CodigoBarras,
+    article?.codigo,
+    article?.Codigo,
+    article?.barcode,
+    article?.code,
+  );
+  const internalCode = firstNonEmptyText(
+    article?.codigoArticulo,
+    article?.CodigoArticulo,
+    article?.codigoInterno,
+    article?.CodigoInterno,
+    article?.codigo,
+    article?.Codigo,
+    article?.internalCode,
+    article?.code,
+  );
   const price = formatCurrency(article?.precio ?? article?.price1 ?? article?.price ?? 0);
 
   if (resolvedCompanyName) {
     await printText(resolvedCompanyName, { align: "center", fontSize: normalizedKey === "gondola" ? 20 : 18 });
   }
-  if (barcode) {
-    await printBarcode(barcode, {
-      barcodeType: "EAN13",
-      height: normalizedKey === "small" ? 90 : normalizedKey === "gondola" ? 140 : 120,
-      width: 2,
-      showNumber: true,
-    });
-  }
   if (description) {
     await printText(description, {
       align: "center",
-      fontSize: normalizedKey === "gondola" ? 22 : normalizedKey === "small" ? 16 : 18,
+      fontSize: normalizedKey === "gondola" ? 22 : normalizedKey === "small" ? 18 : 20,
     });
   }
   if (price) {
     await printText(price, {
       align: "center",
-      fontSize: normalizedKey === "gondola" ? 32 : 26,
+      fontSize: normalizedKey === "gondola" ? 32 : 28,
     });
   }
-  if (internalCode) {
-    await printText(`Cod: ${internalCode}`, { align: "center", fontSize: 16 });
+  const codeText = internalCode || barcode;
+  if (codeText) {
+    await printText(`Cod: ${codeText}`, { align: "left", fontSize: 18 });
   }
 
   console.log("[PRINT] success");
@@ -162,7 +205,19 @@ export const printLabelsBatch = async (items = [], formatKey = "product", option
       const message = String(error?.message || error || "").trim();
       summary.errors.push({
         index,
-        code: String(article?.codigoBarra ?? article?.codigoBarras ?? article?.code ?? "").trim(),
+        code: firstNonEmptyText(
+          article?.codigoArticulo,
+          article?.CodigoArticulo,
+          article?.codigoInterno,
+          article?.CodigoInterno,
+          article?.codigoBarra,
+          article?.CodigoBarra,
+          article?.codigoBarras,
+          article?.CodigoBarras,
+          article?.codigo,
+          article?.Codigo,
+          article?.code,
+        ),
         message,
       });
       console.log("[PRINT] batch error", { index, message });

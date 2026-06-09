@@ -47,6 +47,16 @@ const setStatus = (nextStatus = {}) => {
 
 const normalizeText = (value) => String(value ?? "").trim();
 
+const firstNonEmptyText = (...values) => {
+  for (const value of values) {
+    const text = normalizeText(value);
+    if (text) {
+      return text;
+    }
+  }
+  return "";
+};
+
 const callNativeAsync = async (module, methodName, ...args) => {
   if (!module || typeof module[methodName] !== "function") {
     throw new Error(INTEGRATION_NOT_IMPLEMENTED_MESSAGE);
@@ -477,13 +487,35 @@ export const printSimpleProductLabel = async (payloadOrFormatKey = "product", pr
   const payload = {
     description: String(input?.description ?? input?.descripcion ?? input?.name ?? "").trim(),
     price: String(input?.price ?? formatSimpleCurrency(input?.precio ?? input?.price1 ?? input?.price ?? 0)).trim(),
-    barcode: String(input?.barcode ?? input?.codigoBarra ?? input?.codigoBarras ?? input?.code ?? "").trim(),
-    internalCode: String(input?.internalCode ?? input?.codigoInterno ?? input?.codigoArticulo ?? input?.code ?? "").trim(),
+    barcode: firstNonEmptyText(
+      input?.barcode,
+      input?.codigoBarra,
+      input?.CodigoBarra,
+      input?.codigoBarras,
+      input?.CodigoBarras,
+      input?.codigo,
+      input?.Codigo,
+      input?.code,
+    ),
+    internalCode: firstNonEmptyText(
+      input?.internalCode,
+      input?.codigoArticulo,
+      input?.CodigoArticulo,
+      input?.codigoInterno,
+      input?.CodigoInterno,
+      input?.codigo,
+      input?.Codigo,
+      input?.code,
+    ),
   };
   const companyName = String(input?.companyName ?? "").trim() || (await getCompanyNameFromSqlConfig().catch(() => ""));
-  const safeCode = payload.barcode || payload.internalCode || "-";
+  const safeCode = payload.internalCode || payload.barcode || "-";
 
   console.log("[PRINT] companyName", companyName || "");
+  console.log("[PRINT] codes", {
+    barcode: payload.barcode,
+    internalCode: payload.internalCode,
+  });
   console.log("[PRINT] payload", {
     formatKey: key,
     companyName: companyName || "",

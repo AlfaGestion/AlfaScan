@@ -494,6 +494,7 @@ public class SunmiDiagnosticsModule extends ReactContextBaseJavaModule {
   private void printSimpleProductLabelInternal(IWoyouService service, String formatKey, String description, String price, String barcode, String internalCode, String companyName, int copies) throws Exception {
     String desc = String.valueOf(description == null ? "" : description).trim();
     String priceText = String.valueOf(price == null ? "" : price).trim();
+    String barcodeText = String.valueOf(barcode == null ? "" : barcode).trim();
     String internalText = String.valueOf(internalCode == null ? "" : internalCode).trim();
     String companyText = String.valueOf(companyName == null ? "" : companyName).trim();
     int totalCopies = Math.max(1, copies);
@@ -512,26 +513,25 @@ public class SunmiDiagnosticsModule extends ReactContextBaseJavaModule {
         callPrinterCommand(callback -> service.setAlignment(1, callback));
         callPrinterCommand(callback -> service.setFontSize(18f, callback));
         callPrinterCommand(callback -> service.printText(companyWrapped + "\n", callback));
-        callPrinterCommand(callback -> service.lineWrap(1, callback));
       }
 
       Log.i(TAG, "[SUNMI] print description");
-      callPrinterCommand(callback -> service.setAlignment(0, callback));
-      callPrinterCommand(callback -> service.setFontSize(20f, callback));
-      callPrinterCommand(callback -> service.printText(wrapText(desc.isEmpty() ? "Producto" : desc, 28) + "\n", callback));
-      callPrinterCommand(callback -> service.lineWrap(1, callback));
+      callPrinterCommand(callback -> service.setAlignment(1, callback));
+      callPrinterCommand(callback -> service.setFontSize(22f, callback));
+      callPrinterCommand(callback -> service.printText(wrapText(desc.isEmpty() ? "Producto" : desc, 24) + "\n", callback));
 
       Log.i(TAG, "[SUNMI] print price");
       callPrinterCommand(callback -> service.setAlignment(1, callback));
-      callPrinterCommand(callback -> service.setFontSize(24f, callback));
+      callPrinterCommand(callback -> service.setFontSize(30f, callback));
       callPrinterCommand(callback -> service.printText((priceText.isEmpty() ? "$ 0,00" : priceText) + "\n", callback));
-      callPrinterCommand(callback -> service.lineWrap(1, callback));
 
       Log.i(TAG, "[SUNMI] print code");
       callPrinterCommand(callback -> service.setAlignment(0, callback));
       callPrinterCommand(callback -> service.setFontSize(18f, callback));
-      callPrinterCommand(callback -> service.printText("Cod: " + (internalText.isEmpty() ? "-" : internalText) + "\n", callback));
-      callPrinterCommand(callback -> service.lineWrap(2, callback));
+      String codeText = !internalText.isEmpty() ? internalText : !barcodeText.isEmpty() ? barcodeText : "-";
+      callPrinterCommand(callback -> service.printText("Cod: " + codeText + "\n", callback));
+
+      callPrinterCommand(callback -> service.lineWrap(1, callback));
     }
     Log.i(TAG, "[SUNMI] print done");
   }
