@@ -1,46 +1,69 @@
 import { useEffect, useLayoutEffect, useState } from "react";
-import { ActivityIndicator, FlatList, Image, Text, View } from "react-native";
+import { ActivityIndicator, Image, Text, View } from "react-native";
 import SafeAreaView from "react-native-safe-area-view";
 
-import StorageStockInfo from "@components/StorageStockInfo";
+import Product from "@db/Product";
+import Configuration from "@db/Configuration";
 import iconStock from "@icons/stock.png";
-import { stockScreenStyles } from "@styles/ProductStyle";
-import { getProductStock } from "../../services/product";
+import { currencyFormat } from "@libraries/utils";
 import { useThemeConfig } from "@context/ThemeContext";
+import { stockScreenStyles } from "@styles/ProductStyle";
 
 export default function ProductStockScreen({ navigation, route }) {
-
-  const { code = null, name = null } = route?.params || {}
-
+  const { code = null, name = null } = route?.params || {};
 
   const [isEmpty, setIsEmpty] = useState(false);
-  const [storageInfo, setStorageInfo] = useState([]);
+  const [productInfo, setProductInfo] = useState(null);
   const [statusResponse, setStatusResponse] = useState("");
+  const [useStockColumn, setUseStockColumn] = useState(false);
   const { darkMode } = useThemeConfig();
 
+  async function loadStockConfig() {
+    try {
+      await Configuration.createTable();
+      const stockValue =
+        (await Configuration.getConfigValue("SQL_USE_STOCK_COLUMN")) ??
+        (await Configuration.getConfigValue("SQL_USE_STOCK"));
+      return stockValue == "1";
+    } catch (error) {
+      return false;
+    }
+  }
 
-
-  async function loadStockOnline() {
-
-    // const data = await getDataFromAPI("stock/product", JSON.stringify(payload), "POST");
-
-    const data = await getProductStock(code);
-
-    if (data.status_code === 200) {
-      if (data.data.length > 0) {
-        setStorageInfo(data.data);
-      } else {
-        setStatusResponse("No hay información disponible");
+  async function loadProductStock(stockEnabled = useStockColumn) {
+    try {
+      if (!stockEnabled) {
+        setProductInfo(null);
+        setIsEmpty(true);
+        setStatusResponse("Stock desactivado en la configuración");
+        return;
       }
-      setIsEmpty(data.data.length == 0);
-    } else {
+
+      const rows = await Product.findByCode(String(code ?? ""), "");
+      const nextProduct = Array.isArray(rows) ? rows[0] ?? null : null;
+
+      if (!nextProduct) {
+        setProductInfo(null);
+        setIsEmpty(true);
+        setStatusResponse("No hay información disponible");
+        return;
+      }
+
+      setProductInfo(nextProduct);
+      setIsEmpty(false);
+    } catch (error) {
+      setProductInfo(null);
       setIsEmpty(true);
-      setStatusResponse(data.message);
+      setStatusResponse(error?.message || "No se pudo consultar el stock");
     }
   }
 
   useEffect(() => {
-    loadStockOnline();
+    (async () => {
+      const stockEnabled = await loadStockConfig();
+      setUseStockColumn(stockEnabled);
+      await loadProductStock(stockEnabled);
+    })();
   }, []);
 
   useLayoutEffect(() => {
@@ -62,18 +85,19 @@ export default function ProductStockScreen({ navigation, route }) {
           <Text style={[stockScreenStyles.titleName, darkMode && styles.titleNameDark]}>{name?.trim()}</Text>
         </View>
 
-        {storageInfo.length > 0 ? (
-          <FlatList
-            ListFooterComponent={<View />}
-            ListFooterComponentStyle={{ height: 200 }}
-            scrollEnabled={true}
-            style={[stockScreenStyles.flatList]}
-            data={storageInfo}
-            keyExtractor={(item) => item.deposito + ""}
-            renderItem={({ item }) => {
-              return <StorageStockInfo stock={item.stock} name={item.deposito} darkMode={darkMode}></StorageStockInfo>;
-            }}
-          />
+        {productInfo ? (
+          <View style={[styles.stockCard, darkMode && styles.stockCardDark]}>
+            <Text style={[styles.stockLabel, darkMode && styles.stockLabelDark]}>Stock disponible</Text>
+            <Text style={[styles.stockValue, darkMode && styles.stockValueDark]}>{productInfo?.stock ?? 0}</Text>
+            <Text style={[styles.detailText, darkMode && styles.detailTextDark]}>
+              Precio: {currencyFormat(productInfo?.precio ?? productInfo?.price1 ?? 0)}
+            </Text>
+            {productInfo?.fechaActualizacion ? (
+              <Text style={[styles.detailText, darkMode && styles.detailTextDark]}>
+                Actualizado: {productInfo.fechaActualizacion}
+              </Text>
+            ) : null}
+          </View>
         ) : isEmpty ? (
           <Text style={[stockScreenStyles.labelError]}>{statusResponse}</Text>
         ) : (
@@ -94,5 +118,46 @@ const styles = {
   },
   titleNameDark: {
     color: "#E8F0F8",
+  },
+  stockCard: {
+    marginTop: 16,
+    width: "100%",
+    borderRadius: 16,
+    padding: 18,
+    backgroundColor: "#F7FBFF",
+    borderWidth: 1,
+    borderColor: "#D8E5F2",
+  },
+  stockCardDark: {
+    backgroundColor: "#152332",
+    borderColor: "#2D4154",
+  },
+  stockLabel: {
+    fontSize: 13,
+    textTransform: "uppercase",
+    letterSpacing: 0.8,
+    marginBottom: 4,
+    color: "#56708B",
+    fontWeight: "700",
+  },
+  stockLabelDark: {
+    color: "#9CB2C8",
+  },
+  stockValue: {
+    fontSize: 36,
+    fontWeight: "800",
+    color: "#1A395A",
+    marginBottom: 8,
+  },
+  stockValueDark: {
+    color: "#E8F0F8",
+  },
+  detailText: {
+    fontSize: 14,
+    color: "#475A6F",
+    marginTop: 4,
+  },
+  detailTextDark: {
+    color: "#BFD0E0",
   },
 };

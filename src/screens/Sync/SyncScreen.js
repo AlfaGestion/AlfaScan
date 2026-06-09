@@ -106,11 +106,14 @@ export default function SyncScreen({ navigation }) {
           <Text style={[styles.description, { color: theme.muted }]}>
             En modo SQL Local, la app descarga el catalogo al dispositivo y luego las busquedas se realizan sobre la base local.
           </Text>
+          <Text style={[styles.descriptionNote, { color: theme.muted }]}>
+            SQL directo requiere APK propia / development build. No funciona en Expo Go.
+          </Text>
 
           <View style={[styles.infoBox, { backgroundColor: theme.surfaceAlt, borderColor: theme.border }]}>
             <Ionicons name="server-outline" size={18} color={theme.accent} />
             <Text style={[styles.infoText, { color: theme.text }]}>
-              Modo actual: {mode === "ONLINE" ? "SQL Online" : mode === "LOCAL" ? "SQL Local" : "AlfaNet / API"}
+              Modo actual: {mode === "ONLINE" ? "SQL Online" : mode === "LOCAL" ? "SQL Local" : "API AlfaNet"}
             </Text>
           </View>
 
@@ -177,6 +180,12 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     fontFamily: Fonts.body,
     marginBottom: 16,
+  },
+  descriptionNote: {
+    fontSize: 12,
+    lineHeight: 17,
+    fontFamily: Fonts.body,
+    marginBottom: 14,
   },
   infoBox: {
     minHeight: 50,

@@ -8,7 +8,7 @@ export default class Product extends BaseModel {
   }
 
   static get database() {
-    return async () => SQLite.openDatabase("alfadeposito.db");
+    return async () => SQLite.openDatabase("AlfaScan.db");
   }
 
   static get tableName() {
@@ -19,19 +19,25 @@ export default class Product extends BaseModel {
     return {
       id: { type: types.INTEGER, primary_key: true },
       code: { type: types.TEXT },
+      codigoArticulo: { type: types.TEXT },
       codigoBarras: { type: types.TEXT },
+      codigoBarra: { type: types.TEXT },
       codigoBarra1: { type: types.TEXT },
       codigoBarra2: { type: types.TEXT },
       codigoBarra3: { type: types.TEXT },
       codigoBarra4: { type: types.TEXT },
       codigoBarraDun: { type: types.TEXT },
       name: { type: types.TEXT },
+      descripcion: { type: types.TEXT },
       category: { type: types.TEXT },
       family: { type: types.TEXT },
       iva: { type: types.NUMERIC },
       internal_taxes: { type: types.NUMERIC },
       cant_propuesta: { type: types.NUMERIC },
       exempt: { type: types.NUMERIC },
+      precio: { type: types.NUMERIC },
+      stock: { type: types.NUMERIC },
+      fechaActualizacion: { type: types.TEXT },
       price1: { type: types.NUMERIC },
       price2: { type: types.NUMERIC },
       price3: { type: types.NUMERIC },
@@ -45,32 +51,47 @@ export default class Product extends BaseModel {
     };
   }
 
+  static maskStockRows(rows, useStockColumn = true) {
+    const safeRows = Array.isArray(rows) ? rows : [];
+    if (useStockColumn) {
+      return safeRows;
+    }
+
+    return safeRows.map((row) => ({
+      ...row,
+      stock: null,
+    }));
+  }
+
   static async query(options = {}) {
     const config = await CatalogService.getCatalogConfig();
     if (config.mode === "ONLINE") {
       const page = options?.page ?? 1;
       const limit = options?.limit ?? 20;
       const priceClass = options?.priceClass ?? options?.classPrice ?? 1;
-      return await CatalogService.queryCatalogPage({
+      const rows = await CatalogService.queryCatalogPage({
         searchText: "",
         page,
         limit,
         priceClass,
       });
+      return Product.maskStockRows(rows, config.useStockColumn);
     }
 
-    return await super.query(options);
+    const rows = await super.query(options);
+    return Product.maskStockRows(rows, config.useStockColumn);
   }
 
   static async findLikeName(name, classPrice = 1, limit = 20, lista = '') {
     const config = await CatalogService.getCatalogConfig();
     if (config.mode === "ONLINE") {
-      return await CatalogService.findCatalogLikeName({
+      const rows = await CatalogService.findCatalogLikeName({
         name,
         classPrice,
         limit,
         page: 1,
       });
+      return Product.maskStockRows(rows, config.useStockColumn);
     }
 
     const page = 1;
@@ -78,24 +99,26 @@ export default class Product extends BaseModel {
     const searchLike = `%${search}%`;
     let sql;
     if (lista == '' || lista == null || lista == undefined) {
-      sql = `Select cant_propuesta,code, codigoBarras, codigoBarra1, codigoBarra2, codigoBarra3, codigoBarra4, codigoBarraDun, name, id, price${classPrice} from products 
-    where (lower(name) like ? or lower(code) like ? or lower(codigoBarras) like ? or lower(codigoBarra1) like ? or lower(codigoBarra2) like ? or lower(codigoBarra3) like ? or lower(codigoBarra4) like ? or lower(codigoBarraDun) like ?) 
+      sql = `Select cant_propuesta, code, codigoArticulo, codigoBarras, codigoBarra, codigoBarra1, codigoBarra2, codigoBarra3, codigoBarra4, codigoBarraDun, name, descripcion, precio, stock, fechaActualizacion, id, price${classPrice} from products
+    where (lower(name) like ? or lower(code) like ? or lower(codigoBarras) like ? or lower(codigoBarra1) like ? or lower(codigoBarra2) like ? or lower(codigoBarra3) like ? or lower(codigoBarra4) like ? or lower(codigoBarraDun) like ?)
     order by name ASC limit ${limit} offset ${(page - 1) * limit}`;
     } else {
-      sql = `Select cant_propuesta,code, codigoBarras, codigoBarra1, codigoBarra2, codigoBarra3, codigoBarra4, codigoBarraDun, name, id, price${classPrice} from products_listas 
-    where lista='${lista}' and (lower(name) like ? or lower(code) like ? or lower(codigoBarras) like ? or lower(codigoBarra1) like ? or lower(codigoBarra2) like ? or lower(codigoBarra3) like ? or lower(codigoBarra4) like ? or lower(codigoBarraDun) like ?) 
+      sql = `Select cant_propuesta, code, codigoArticulo, codigoBarras, codigoBarra, codigoBarra1, codigoBarra2, codigoBarra3, codigoBarra4, codigoBarraDun, name, descripcion, precio, stock, fechaActualizacion, id, price${classPrice} from products_listas
+    where lista='${lista}' and (lower(name) like ? or lower(code) like ? or lower(codigoBarras) like ? or lower(codigoBarra1) like ? or lower(codigoBarra2) like ? or lower(codigoBarra3) like ? or lower(codigoBarra4) like ? or lower(codigoBarraDun) like ?)
     order by name ASC limit ${limit} offset ${(page - 1) * limit}`;
     }
-    return await this.repository.databaseLayer.executeSql(sql, [searchLike, searchLike, searchLike, searchLike, searchLike, searchLike, searchLike, searchLike]).then(({ rows }) => rows);
+    const rows = await this.repository.databaseLayer.executeSql(sql, [searchLike, searchLike, searchLike, searchLike, searchLike, searchLike, searchLike, searchLike]).then(({ rows }) => rows);
+    return Product.maskStockRows(rows, config.useStockColumn);
   }
 
   static async findByCode(code, lista = '') {
     const config = await CatalogService.getCatalogConfig();
     if (config.mode === "ONLINE") {
-      return await CatalogService.findCatalogByCode({
+      const rows = await CatalogService.findCatalogByCode({
         code,
         classPrice: 1,
       });
+      return Product.maskStockRows(rows, config.useStockColumn);
     }
 
     const rawCode = String(code ?? "").trim();
@@ -105,7 +128,7 @@ export default class Product extends BaseModel {
     const normalizedCodeLower = normalizedCode.toLowerCase();
     if (!searchCode) return [];
 
-    const select = `SELECT cant_propuesta, code, codigoBarras, codigoBarra1, codigoBarra2, codigoBarra3, codigoBarra4, codigoBarraDun, name, id, price1, price2, price3, price4, price5, price6, price7, price8, price9, price10`;
+    const select = `SELECT cant_propuesta, code, codigoArticulo, codigoBarras, codigoBarra, codigoBarra1, codigoBarra2, codigoBarra3, codigoBarra4, codigoBarraDun, name, descripcion, precio, stock, fechaActualizacion, id, price1, price2, price3, price4, price5, price6, price7, price8, price9, price10`;
     const barcodeWhere = `(
       lower(trim(code)) = ? OR lower(replace(trim(code), ' ', '')) = ? OR
       lower(trim(codigoBarras)) = ? OR lower(replace(trim(codigoBarras), ' ', '')) = ? OR
@@ -125,7 +148,7 @@ export default class Product extends BaseModel {
 
       let rowsListas = await this.repository.databaseLayer.executeSql(sqlListas, [lista, searchCodeLower, normalizedCodeLower, searchCodeLower, normalizedCodeLower, searchCodeLower, normalizedCodeLower, searchCodeLower, normalizedCodeLower, searchCodeLower, normalizedCodeLower, searchCodeLower, normalizedCodeLower, searchCodeLower, normalizedCodeLower]).then(({ rows }) => rows);
       if (rowsListas && rowsListas.length > 0) {
-        return rowsListas;
+        return Product.maskStockRows(rowsListas, config.useStockColumn);
       }
 
       if (normalizedCode && normalizedCode !== searchCode) {
@@ -143,7 +166,7 @@ export default class Product extends BaseModel {
           ORDER BY name ASC LIMIT 1`;
         rowsListas = await this.repository.databaseLayer.executeSql(sqlListasNorm, [lista, normalizedCode, normalizedCode, normalizedCode, normalizedCode, normalizedCode, normalizedCode]).then(({ rows }) => rows);
         if (rowsListas && rowsListas.length > 0) {
-          return rowsListas;
+          return Product.maskStockRows(rowsListas, config.useStockColumn);
         }
       }
     }
@@ -156,7 +179,7 @@ export default class Product extends BaseModel {
 
     let rows = await this.repository.databaseLayer.executeSql(sql, [searchCodeLower, normalizedCodeLower, searchCodeLower, normalizedCodeLower, searchCodeLower, normalizedCodeLower, searchCodeLower, normalizedCodeLower, searchCodeLower, normalizedCodeLower, searchCodeLower, normalizedCodeLower, searchCodeLower, normalizedCodeLower]).then(({ rows }) => rows);
     if (rows && rows.length > 0) {
-      return rows;
+      return Product.maskStockRows(rows, config.useStockColumn);
     }
 
     if (normalizedCode && normalizedCode !== searchCode) {
@@ -174,7 +197,7 @@ export default class Product extends BaseModel {
         ORDER BY name ASC LIMIT 1`;
       rows = await this.repository.databaseLayer.executeSql(sqlNorm, [normalizedCode, normalizedCode, normalizedCode, normalizedCode, normalizedCode, normalizedCode]).then(({ rows }) => rows);
       if (rows && rows.length > 0) {
-        return rows;
+        return Product.maskStockRows(rows, config.useStockColumn);
       }
     }
 
@@ -211,10 +234,11 @@ export default class Product extends BaseModel {
   static async findByCodes(codes = [], lista = '') {
     const config = await CatalogService.getCatalogConfig();
     if (config.mode === "ONLINE") {
-      return await CatalogService.findCatalogByCodes({
+      const rows = await CatalogService.findCatalogByCodes({
         codes,
         classPrice: 1,
       });
+      return Product.maskStockRows(rows, config.useStockColumn);
     }
 
     const rawCodes = Array.from(new Set((codes || []).map(c => String(c ?? "").trim()).filter(Boolean)));
@@ -222,7 +246,7 @@ export default class Product extends BaseModel {
 
     const normalizedCodes = Array.from(new Set(rawCodes.map(c => c.replace(/\s+/g, "").replace(/[^0-9a-z]/gi, ""))));
 
-    const select = `SELECT cant_propuesta, code, codigoBarras, codigoBarra1, codigoBarra2, codigoBarra3, codigoBarra4, codigoBarraDun, name, id, price1, price2, price3, price4, price5, price6, price7, price8, price9, price10`;
+    const select = `SELECT cant_propuesta, code, codigoArticulo, codigoBarras, codigoBarra, codigoBarra1, codigoBarra2, codigoBarra3, codigoBarra4, codigoBarraDun, name, descripcion, precio, stock, fechaActualizacion, id, price1, price2, price3, price4, price5, price6, price7, price8, price9, price10`;
     const inRaw = rawCodes.map(() => "?").join(",");
 
     const exactWhere = `(
@@ -267,7 +291,7 @@ export default class Product extends BaseModel {
         rows = [...(rows || []), ...(rowsNorm || [])];
       }
 
-      return rows || [];
+      return Product.maskStockRows(rows || [], config.useStockColumn);
     }
 
     const sql = `
@@ -298,23 +322,24 @@ export default class Product extends BaseModel {
       rows = [...(rows || []), ...(rowsNorm || [])];
     }
 
-    return rows || [];
+    return Product.maskStockRows(rows || [], config.useStockColumn);
   }
 
   static async findByBarcodePrefix(scannedCode, lista = '') {
     const config = await CatalogService.getCatalogConfig();
     if (config.mode === "ONLINE") {
-      return await CatalogService.findCatalogByBarcodePrefix({
+      const rows = await CatalogService.findCatalogByBarcodePrefix({
         scannedCode,
         classPrice: 1,
       });
+      return Product.maskStockRows(rows, config.useStockColumn);
     }
 
     const rawCode = String(scannedCode ?? "").trim();
     const normalizedCode = rawCode.replace(/\s+/g, "").replace(/[^0-9a-z]/gi, "");
     if (!normalizedCode) return [];
 
-    const select = `SELECT cant_propuesta, code, codigoBarras, codigoBarra1, codigoBarra2, codigoBarra3, codigoBarra4, codigoBarraDun, name, id, price1, price2, price3, price4, price5, price6, price7, price8, price9, price10`;
+    const select = `SELECT cant_propuesta, code, codigoArticulo, codigoBarras, codigoBarra, codigoBarra1, codigoBarra2, codigoBarra3, codigoBarra4, codigoBarraDun, name, descripcion, precio, stock, fechaActualizacion, id, price1, price2, price3, price4, price5, price6, price7, price8, price9, price10`;
     const prefixWhere = `(
       ? LIKE replace(trim(code), ' ', '') || '%' OR
       ? LIKE replace(trim(codigoBarras), ' ', '') || '%' OR
@@ -331,7 +356,8 @@ export default class Product extends BaseModel {
         FROM products_listas
         WHERE lista=? AND ${prefixWhere}
       `;
-      return await this.repository.databaseLayer.executeSql(sqlListas, [String(lista), normalizedCode, normalizedCode, normalizedCode, normalizedCode, normalizedCode, normalizedCode, normalizedCode]).then(({ rows }) => rows);
+      const rows = await this.repository.databaseLayer.executeSql(sqlListas, [String(lista), normalizedCode, normalizedCode, normalizedCode, normalizedCode, normalizedCode, normalizedCode, normalizedCode]).then(({ rows }) => rows);
+      return Product.maskStockRows(rows, config.useStockColumn);
     }
 
     const sql = `
@@ -339,7 +365,8 @@ export default class Product extends BaseModel {
       FROM products
       WHERE ${prefixWhere}
     `;
-    return await this.repository.databaseLayer.executeSql(sql, [normalizedCode, normalizedCode, normalizedCode, normalizedCode, normalizedCode, normalizedCode, normalizedCode]).then(({ rows }) => rows);
+    const rows = await this.repository.databaseLayer.executeSql(sql, [normalizedCode, normalizedCode, normalizedCode, normalizedCode, normalizedCode, normalizedCode, normalizedCode]).then(({ rows }) => rows);
+    return Product.maskStockRows(rows, config.useStockColumn);
   }
 
   static async ensureBarcodeColumns() {

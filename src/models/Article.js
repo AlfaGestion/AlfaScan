@@ -17,12 +17,50 @@ export default class Article {
 
   static fromRow(row = {}) {
     return new Article({
-      codigoBarra: row.codigoBarra ?? row.codigoBarras ?? row.code ?? row.codigoInterno ?? "",
-      codigoInterno: row.codigoInterno ?? row.code ?? row.codigo ?? "",
-      descripcion: row.descripcion ?? row.name ?? row.nombre ?? "",
-      precio: row.precio ?? row.price1 ?? row.price ?? row.precio1 ?? row.priceSelected ?? 0,
-      stock: row.stock ?? row.cant_propuesta ?? row.cantPropuesta ?? row.qty ?? row.quantity ?? null,
-      fechaActualizacion: row.fechaActualizacion ?? row.updated_at ?? row.updatedAt ?? row.fecha_actualizacion ?? "",
+      codigoBarra:
+        row.codigoBarra ??
+        row.codigoBarras ??
+        row.CodigoBarra ??
+        row.CodigoBarras ??
+        row.code ??
+        row.codigoInterno ??
+        "",
+      codigoInterno:
+        row.codigoInterno ??
+        row.codigoArticulo ??
+        row.code ??
+        row.codigo ??
+        row.CodigoArticulo ??
+        "",
+      descripcion:
+        row.descripcion ??
+        row.Descripcion ??
+        row.name ??
+        row.nombre ??
+        "",
+      precio:
+        row.precio ??
+        row.Precio ??
+        row.price1 ??
+        row.price ??
+        row.precio1 ??
+        row.priceSelected ??
+        0,
+      stock:
+        row.stock ??
+        row.Stock ??
+        row.cant_propuesta ??
+        row.cantPropuesta ??
+        row.qty ??
+        row.quantity ??
+        null,
+      fechaActualizacion:
+        row.fechaActualizacion ??
+        row.FechaActualizacion ??
+        row.updated_at ??
+        row.updatedAt ??
+        row.fecha_actualizacion ??
+        "",
     });
   }
 }

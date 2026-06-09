@@ -1,20 +1,29 @@
 import { Image, Text, StyleSheet, View } from "react-native";
 import Colors from "@styles/Colors";
-import { Fonts, Shadow } from "@styles/Theme";
+import { Fonts } from "@styles/Theme";
 
-import alfaLogo from "../../assets/icon.png";
+import alfaLogo from "../../assets/alfa_logo.png";
 
-export default function BrandMark({ label = "AlfaScan", size = 64, logoSource = alfaLogo, darkMode = false }) {
-  const logoSize = size;
-
+export default function BrandMark({
+  label = "AlfaScan",
+  size = 72,
+  logoSource = alfaLogo,
+  darkMode = false,
+}) {
   return (
     <View style={styles.container}>
       <Image
         source={logoSource}
-        style={[styles.logo, { width: logoSize, height: logoSize }]}
+        style={{
+          width: size,
+          height: size,
+        }}
         resizeMode="contain"
       />
-      <Text style={[styles.label, darkMode && styles.labelDark]}>{label}</Text>
+
+      <Text style={[styles.label, darkMode && styles.labelDark]}>
+        {label}
+      </Text>
     </View>
   );
 }
@@ -23,24 +32,19 @@ const styles = StyleSheet.create({
   container: {
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 12,
+    paddingVertical: 2,
   },
-  logo: {
-    borderRadius: 999,
-    backgroundColor: Colors.SURFACE,
-    padding: 6,
-    ...Shadow.sm,
-  },
+
   label: {
-    marginTop: 12,
+    marginTop: 2,
     fontFamily: Fonts.display,
-    fontSize: 20,
+    fontSize: 18,
+    fontWeight: "600",
+    letterSpacing: 0.1,
     color: Colors.DGREY,
   },
+
   labelDark: {
     color: "#E8F0F8",
-    textShadowColor: "rgba(0,0,0,0.35)",
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 3,
   },
 });

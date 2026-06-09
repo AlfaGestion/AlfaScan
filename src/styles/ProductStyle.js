@@ -141,34 +141,4 @@ const stockScreenStyles = StyleSheet.create({
   },
 });
 
-const cProductSearchStyles = StyleSheet.create({
-  container: {
-    flexDirection: "row",
-    alignItems: "center",
-    borderBottomColor: Colors.GREY,
-    borderBottomWidth: 1,
-    paddingVertical: 5,
-    paddingHorizontal: 10,
-  },
-  image: {
-    width: 30,
-    height: 30,
-    marginRight: 10,
-  },
-  highContainer: {
-    flexDirection: "column",
-    justifyContent: "center",
-    width: "90%",
-  },
-  lowContainer: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignContent: "space-between",
-    alignItems: "center",
-  },
-  price: {
-    textAlign: "right",
-  },
-});
-
-export { productScreenStyles, listProductsStyles, stockScreenStyles, cProductSearchStyles };
+export { productScreenStyles, listProductsStyles, stockScreenStyles };

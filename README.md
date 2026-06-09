@@ -19,40 +19,18 @@ Aplicacion React Native / Expo orientada a dispositivos Sunmi para busqueda de a
   - Busqueda rapida y acceso a impresion.
   - Menu lateral con configuracion, sincronizacion, productos, historial y acerca de.
 - `Configuracion`
-  - AlfaNet / API
   - SQL Local
   - SQL Online
+  - API AlfaNet como alternativa
   - Formatos de impresion
 - `Sincronizacion`
   - Sincronizacion del catalogo para SQL Local.
 - `Historial de impresiones`
   - Registros locales de los formatos preparados desde la pantalla principal.
 
-## Configuracion AlfaNet / API
-
-Use este modo cuando la app deba consumir el web service de Alfa Gestion.
-
-Campos:
-
-- Ruta web service
-- Codigo cuenta AlfaNet
-- Usuario
-- Password
-- ID Base
-- Timeout
-- Usar SSL
-
-Pasos:
-
-1. Abrir `Configuracion`.
-2. Seleccionar `AlfaNet / API`.
-3. Completar los campos requeridos.
-4. Probar la conexion.
-5. Guardar la configuracion.
-
 ## Configuracion SQL Local
 
-Use este modo cuando la app deba sincronizar el catalogo desde el SQL del cliente hacia la base local del dispositivo.
+Use este modo como configuracion recomendada. La app guarda el catalogo en SQLite local, busca siempre sobre esa base y sincroniza desde el SQL Server del cliente.
 
 Campos:
 
@@ -63,11 +41,13 @@ Campos:
 - Usuario
 - Contrasena
 - Tabla o vista de articulos
-- Campo codigo de barra
+- Campo codigo de articulo
+- Campo codigo de barras
 - Campo descripcion
 - Campo precio
-- Campo stock opcional
+- Campo stock
 - Timeout SQL
+- Frecuencia de sincronizacion
 
 Pasos:
 
@@ -75,13 +55,13 @@ Pasos:
 2. Seleccionar `SQL Local`.
 3. Completar servidor, base, usuario, contrasena y tabla/vista.
 4. Verificar el nombre de las columnas configuradas.
-5. Probar la conexion.
+5. Probar la conexion desde una development build o APK propia.
 6. Guardar la configuracion.
 7. Ejecutar `Sincronizar ahora` desde configuracion o entrar en `Sincronizacion`.
 
 ## Configuracion SQL Online
 
-Use este modo cuando la app deba consultar directamente el servidor SQL en la misma red.
+Use este modo cuando la app deba consultar directamente el servidor SQL en la misma red. Es una alternativa, no el modo recomendado.
 
 Campos:
 
@@ -193,7 +173,7 @@ eas build -p android
 
 Recomendaciones para Sunmi:
 
-- Usar build nativo, no Expo Go.
+- Usar build nativo o development build, no Expo Go para SQL directo.
 - Probar la camara, el lector integrado y la impresora interna en el dispositivo real.
 - Verificar que la app tenga permisos de camara y red segun el modo de conexion elegido.
 

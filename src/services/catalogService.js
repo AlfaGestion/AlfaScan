@@ -1,16 +1,27 @@
 import DatabaseLayer from "expo-sqlite-orm/src/DatabaseLayer";
 import SQLite from "@db/SQLiteCompat";
 import Configuration from "@db/Configuration";
-import MSSQL from "react-native-mssql";
+import {
+  closeSql,
+  connectSql,
+  executeSql,
+  getSqlConnectorAvailabilityError,
+  isSqlConnectorAvailable,
+  parseSqlServerAddress,
+  resolveSqlConnectionTarget,
+} from "@services/sqlClient";
 
-const DB_NAME = "alfadeposito.db";
+const DB_NAME = "AlfaScan.db";
 const DEFAULT_BATCH_SIZE = 250;
 const DEFAULT_TIMEOUT = 15;
 
 let cachedConnectionKey = "";
 let cachedConnectionPromise = null;
 
-const normalizeMode = (value) => String(value ?? "").trim().toUpperCase();
+const normalizeMode = (value) =>
+  String(value ?? "")
+    .trim()
+    .toUpperCase();
 
 const normalizeText = (value) =>
   String(value ?? "")
@@ -32,7 +43,11 @@ const safeInt = (value, fallback = 0, min = 0, max = 2147483647) => {
 };
 
 const safeFloat = (value, fallback = 0) => {
-  const parsed = parseFloat(String(value ?? "").trim().replace(",", "."));
+  const parsed = parseFloat(
+    String(value ?? "")
+      .trim()
+      .replace(",", "."),
+  );
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
@@ -44,9 +59,16 @@ const stripIdentifier = (value) =>
     .replace(/^"+/, "")
     .replace(/"+$/, "");
 
-const quoteIdentifier = (value) => `[${stripIdentifier(value).replace(/\]/g, "]]")}]`;
+const quoteIdentifier = (value) =>
+  `[${stripIdentifier(value).replace(/\]/g, "]]")}]`;
 
 const sqlLiteral = (value) => `'${String(value ?? "").replace(/'/g, "''")}'`;
+
+const normalizeConfiguredField = (value, fallback) =>
+  String(value ?? "").trim() || fallback;
+
+const buildFieldReference = (value, fallback) =>
+  quoteIdentifier(normalizeConfiguredField(value, fallback));
 
 const buildObjectName = (value) => {
   const raw = String(value ?? "").trim();
@@ -75,54 +97,52 @@ const buildConnectionKey = (config) =>
 
 const buildTargetServer = (config) => {
   const rawServer = String(config.server ?? "").trim();
-  const rawInstance = String(config.instance ?? "").trim();
-  const rawPort = safeInt(config.port, 0, 0, 65535);
-  const connectionMode = normalizeMode(config.connectionMode || "AUTO");
+  const parsedServer = rawServer ? parseSqlServerAddress(rawServer) : null;
 
-  if (!rawServer) {
-    return { server: "", port: undefined };
+  if (!parsedServer || !parsedServer.host) {
+    return { host: "", port: null, instance: null };
   }
 
-  if (rawServer.includes("\\") || rawServer.includes(",")) {
-    const portFromRaw = rawServer.includes(",") ? safeInt(rawServer.split(",").slice(1).join(","), 0, 0, 65535) : 0;
+  const explicitPort = safeInt(config.port, 0, 0, 65535);
+  const explicitInstance = String(config.instance ?? "").trim();
+
+  if (parsedServer.instance) {
     return {
-      server: rawServer,
-      port: portFromRaw > 0 ? portFromRaw : undefined,
+      host: parsedServer.host,
+      port: null,
+      instance: parsedServer.instance,
     };
   }
 
-  switch (connectionMode) {
-    case "SERVER":
-    case "IP":
-      return {
-        server: rawServer,
-        port: rawPort > 0 ? rawPort : undefined,
-      };
-    case "INSTANCE":
-      return {
-        server: rawInstance ? `${rawServer}\\${rawInstance}` : rawServer,
-        port: undefined,
-      };
-    case "PORT":
-      return {
-        server: rawServer,
-        port: rawPort > 0 ? rawPort : undefined,
-      };
-    case "CUSTOM":
-      return {
-        server: rawServer,
-        port: rawPort > 0 ? rawPort : undefined,
-      };
-    case "AUTO":
-    default:
-      if (rawInstance) {
-        return { server: `${rawServer}\\${rawInstance}`, port: undefined };
-      }
-      if (rawPort > 0) {
-        return { server: rawServer, port: rawPort };
-      }
-      return { server: rawServer, port: undefined };
+  if (parsedServer.port !== null) {
+    return {
+      host: parsedServer.host,
+      port: parsedServer.port,
+      instance: null,
+    };
   }
+
+  if (explicitInstance) {
+    return {
+      host: parsedServer.host,
+      port: null,
+      instance: explicitInstance,
+    };
+  }
+
+  if (explicitPort > 0) {
+    return {
+      host: parsedServer.host,
+      port: explicitPort,
+      instance: null,
+    };
+  }
+
+  return {
+    host: parsedServer.host,
+    port: null,
+    instance: null,
+  };
 };
 
 const getLocalDb = async () => SQLite.openDatabase(DB_NAME);
@@ -133,19 +153,25 @@ const ensureLocalCatalogSchema = async (tableName = "products") => {
     CREATE TABLE IF NOT EXISTS ${quoteIdentifier(tableName)} (
       id INTEGER PRIMARY KEY,
       code TEXT,
+      codigoArticulo TEXT,
       codigoBarras TEXT,
+      codigoBarra TEXT,
       codigoBarra1 TEXT,
       codigoBarra2 TEXT,
       codigoBarra3 TEXT,
       codigoBarra4 TEXT,
       codigoBarraDun TEXT,
       name TEXT,
+      descripcion TEXT,
       category TEXT,
       family TEXT,
       iva NUMERIC,
       internal_taxes NUMERIC,
       cant_propuesta NUMERIC,
       exempt NUMERIC,
+      precio NUMERIC,
+      stock NUMERIC,
+      fechaActualizacion TEXT,
       price1 NUMERIC,
       price2 NUMERIC,
       price3 NUMERIC,
@@ -160,6 +186,24 @@ const ensureLocalCatalogSchema = async (tableName = "products") => {
   `;
   await db.transaction((tx) => {
     tx.executeSql(sql, []);
+    const extraColumns = [
+      "codigoArticulo TEXT",
+      "codigoBarra TEXT",
+      "descripcion TEXT",
+      "precio NUMERIC",
+      "stock NUMERIC",
+      "fechaActualizacion TEXT",
+    ];
+
+    for (const column of extraColumns) {
+      const [columnName, columnType] = column.split(" ");
+      tx.executeSql(
+        `ALTER TABLE ${quoteIdentifier(tableName)} ADD COLUMN ${columnName} ${columnType}`,
+        [],
+        () => {},
+        () => true,
+      );
+    }
   });
 };
 
@@ -170,22 +214,78 @@ const clearLocalCatalog = async (tableName = "products") => {
   });
 };
 
-const localProductsLayer = (tableName = "products") => new DatabaseLayer(async () => SQLite.openDatabase(DB_NAME), tableName);
+const localProductsLayer = (tableName = "products") =>
+  new DatabaseLayer(async () => SQLite.openDatabase(DB_NAME), tableName);
 
 const loadSqlConfig = async () => {
   await Configuration.createTable();
   return {
-    mode: normalizeMode(await Configuration.getConfigValue("SQL_MODE") || "LOCAL"),
-    connectionMode: normalizeMode(await Configuration.getConfigValue("SQL_CONNECTION_MODE") || "AUTO"),
-    server: String(await Configuration.getConfigValue("SQL_SERVER") || "").trim(),
-    instance: String(await Configuration.getConfigValue("SQL_INSTANCE") || "").trim(),
+    mode: normalizeMode(
+      (await Configuration.getConfigValue("SQL_MODE")) || "LOCAL",
+    ),
+    connectionMode: normalizeMode(
+      (await Configuration.getConfigValue("SQL_CONNECTION_MODE")) || "AUTO",
+    ),
+    server: String(
+      (await Configuration.getConfigValue("SQL_SERVER")) || "",
+    ).trim(),
+    instance: String(
+      (await Configuration.getConfigValue("SQL_INSTANCE")) || "",
+    ).trim(),
     port: safeInt(await Configuration.getConfigValue("SQL_PORT"), 0, 0, 65535),
-    user: String(await Configuration.getConfigValue("SQL_USER") || "").trim(),
-    password: String(await Configuration.getConfigValue("SQL_PASSWORD") || ""),
-    database: String(await Configuration.getConfigValue("SQL_DATABASE") || "").trim(),
-    objectName: String(await Configuration.getConfigValue("SQL_TABLE_VIEW") || "dbo.Articulos").trim(),
-    timeout: safeInt(await Configuration.getConfigValue("SQL_TIMEOUT"), DEFAULT_TIMEOUT, 1, 120),
-    batchSize: safeInt(await Configuration.getConfigValue("SQL_SYNC_BATCH_SIZE"), DEFAULT_BATCH_SIZE, 50, 2000),
+    user: String((await Configuration.getConfigValue("SQL_USER")) || "").trim(),
+    password: String(
+      (await Configuration.getConfigValue("SQL_PASSWORD")) || "",
+    ),
+    database: String(
+      (await Configuration.getConfigValue("SQL_DATABASE")) || "",
+    ).trim(),
+    objectName: String(
+      (await Configuration.getConfigValue("SQL_ARTICLES_TABLE")) ||
+        (await Configuration.getConfigValue("SQL_TABLE_VIEW")) ||
+        "Productos",
+    ).trim(),
+    codeField: normalizeConfiguredField(
+      (await Configuration.getConfigValue("SQL_CODE_FIELD")) ||
+        (await Configuration.getConfigValue("SQL_ARTICLE_CODE_FIELD")) ||
+        "CodigoArticulo",
+      "CodigoArticulo",
+    ),
+    barcodeField: normalizeConfiguredField(
+      (await Configuration.getConfigValue("SQL_BARCODE_FIELD")) ||
+        (await Configuration.getConfigValue("SQL_CODE_BAR_FIELD")) ||
+        "CodigoBarra",
+      "CodigoBarra",
+    ),
+    descriptionField: normalizeConfiguredField(
+      (await Configuration.getConfigValue("SQL_DESCRIPTION_FIELD")) ||
+        "Descripcion",
+      "Descripcion",
+    ),
+    priceField: normalizeConfiguredField(
+      (await Configuration.getConfigValue("SQL_PRICE_FIELD")) || "Precio",
+      "Precio",
+    ),
+    stockField: normalizeConfiguredField(
+      (await Configuration.getConfigValue("SQL_STOCK_FIELD")) || "Stock",
+      "Stock",
+    ),
+    useStockColumn: Configuration.isTruthyConfigValue(
+      (await Configuration.getConfigValue("SQL_USE_STOCK_COLUMN")) ||
+        (await Configuration.getConfigValue("SQL_USE_STOCK")),
+    ),
+    timeout: safeInt(
+      await Configuration.getConfigValue("SQL_TIMEOUT"),
+      DEFAULT_TIMEOUT,
+      1,
+      120,
+    ),
+    batchSize: safeInt(
+      await Configuration.getConfigValue("SQL_SYNC_BATCH_SIZE"),
+      DEFAULT_BATCH_SIZE,
+      50,
+      2000,
+    ),
   };
 };
 
@@ -202,11 +302,16 @@ export const getCatalogConnectionTarget = async () => {
 };
 
 const connectSqlServer = async (config) => {
-  const target = buildTargetServer(config);
+  const target = resolveSqlConnectionTarget({
+    server: config.server,
+    port: config.port,
+    instance: config.instance,
+  });
   const connectionKey = buildConnectionKey({
     ...config,
-    server: target.server,
+    server: target.host,
     port: target.port,
+    instance: target.instance,
   });
 
   if (cachedConnectionPromise && cachedConnectionKey === connectionKey) {
@@ -215,7 +320,10 @@ const connectSqlServer = async (config) => {
 
   cachedConnectionKey = connectionKey;
   cachedConnectionPromise = (async () => {
-    if (!target.server) {
+    if (!isSqlConnectorAvailable()) {
+      throw new Error(getSqlConnectorAvailabilityError());
+    }
+    if (!target.host) {
       throw new Error("Falta configurar el servidor SQL.");
     }
     if (!config.database) {
@@ -225,12 +333,13 @@ const connectSqlServer = async (config) => {
       throw new Error("Falta configurar el usuario SQL.");
     }
 
-    await MSSQL.connect({
-      server: target.server,
+    await connectSql({
+      server: target.host,
       username: config.user,
       password: config.password,
       database: config.database,
       port: target.port,
+      instance: target.instance,
       timeout: safeInt(config.timeout, DEFAULT_TIMEOUT, 1, 120),
     });
     return true;
@@ -245,9 +354,7 @@ const connectSqlServer = async (config) => {
 
 export const closeSqlConnection = async () => {
   try {
-    await MSSQL.close();
-  } catch (e) {
-    // ignore close errors to keep callers simple
+    await closeSql();
   } finally {
     cachedConnectionKey = "";
     cachedConnectionPromise = null;
@@ -258,7 +365,7 @@ const executeSqlServerQuery = async (query, config) => {
   await connectSqlServer(config);
 
   try {
-    const result = await MSSQL.executeQuery(query);
+    const result = await executeSql(query);
     if (Array.isArray(result)) return result;
     if (Array.isArray(result?.rows)) return result.rows;
     if (Array.isArray(result?.recordset)) return result.recordset;
@@ -269,38 +376,54 @@ const executeSqlServerQuery = async (query, config) => {
   }
 };
 
-const buildCatalogColumns = (priceClass = 1) => {
-  const safePriceClass = safeInt(priceClass, 1, 1, 10);
+const buildCatalogColumns = (config) => {
+  const codeField = buildFieldReference(config.codeField, "CodigoArticulo");
+  const barcodeField = buildFieldReference(config.barcodeField, "CodigoBarra");
+  const descriptionField = buildFieldReference(
+    config.descriptionField,
+    "Descripcion",
+  );
+  const priceField = buildFieldReference(config.priceField, "Precio");
+  const stockField = buildFieldReference(config.stockField, "Stock");
+  const stockColumn = config.useStockColumn
+    ? `${stockField} AS stock`
+    : "CAST(NULL AS NUMERIC(18,2)) AS stock";
   return [
-    "code",
-    "codigoBarras",
-    "codigoBarra1",
-    "codigoBarra2",
-    "codigoBarra3",
-    "codigoBarra4",
-    "codigoBarraDun",
-    "name",
-    "category",
-    "family",
-    "iva",
-    "internal_taxes",
-    "cant_propuesta",
-    "exempt",
-    "price1",
-    "price2",
-    "price3",
-    "price4",
-    "price5",
-    "price6",
-    "price7",
-    "price8",
-    "price9",
-    "price10",
-    `price${safePriceClass} AS priceSelected`,
+    `${codeField} AS code`,
+    `${codeField} AS codigoArticulo`,
+    `${barcodeField} AS codigoBarras`,
+    `${barcodeField} AS codigoBarra`,
+    `${descriptionField} AS name`,
+    `${descriptionField} AS descripcion`,
+    `${priceField} AS precio`,
+    stockColumn,
+    "CONVERT(NVARCHAR(30), GETDATE(), 126) AS fechaActualizacion",
+    `CAST(ISNULL(${priceField}, 0) AS NUMERIC(18,2)) AS price1`,
+    "CAST(0 AS NUMERIC(18,2)) AS price2",
+    "CAST(0 AS NUMERIC(18,2)) AS price3",
+    "CAST(0 AS NUMERIC(18,2)) AS price4",
+    "CAST(0 AS NUMERIC(18,2)) AS price5",
+    "CAST(0 AS NUMERIC(18,2)) AS price6",
+    "CAST(0 AS NUMERIC(18,2)) AS price7",
+    "CAST(0 AS NUMERIC(18,2)) AS price8",
+    "CAST(0 AS NUMERIC(18,2)) AS price9",
+    "CAST(0 AS NUMERIC(18,2)) AS price10",
+    `CAST(ISNULL(${priceField}, 0) AS NUMERIC(18,2)) AS priceSelected`,
+    "CAST(NULL AS NVARCHAR(100)) AS codigoBarra1",
+    "CAST(NULL AS NVARCHAR(100)) AS codigoBarra2",
+    "CAST(NULL AS NVARCHAR(100)) AS codigoBarra3",
+    "CAST(NULL AS NVARCHAR(100)) AS codigoBarra4",
+    "CAST(NULL AS NVARCHAR(100)) AS codigoBarraDun",
+    "CAST(NULL AS NVARCHAR(100)) AS category",
+    "CAST(NULL AS NVARCHAR(100)) AS family",
+    "CAST(0 AS NUMERIC(18,2)) AS iva",
+    "CAST(0 AS NUMERIC(18,2)) AS internal_taxes",
+    "CAST(0 AS NUMERIC(18,2)) AS cant_propuesta",
+    "CAST(0 AS NUMERIC(18,2)) AS exempt",
   ].join(", ");
 };
 
-const buildLikeWhereClause = (searchText, params) => {
+const buildLikeWhereClause = (config, searchText) => {
   const normalized = normalizeText(searchText);
   if (!normalized) {
     return "";
@@ -308,90 +431,104 @@ const buildLikeWhereClause = (searchText, params) => {
 
   const like = sqlLiteral(`%${normalized}%`);
   const barcodeLike = sqlLiteral(`%${normalizeSearchText(searchText)}%`);
+  const codeField = buildFieldReference(config.codeField, "CodigoArticulo");
+  const barcodeField = buildFieldReference(config.barcodeField, "CodigoBarra");
+  const descriptionField = buildFieldReference(
+    config.descriptionField,
+    "Descripcion",
+  );
 
   return `
     WHERE (
-      LOWER(LTRIM(RTRIM(ISNULL(name, '')))) LIKE ${like}
-      OR LOWER(LTRIM(RTRIM(ISNULL(code, '')))) LIKE ${like}
-      OR LOWER(LTRIM(RTRIM(ISNULL(category, '')))) LIKE ${like}
-      OR LOWER(LTRIM(RTRIM(ISNULL(family, '')))) LIKE ${like}
-      OR LOWER(LTRIM(RTRIM(ISNULL(codigoBarras, '')))) LIKE ${barcodeLike}
-      OR LOWER(LTRIM(RTRIM(ISNULL(codigoBarra1, '')))) LIKE ${barcodeLike}
-      OR LOWER(LTRIM(RTRIM(ISNULL(codigoBarra2, '')))) LIKE ${barcodeLike}
-      OR LOWER(REPLACE(LTRIM(RTRIM(ISNULL(codigoBarra3, ''))), ' ', '')) LIKE ${barcodeLike}
-      OR LOWER(REPLACE(LTRIM(RTRIM(ISNULL(codigoBarra4, ''))), ' ', '')) LIKE ${barcodeLike}
-      OR LOWER(REPLACE(LTRIM(RTRIM(ISNULL(codigoBarraDun, ''))), ' ', '')) LIKE ${barcodeLike}
+      LOWER(LTRIM(RTRIM(ISNULL(${descriptionField}, '')))) LIKE ${like}
+      OR LOWER(LTRIM(RTRIM(ISNULL(${codeField}, '')))) LIKE ${like}
+      OR LOWER(LTRIM(RTRIM(ISNULL(${barcodeField}, '')))) LIKE ${barcodeLike}
     )
   `;
 };
 
-const buildExactCodeWhereClause = (code) => {
+const buildExactCodeWhereClause = (config, code) => {
   const normalized = normalizeSearchText(code);
   const raw = normalizeText(code);
   if (!normalized) {
     return "WHERE 1 = 0";
   }
 
+  const codeField = buildFieldReference(config.codeField, "CodigoArticulo");
+  const barcodeField = buildFieldReference(config.barcodeField, "CodigoBarra");
+
   return `
     WHERE (
-      LOWER(LTRIM(RTRIM(ISNULL(code, '')))) = ${sqlLiteral(raw)}
-      OR LOWER(REPLACE(LTRIM(RTRIM(ISNULL(code, ''))), ' ', '')) = ${sqlLiteral(normalized)}
-      OR LOWER(LTRIM(RTRIM(ISNULL(codigoBarras, '')))) = ${sqlLiteral(raw)}
-      OR LOWER(REPLACE(LTRIM(RTRIM(ISNULL(codigoBarras, ''))), ' ', '')) = ${sqlLiteral(normalized)}
-      OR LOWER(LTRIM(RTRIM(ISNULL(codigoBarra1, '')))) = ${sqlLiteral(raw)}
-      OR LOWER(REPLACE(LTRIM(RTRIM(ISNULL(codigoBarra1, ''))), ' ', '')) = ${sqlLiteral(normalized)}
-      OR LOWER(LTRIM(RTRIM(ISNULL(codigoBarra2, '')))) = ${sqlLiteral(raw)}
-      OR LOWER(REPLACE(LTRIM(RTRIM(ISNULL(codigoBarra2, ''))), ' ', '')) = ${sqlLiteral(normalized)}
-      OR LOWER(LTRIM(RTRIM(ISNULL(codigoBarra3, '')))) = ${sqlLiteral(raw)}
-      OR LOWER(REPLACE(LTRIM(RTRIM(ISNULL(codigoBarra3, ''))), ' ', '')) = ${sqlLiteral(normalized)}
-      OR LOWER(LTRIM(RTRIM(ISNULL(codigoBarra4, '')))) = ${sqlLiteral(raw)}
-      OR LOWER(REPLACE(LTRIM(RTRIM(ISNULL(codigoBarra4, ''))), ' ', '')) = ${sqlLiteral(normalized)}
-      OR LOWER(LTRIM(RTRIM(ISNULL(codigoBarraDun, '')))) = ${sqlLiteral(raw)}
-      OR LOWER(REPLACE(LTRIM(RTRIM(ISNULL(codigoBarraDun, ''))), ' ', '')) = ${sqlLiteral(normalized)}
+      LOWER(LTRIM(RTRIM(ISNULL(${codeField}, '')))) = ${sqlLiteral(raw)}
+      OR LOWER(REPLACE(LTRIM(RTRIM(ISNULL(${codeField}, ''))), ' ', '')) = ${sqlLiteral(normalized)}
+      OR LOWER(LTRIM(RTRIM(ISNULL(${barcodeField}, '')))) = ${sqlLiteral(raw)}
+      OR LOWER(REPLACE(LTRIM(RTRIM(ISNULL(${barcodeField}, ''))), ' ', '')) = ${sqlLiteral(normalized)}
     )
   `;
 };
 
-const buildPrefixWhereClause = (code) => {
+const buildPrefixWhereClause = (config, code) => {
   const normalized = normalizeSearchText(code);
   if (!normalized) {
     return "WHERE 1 = 0";
   }
 
+  const codeField = buildFieldReference(config.codeField, "CodigoArticulo");
+  const barcodeField = buildFieldReference(config.barcodeField, "CodigoBarra");
+
   return `
     WHERE (
-      ${sqlLiteral(normalized)} LIKE REPLACE(LTRIM(RTRIM(ISNULL(code, ''))), ' ', '') + '%'
-      OR ${sqlLiteral(normalized)} LIKE REPLACE(LTRIM(RTRIM(ISNULL(codigoBarras, ''))), ' ', '') + '%'
-      OR ${sqlLiteral(normalized)} LIKE REPLACE(LTRIM(RTRIM(ISNULL(codigoBarra1, ''))), ' ', '') + '%'
-      OR ${sqlLiteral(normalized)} LIKE REPLACE(LTRIM(RTRIM(ISNULL(codigoBarra2, ''))), ' ', '') + '%'
-      OR ${sqlLiteral(normalized)} LIKE REPLACE(LTRIM(RTRIM(ISNULL(codigoBarra3, ''))), ' ', '') + '%'
-      OR ${sqlLiteral(normalized)} LIKE REPLACE(LTRIM(RTRIM(ISNULL(codigoBarra4, ''))), ' ', '') + '%'
-      OR ${sqlLiteral(normalized)} LIKE REPLACE(LTRIM(RTRIM(ISNULL(codigoBarraDun, ''))), ' ', '') + '%'
+      ${sqlLiteral(normalized)} LIKE REPLACE(LTRIM(RTRIM(ISNULL(${codeField}, ''))), ' ', '') + '%'
+      OR ${sqlLiteral(normalized)} LIKE REPLACE(LTRIM(RTRIM(ISNULL(${barcodeField}, ''))), ' ', '') + '%'
     )
   `;
 };
 
-const getRowPriceClass = (row, priceClass = 1) => {
+const getRowPriceClass = (row, priceClass = 1, useStockColumn = true) => {
   const safePriceClass = safeInt(priceClass, 1, 1, 10);
   const priceKey = `price${safePriceClass}`;
   return {
     ...row,
-    id: row?.id ?? row?.ID ?? row?.Id ?? row?.code ?? row?.Code ?? row?.codigoBarras ?? row?.CodigoBarras ?? 0,
+    id:
+      row?.id ??
+      row?.ID ??
+      row?.Id ??
+      row?.code ??
+      row?.Code ??
+      row?.codigoBarras ??
+      row?.CodigoBarras ??
+      0,
     code: row?.code ?? row?.Code ?? "",
+    codigoArticulo:
+      row?.codigoArticulo ?? row?.CodigoArticulo ?? row?.code ?? "",
     codigoBarras: row?.codigoBarras ?? row?.CodigoBarras ?? "",
+    codigoBarra:
+      row?.codigoBarra ?? row?.CodigoBarra ?? row?.codigoBarras ?? "",
     codigoBarra1: row?.codigoBarra1 ?? row?.CodigoBarra1 ?? "",
     codigoBarra2: row?.codigoBarra2 ?? row?.CodigoBarra2 ?? "",
     codigoBarra3: row?.codigoBarra3 ?? row?.CodigoBarra3 ?? "",
     codigoBarra4: row?.codigoBarra4 ?? row?.CodigoBarra4 ?? "",
     codigoBarraDun: row?.codigoBarraDun ?? row?.CodigoBarraDun ?? "",
     name: row?.name ?? row?.Name ?? "",
+    descripcion: row?.descripcion ?? row?.Descripcion ?? row?.name ?? "",
     category: row?.category ?? row?.Category ?? "",
     family: row?.family ?? row?.Family ?? "",
     iva: safeFloat(row?.iva ?? row?.Iva, 0),
     internal_taxes: safeFloat(row?.internal_taxes ?? row?.internalTaxes, 0),
     cant_propuesta: safeFloat(row?.cant_propuesta ?? row?.cantPropuesta, 0),
     exempt: safeFloat(row?.exempt, 0),
-    price1: safeFloat(row?.price1 ?? row?.Price1 ?? row?.priceSelected ?? row?.Precio1, 0),
+    precio: safeFloat(row?.precio ?? row?.Precio ?? row?.price1, 0),
+    stock: useStockColumn ? safeFloat(row?.stock ?? row?.Stock, 0) : null,
+    fechaActualizacion:
+      row?.fechaActualizacion ??
+      row?.FechaActualizacion ??
+      row?.updated_at ??
+      row?.updatedAt ??
+      "",
+    price1: safeFloat(
+      row?.price1 ?? row?.Price1 ?? row?.priceSelected ?? row?.Precio1,
+      0,
+    ),
     price2: safeFloat(row?.price2 ?? row?.Price2 ?? row?.Precio2, 0),
     price3: safeFloat(row?.price3 ?? row?.Price3 ?? row?.Precio3, 0),
     price4: safeFloat(row?.price4 ?? row?.Price4 ?? row?.Precio4, 0),
@@ -405,18 +542,28 @@ const getRowPriceClass = (row, priceClass = 1) => {
   };
 };
 
-const buildPagedQuery = (config, { searchText = "", limit = 50, page = 1, priceClass = 1, exact = false, prefix = false }) => {
+const buildPagedQuery = (
+  config,
+  {
+    searchText = "",
+    limit = 50,
+    page = 1,
+    priceClass = 1,
+    exact = false,
+    prefix = false,
+  },
+) => {
   const safeLimit = safeInt(limit, 50, 1, 5000);
   const safePage = safeInt(page, 1, 1, 100000);
   const safeOffset = (safePage - 1) * safeLimit;
   const objectName = buildObjectName(config.objectName);
   const whereClause = exact
-    ? buildExactCodeWhereClause(searchText)
+    ? buildExactCodeWhereClause(config, searchText)
     : prefix
-      ? buildPrefixWhereClause(searchText)
-      : buildLikeWhereClause(searchText);
-  const orderBy = "ORDER BY LOWER(LTRIM(RTRIM(ISNULL(name, '')))), LOWER(LTRIM(RTRIM(ISNULL(code, ''))))";
-  const selectColumns = buildCatalogColumns(priceClass);
+      ? buildPrefixWhereClause(config, searchText)
+      : buildLikeWhereClause(config, searchText);
+  const orderBy = `ORDER BY LOWER(LTRIM(RTRIM(ISNULL(${buildFieldReference(config.descriptionField, "Descripcion")}, '')))), LOWER(LTRIM(RTRIM(ISNULL(${buildFieldReference(config.codeField, "CodigoArticulo")}, ''))))`;
+  const selectColumns = buildCatalogColumns(config);
   const numberedColumns = `ROW_NUMBER() OVER (${orderBy}) AS id, ${selectColumns}`;
 
   if (safeOffset > 0) {
@@ -446,25 +593,49 @@ const buildPagedQuery = (config, { searchText = "", limit = 50, page = 1, priceC
   };
 };
 
-export const queryCatalogPage = async ({ searchText = "", limit = 50, page = 1, priceClass = 1 } = {}) => {
+export const queryCatalogPage = async ({
+  searchText = "",
+  limit = 50,
+  page = 1,
+  priceClass = 1,
+} = {}) => {
   const config = await loadSqlConfig();
   if (config.mode !== "ONLINE") {
-    throw new Error("La consulta remota solo está disponible en modo SQL Online.");
+    throw new Error(
+      "La consulta remota solo está disponible en modo SQL Online.",
+    );
   }
 
-  const { query } = buildPagedQuery(config, { searchText, limit, page, priceClass });
+  const { query } = buildPagedQuery(config, {
+    searchText,
+    limit,
+    page,
+    priceClass,
+  });
   const rows = await executeSqlServerQuery(query, config);
-  return rows.map((row) => getRowPriceClass(row, priceClass));
+  return rows.map((row) => getRowPriceClass(row, priceClass, config.useStockColumn));
 };
 
-export const findCatalogLikeName = async ({ name = "", classPrice = 1, limit = 20, page = 1 } = {}) => {
-  return queryCatalogPage({ searchText: name, limit, page, priceClass: classPrice });
+export const findCatalogLikeName = async ({
+  name = "",
+  classPrice = 1,
+  limit = 20,
+  page = 1,
+} = {}) => {
+  return queryCatalogPage({
+    searchText: name,
+    limit,
+    page,
+    priceClass: classPrice,
+  });
 };
 
 export const findCatalogByCode = async ({ code = "", classPrice = 1 } = {}) => {
   const config = await loadSqlConfig();
   if (config.mode !== "ONLINE") {
-    throw new Error("La consulta remota solo está disponible en modo SQL Online.");
+    throw new Error(
+      "La consulta remota solo está disponible en modo SQL Online.",
+    );
   }
 
   const { query } = buildPagedQuery(config, {
@@ -475,16 +646,17 @@ export const findCatalogByCode = async ({ code = "", classPrice = 1 } = {}) => {
     exact: true,
   });
   const rows = await executeSqlServerQuery(query, config);
-  return rows.map((row) => getRowPriceClass(row, classPrice));
+  return rows.map((row) => getRowPriceClass(row, classPrice, config.useStockColumn));
 };
 
-export const findCatalogByCodes = async ({ codes = [], classPrice = 1 } = {}) => {
+export const findCatalogByCodes = async ({
+  codes = [],
+  classPrice = 1,
+} = {}) => {
   const uniqueCodes = Array.from(
     new Set(
-      (codes || [])
-        .map((code) => String(code ?? "").trim())
-        .filter(Boolean)
-    )
+      (codes || []).map((code) => String(code ?? "").trim()).filter(Boolean),
+    ),
   );
 
   if (uniqueCodes.length === 0) {
@@ -493,42 +665,44 @@ export const findCatalogByCodes = async ({ codes = [], classPrice = 1 } = {}) =>
 
   const config = await loadSqlConfig();
   if (config.mode !== "ONLINE") {
-    throw new Error("La consulta remota solo está disponible en modo SQL Online.");
+    throw new Error(
+      "La consulta remota solo está disponible en modo SQL Online.",
+    );
   }
 
-  const normalizedInClause = uniqueCodes.map((code) => sqlLiteral(normalizeSearchText(code))).join(",");
+  const normalizedInClause = uniqueCodes
+    .map((code) => sqlLiteral(normalizeSearchText(code)))
+    .join(",");
   const quotedCodes = uniqueCodes.map((code) => sqlLiteral(code)).join(",");
   const objectName = buildObjectName(config.objectName);
+  const codeField = buildFieldReference(config.codeField, "CodigoArticulo");
+  const barcodeField = buildFieldReference(config.barcodeField, "CodigoBarra");
+  const selectColumns = buildCatalogColumns(config);
 
   const query = `
-    SELECT ROW_NUMBER() OVER (ORDER BY LOWER(LTRIM(RTRIM(ISNULL(name, '')))), LOWER(LTRIM(RTRIM(ISNULL(code, ''))))) AS id, ${buildCatalogColumns(classPrice)}
+    SELECT ROW_NUMBER() OVER (ORDER BY LOWER(LTRIM(RTRIM(ISNULL(${buildFieldReference(config.descriptionField, "Descripcion")}, '')))), LOWER(LTRIM(RTRIM(ISNULL(${codeField}, ''))))) AS id, ${selectColumns}
     FROM ${objectName}
     WHERE (
-      LTRIM(RTRIM(ISNULL(code, ''))) IN (${quotedCodes})
-      OR REPLACE(LTRIM(RTRIM(ISNULL(code, ''))), ' ', '') IN (${normalizedInClause})
-      OR LTRIM(RTRIM(ISNULL(codigoBarras, ''))) IN (${quotedCodes})
-      OR REPLACE(LTRIM(RTRIM(ISNULL(codigoBarras, ''))), ' ', '') IN (${normalizedInClause})
-      OR LTRIM(RTRIM(ISNULL(codigoBarra1, ''))) IN (${quotedCodes})
-      OR REPLACE(LTRIM(RTRIM(ISNULL(codigoBarra1, ''))), ' ', '') IN (${normalizedInClause})
-      OR LTRIM(RTRIM(ISNULL(codigoBarra2, ''))) IN (${quotedCodes})
-      OR REPLACE(LTRIM(RTRIM(ISNULL(codigoBarra2, ''))), ' ', '') IN (${normalizedInClause})
-      OR LTRIM(RTRIM(ISNULL(codigoBarra3, ''))) IN (${quotedCodes})
-      OR REPLACE(LTRIM(RTRIM(ISNULL(codigoBarra3, ''))), ' ', '') IN (${normalizedInClause})
-      OR LTRIM(RTRIM(ISNULL(codigoBarra4, ''))) IN (${quotedCodes})
-      OR REPLACE(LTRIM(RTRIM(ISNULL(codigoBarra4, ''))), ' ', '') IN (${normalizedInClause})
-      OR LTRIM(RTRIM(ISNULL(codigoBarraDun, ''))) IN (${quotedCodes})
-      OR REPLACE(LTRIM(RTRIM(ISNULL(codigoBarraDun, ''))), ' ', '') IN (${normalizedInClause})
+      LTRIM(RTRIM(ISNULL(${codeField}, ''))) IN (${quotedCodes})
+      OR REPLACE(LTRIM(RTRIM(ISNULL(${codeField}, ''))), ' ', '') IN (${normalizedInClause})
+      OR LTRIM(RTRIM(ISNULL(${barcodeField}, ''))) IN (${quotedCodes})
+      OR REPLACE(LTRIM(RTRIM(ISNULL(${barcodeField}, ''))), ' ', '') IN (${normalizedInClause})
     )
   `;
 
   const rows = await executeSqlServerQuery(query, config);
-  return rows.map((row) => getRowPriceClass(row, classPrice));
+  return rows.map((row) => getRowPriceClass(row, classPrice, config.useStockColumn));
 };
 
-export const findCatalogByBarcodePrefix = async ({ scannedCode = "", classPrice = 1 } = {}) => {
+export const findCatalogByBarcodePrefix = async ({
+  scannedCode = "",
+  classPrice = 1,
+} = {}) => {
   const config = await loadSqlConfig();
   if (config.mode !== "ONLINE") {
-    throw new Error("La consulta remota solo está disponible en modo SQL Online.");
+    throw new Error(
+      "La consulta remota solo está disponible en modo SQL Online.",
+    );
   }
 
   const normalized = normalizeSearchText(scannedCode);
@@ -537,28 +711,32 @@ export const findCatalogByBarcodePrefix = async ({ scannedCode = "", classPrice 
   }
 
   const objectName = buildObjectName(config.objectName);
+  const codeField = buildFieldReference(config.codeField, "CodigoArticulo");
+  const barcodeField = buildFieldReference(config.barcodeField, "CodigoBarra");
+  const descriptionField = buildFieldReference(
+    config.descriptionField,
+    "Descripcion",
+  );
+  const selectColumns = buildCatalogColumns(config);
   const query = `
-    SELECT TOP 50 ROW_NUMBER() OVER (ORDER BY LOWER(LTRIM(RTRIM(ISNULL(name, '')))), LOWER(LTRIM(RTRIM(ISNULL(code, ''))))) AS id, ${buildCatalogColumns(classPrice)}
+    SELECT TOP 50 ROW_NUMBER() OVER (ORDER BY LOWER(LTRIM(RTRIM(ISNULL(${descriptionField}, '')))), LOWER(LTRIM(RTRIM(ISNULL(${codeField}, ''))))) AS id, ${selectColumns}
     FROM ${objectName}
     WHERE (
-      '${normalized}' LIKE REPLACE(LTRIM(RTRIM(ISNULL(code, ''))), ' ', '') + '%'
-      OR '${normalized}' LIKE REPLACE(LTRIM(RTRIM(ISNULL(codigoBarras, ''))), ' ', '') + '%'
-      OR '${normalized}' LIKE REPLACE(LTRIM(RTRIM(ISNULL(codigoBarra1, ''))), ' ', '') + '%'
-      OR '${normalized}' LIKE REPLACE(LTRIM(RTRIM(ISNULL(codigoBarra2, ''))), ' ', '') + '%'
-      OR '${normalized}' LIKE REPLACE(LTRIM(RTRIM(ISNULL(codigoBarra3, ''))), ' ', '') + '%'
-      OR '${normalized}' LIKE REPLACE(LTRIM(RTRIM(ISNULL(codigoBarra4, ''))), ' ', '') + '%'
-      OR '${normalized}' LIKE REPLACE(LTRIM(RTRIM(ISNULL(codigoBarraDun, ''))), ' ', '') + '%'
+      '${normalized}' LIKE REPLACE(LTRIM(RTRIM(ISNULL(${codeField}, ''))), ' ', '') + '%'
+      OR '${normalized}' LIKE REPLACE(LTRIM(RTRIM(ISNULL(${barcodeField}, ''))), ' ', '') + '%'
     )
   `;
 
   const rows = await executeSqlServerQuery(query, config);
-  return rows.map((row) => getRowPriceClass(row, classPrice));
+  return rows.map((row) => getRowPriceClass(row, classPrice, config.useStockColumn));
 };
 
 export const syncCatalogToLocal = async ({ onProgress } = {}) => {
   const config = await loadSqlConfig();
   if (config.mode !== "LOCAL") {
-    throw new Error("La sincronización local solo aplica cuando SQL_MODE está en SQL Local.");
+    throw new Error(
+      "La sincronización local solo aplica cuando SQL_MODE está en SQL Local.",
+    );
   }
 
   const stagingTable = "products_sync_stage";
@@ -582,21 +760,29 @@ export const syncCatalogToLocal = async ({ onProgress } = {}) => {
     const rows = await executeSqlServerQuery(query, config);
     const mappedRows = rows.map((row) => ({
       id: safeInt(row?.id, 0, 0, 2147483647) || null,
-      code: String(row?.code ?? "").trim(),
-      codigoBarras: String(row?.codigoBarras ?? "").trim(),
+      code: String(row?.code ?? row?.codigoArticulo ?? "").trim(),
+      codigoArticulo: String(row?.codigoArticulo ?? row?.code ?? "").trim(),
+      codigoBarras: String(row?.codigoBarras ?? row?.codigoBarra ?? "").trim(),
+      codigoBarra: String(row?.codigoBarra ?? row?.codigoBarras ?? "").trim(),
       codigoBarra1: String(row?.codigoBarra1 ?? "").trim(),
       codigoBarra2: String(row?.codigoBarra2 ?? "").trim(),
       codigoBarra3: String(row?.codigoBarra3 ?? "").trim(),
       codigoBarra4: String(row?.codigoBarra4 ?? "").trim(),
       codigoBarraDun: String(row?.codigoBarraDun ?? "").trim(),
-      name: String(row?.name ?? "").trim(),
+      name: String(row?.name ?? row?.descripcion ?? "").trim(),
+      descripcion: String(row?.descripcion ?? row?.name ?? "").trim(),
+      fechaActualizacion: String(
+        row?.fechaActualizacion ?? row?.FechaActualizacion ?? "",
+      ).trim(),
       category: String(row?.category ?? "").trim(),
       family: String(row?.family ?? "").trim(),
       iva: safeFloat(row?.iva, 0),
       internal_taxes: safeFloat(row?.internal_taxes, 0),
       cant_propuesta: safeFloat(row?.cant_propuesta, 0),
       exempt: safeFloat(row?.exempt, 0),
-      price1: safeFloat(row?.price1, 0),
+      precio: safeFloat(row?.precio ?? row?.price1, 0),
+      stock: config.useStockColumn ? safeFloat(row?.stock, 0) : null,
+      price1: safeFloat(row?.price1 ?? row?.precio, 0),
       price2: safeFloat(row?.price2, 0),
       price3: safeFloat(row?.price3, 0),
       price4: safeFloat(row?.price4, 0),
@@ -637,17 +823,17 @@ export const syncCatalogToLocal = async ({ onProgress } = {}) => {
     tx.executeSql(
       `
         INSERT INTO ${quoteIdentifier("products")} (
-          id, code, codigoBarras, codigoBarra1, codigoBarra2, codigoBarra3, codigoBarra4, codigoBarraDun,
-          name, category, family, iva, internal_taxes, cant_propuesta, exempt,
+          id, code, codigoArticulo, codigoBarras, codigoBarra, codigoBarra1, codigoBarra2, codigoBarra3, codigoBarra4, codigoBarraDun,
+          name, descripcion, fechaActualizacion, category, family, iva, internal_taxes, cant_propuesta, exempt, precio, stock,
           price1, price2, price3, price4, price5, price6, price7, price8, price9, price10
         )
         SELECT
-          id, code, codigoBarras, codigoBarra1, codigoBarra2, codigoBarra3, codigoBarra4, codigoBarraDun,
-          name, category, family, iva, internal_taxes, cant_propuesta, exempt,
+          id, code, codigoArticulo, codigoBarras, codigoBarra, codigoBarra1, codigoBarra2, codigoBarra3, codigoBarra4, codigoBarraDun,
+          name, descripcion, fechaActualizacion, category, family, iva, internal_taxes, cant_propuesta, exempt, precio, stock,
           price1, price2, price3, price4, price5, price6, price7, price8, price9, price10
         FROM ${quoteIdentifier(stagingTable)}
       `,
-      []
+      [],
     );
     tx.executeSql(`DELETE FROM ${quoteIdentifier(stagingTable)}`, []);
   });
@@ -655,7 +841,7 @@ export const syncCatalogToLocal = async ({ onProgress } = {}) => {
   return {
     inserted,
     mode: config.mode,
-    server: buildTargetServer(config).server,
+    server: buildTargetServer(config).host,
     objectName: config.objectName,
   };
 };
@@ -666,7 +852,7 @@ export const readCatalogConfigSummary = async () => {
   return {
     mode: config.mode,
     connectionMode: config.connectionMode,
-    server: target.server,
+    server: target.host,
     port: target.port,
     database: config.database,
     objectName: config.objectName,

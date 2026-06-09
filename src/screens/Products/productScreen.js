@@ -17,6 +17,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 export default function ProductScreen({ navigation, route }) {
   const [productInfo, setProductInfo] = useState([]);
   const [cargaImagenes, setCargaImagenes] = useState(false);
+  const [useStockColumn, setUseStockColumn] = useState(false);
   const [reloadImage, setReloadImage] = useState(false);
   const { darkMode } = useThemeConfig();
 
@@ -26,9 +27,14 @@ export default function ProductScreen({ navigation, route }) {
     try {
       await Configuration.createTable();
       const value = await Configuration.getConfigValue("CARGA_IMAGENES");
+      const stockValue =
+        (await Configuration.getConfigValue("SQL_USE_STOCK_COLUMN")) ??
+        (await Configuration.getConfigValue("SQL_USE_STOCK"));
       setCargaImagenes(value == "1");
+      setUseStockColumn(stockValue == "1");
     } catch (e) {
       setCargaImagenes(false);
+      setUseStockColumn(false);
     }
   };
 
@@ -83,18 +89,20 @@ export default function ProductScreen({ navigation, route }) {
               </TouchableOpacity>
             )}
 
-            <TouchableOpacity
-              style={[productScreenStyles.buttonModifyStock, darkMode && { backgroundColor: "#188B78" }]}
-              onPress={() =>
-                navigation.navigate("ProductStockScreen", {
-                  code: productInfo?.code,
-                  name: productInfo?.name,
-                })
-              }
-            >
-              <Entypo name="box" size={24} color="white" />
-              <Text style={[productScreenStyles.textButton]}>Consultar stock</Text>
-            </TouchableOpacity>
+            {useStockColumn && (
+              <TouchableOpacity
+                style={[productScreenStyles.buttonModifyStock, darkMode && { backgroundColor: "#188B78" }]}
+                onPress={() =>
+                  navigation.navigate("ProductStockScreen", {
+                    code: productInfo?.code,
+                    name: productInfo?.name,
+                  })
+                }
+              >
+                <Entypo name="box" size={24} color="white" />
+                <Text style={[productScreenStyles.textButton]}>Consultar stock</Text>
+              </TouchableOpacity>
+            )}
 
             <ItemLineTextValue text="Iva" value={productInfo?.iva} tabs="                " darkMode={darkMode} />
             <ItemLineTextValue text="Codigo de barras" value={productInfo?.codigoBarras ? productInfo?.codigoBarras : "No informado"} tabs="     " darkMode={darkMode} />

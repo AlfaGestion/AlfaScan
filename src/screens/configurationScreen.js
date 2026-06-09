@@ -1,8 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import {
+  ActivityIndicator,
+  Alert,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import MSSQL from "react-native-mssql";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import ConfigItem from "@components/ConfigItem";
 import Configuration from "@db/Configuration";
@@ -10,104 +19,37 @@ import Colors from "@styles/Colors";
 import { Fonts, Radii, Shadow } from "@styles/Theme";
 import { useThemeConfig } from "@context/ThemeContext";
 import { syncCatalogToLocal } from "@services/catalogService";
+import {
+  closeSql,
+  connectSql,
+  getSqlConnectorAvailabilityError,
+  isSqlConnectorAvailable,
+  parseSqlServerAddress,
+} from "@services/sqlClient";
+
+const DEFAULT_API_URI = "http://alfanetac.ddns.net:7705/api/v2/";
 
 const MODE_OPTIONS = [
-  { label: "AlfaNet / API", value: "API" },
   { label: "SQL Local", value: "LOCAL" },
   { label: "SQL Online", value: "ONLINE" },
+  { label: "API AlfaNet", value: "API" },
 ];
 
-const ALIGNMENT_OPTIONS = [
-  { label: "Izquierda", value: "left" },
-  { label: "Centro", value: "center" },
-  { label: "Derecha", value: "right" },
+const FREQUENCY_OPTIONS = [
+  { label: "Al iniciar la app", value: "ON_START" },
+  { label: "Cada 1 hora", value: "EVERY_1_HOUR" },
+  { label: "Cada 2 horas", value: "EVERY_2_HOURS" },
+  { label: "Cada 3 horas", value: "EVERY_3_HOURS" },
+  { label: "Manualmente", value: "MANUAL" },
 ];
 
-const DEFAULT_PRINT_FORMATS = [
-  {
-    key: "gondola",
-    name: "Gondola",
-    paperWidth: "80",
-    descriptionFontSize: "22",
-    priceFontSize: "34",
-    showBarcode: true,
-    showPrice: true,
-    showDescription: true,
-    showStock: false,
-    showDate: true,
-    showCompanyName: false,
-    showInternalCode: false,
-    copies: "1",
-    marginTop: "0",
-    marginBottom: "0",
-    alignment: "center",
-    boldPrice: true,
-    previewBeforePrint: true,
-  },
-  {
-    key: "product",
-    name: "Producto",
-    paperWidth: "80",
-    descriptionFontSize: "16",
-    priceFontSize: "24",
-    showBarcode: true,
-    showPrice: true,
-    showDescription: true,
-    showStock: false,
-    showDate: false,
-    showCompanyName: false,
-    showInternalCode: false,
-    copies: "1",
-    marginTop: "0",
-    marginBottom: "0",
-    alignment: "center",
-    boldPrice: true,
-    previewBeforePrint: true,
-  },
-  {
-    key: "small",
-    name: "Precio Chico",
-    paperWidth: "58",
-    descriptionFontSize: "12",
-    priceFontSize: "20",
-    showBarcode: true,
-    showPrice: true,
-    showDescription: true,
-    showStock: false,
-    showDate: false,
-    showCompanyName: false,
-    showInternalCode: false,
-    copies: "1",
-    marginTop: "0",
-    marginBottom: "0",
-    alignment: "center",
-    boldPrice: true,
-    previewBeforePrint: true,
-  },
-  {
-    key: "custom",
-    name: "Personalizado",
-    paperWidth: "80",
-    descriptionFontSize: "16",
-    priceFontSize: "24",
-    showBarcode: true,
-    showPrice: true,
-    showDescription: true,
-    showStock: true,
-    showDate: true,
-    showCompanyName: true,
-    showInternalCode: true,
-    copies: "1",
-    marginTop: "0",
-    marginBottom: "0",
-    alignment: "center",
-    boldPrice: true,
-    previewBeforePrint: true,
-  },
+const THEME_OPTIONS = [
+  { label: "Claro", value: false, icon: "sunny-outline" },
+  { label: "Oscuro", value: true, icon: "moon-outline" },
 ];
 
-const DEFAULT_CONFIG = {
-  CONNECTION_TYPE: "API",
+const defaultConfig = {
+  CONNECTION_TYPE: "LOCAL",
   API_URI: "",
   API_ACCOUNT_CODE: "",
   API_USER: "",
@@ -115,242 +57,233 @@ const DEFAULT_CONFIG = {
   API_BASE_ID: "",
   API_TIMEOUT: "15",
   API_SSL: false,
+  SYNC_FREQUENCY: "MANUAL",
   SQL_SERVER: "",
-  SQL_INSTANCE: "",
-  SQL_PORT: "",
   SQL_DATABASE: "",
   SQL_USER: "",
   SQL_PASSWORD: "",
-  SQL_TABLE_VIEW: "dbo.Articulos",
-  SQL_BARCODE_FIELD: "codigoBarra",
-  SQL_DESCRIPTION_FIELD: "descripcion",
-  SQL_PRICE_FIELD: "precio",
-  SQL_STOCK_FIELD: "stock",
+  SQL_ARTICLES_TABLE: "Productos",
+  SQL_INSTANCE: "",
+  SQL_PORT: "",
   SQL_TIMEOUT: "15",
+  SQL_TRUST_SERVER_CERTIFICATE: false,
+  SQL_USE_SSL: false,
   SQL_MODE: "LOCAL",
   TEMA_OSCURO: false,
 };
 
-const BOOLEAN_KEYS = new Set(["API_SSL", "TEMA_OSCURO"]);
+const loadConfigMap = (rows) =>
+  rows.reduce((acc, item) => {
+    acc[String(item.key ?? "").trim()] = item.value;
+    return acc;
+  }, {});
 
-const parseConnectionMode = (config) => {
-  const current = String(config.CONNECTION_TYPE ?? "").trim().toUpperCase();
-  if (current === "API" || current === "LOCAL" || current === "ONLINE") {
-    return current;
-  }
-
-  const legacySqlMode = String(config.SQL_MODE ?? "").trim().toUpperCase();
-  if (legacySqlMode === "ONLINE") {
-    return "ONLINE";
-  }
-  if (legacySqlMode === "LOCAL") {
-    return "LOCAL";
-  }
-
-  return "API";
-};
-
-const parsePrintFormats = (value) => {
-  if (!value) {
-    return DEFAULT_PRINT_FORMATS;
-  }
-
-  try {
-    const parsed = JSON.parse(value);
-    if (!Array.isArray(parsed) || parsed.length === 0) {
-      return DEFAULT_PRINT_FORMATS;
-    }
-
-    return DEFAULT_PRINT_FORMATS.map((fallback, index) => ({
-      ...fallback,
-      ...(parsed[index] || {}),
-      key: fallback.key,
-      name: String(parsed[index]?.name ?? fallback.name),
-    }));
-  } catch (e) {
-    return DEFAULT_PRINT_FORMATS;
-  }
-};
-
-const serializePrintFormats = (formats) => JSON.stringify(formats);
-
-const normalizeSqlMode = (mode) => {
-  if (mode === "ONLINE") {
-    return "ONLINE";
-  }
-  if (mode === "LOCAL") {
-    return "LOCAL";
-  }
+const normalizeMode = (value) => {
+  const mode = String(value ?? "")
+    .trim()
+    .toUpperCase();
+  if (mode === "API" || mode === "LOCAL" || mode === "ONLINE") return mode;
   return "LOCAL";
 };
 
-const buildSqlTarget = (config) => {
-  const rawServer = String(config.SQL_SERVER ?? "").trim();
-  const rawInstance = String(config.SQL_INSTANCE ?? "").trim();
-  const rawPort = parseInt(String(config.SQL_PORT ?? "").trim(), 10);
-
-  if (!rawServer) {
-    return { server: "", port: undefined };
-  }
-
-  if (rawServer.includes("\\") || rawServer.includes(",")) {
-    const portFromRaw = rawServer.includes(",")
-      ? parseInt(rawServer.split(",").slice(1).join(","), 10)
-      : 0;
-
-    return {
-      server: rawServer,
-      port: Number.isFinite(portFromRaw) && portFromRaw > 0 ? portFromRaw : undefined,
-    };
-  }
-
-  if (rawInstance) {
-    return { server: `${rawServer}\\${rawInstance}`, port: undefined };
-  }
-
-  if (Number.isFinite(rawPort) && rawPort > 0) {
-    return { server: rawServer, port: rawPort };
-  }
-
-  return { server: rawServer, port: undefined };
+const normalizeFrequency = (value) => {
+  const freq = String(value ?? "")
+    .trim()
+    .toUpperCase();
+  return FREQUENCY_OPTIONS.some((item) => item.value === freq)
+    ? freq
+    : "MANUAL";
 };
 
 const SectionTitle = ({ children, color }) => (
   <Text style={[styles.sectionTitle, { color }]}>{children}</Text>
 );
 
-const ActionButton = ({ label, icon, onPress, backgroundColor, color, disabled = false }) => (
+const ModeChip = ({ label, active, onPress, darkMode }) => (
   <TouchableOpacity
     onPress={onPress}
-    disabled={disabled}
     style={[
-      styles.actionButton,
-      { backgroundColor, opacity: disabled ? 0.7 : 1 },
+      styles.modeChip,
+      {
+        backgroundColor: active
+          ? "#1E88E5"
+          : darkMode
+            ? "#152332"
+            : Colors.SURFACE,
+        borderColor: active ? "#1E88E5" : darkMode ? "#243241" : Colors.BORDER,
+      },
     ]}
   >
-    <Ionicons name={icon} size={18} color={color} />
-    <Text style={[styles.actionButtonText, { color }]}>{label}</Text>
+    <Text
+      style={[
+        styles.modeChipText,
+        { color: active ? Colors.WHITE : darkMode ? "#E8F0F8" : Colors.DGREY },
+      ]}
+    >
+      {label}
+    </Text>
   </TouchableOpacity>
 );
 
-const BooleanRow = ({ title, field, value, handleChange, darkMode }) => (
-  <ConfigItem
-    type="checkbox"
-    title={title}
-    field={field}
-    value={value}
-    handleChange={handleChange}
-    darkMode={darkMode}
-  />
-);
-
-const PrintFormatEditor = ({ format, index, onChange, darkMode, accentColor }) => (
-  <View style={[styles.formatCard, darkMode && styles.formatCardDark]}>
-    <Text style={[styles.formatTitle, { color: accentColor }]}>Formato {index + 1}</Text>
-    <ConfigItem
-      type="input"
-      title="Nombre"
-      field="name"
-      placeholder="Gondola"
-      value={format.name}
-      handleChange={(field, value) => onChange(field, value)}
-      darkMode={darkMode}
-    />
-    <ConfigItem
-      type="input"
-      title="Ancho de papel (mm)"
-      field="paperWidth"
-      placeholder="80"
-      value={format.paperWidth}
-      keyboardType="numeric"
-      handleChange={(field, value) => onChange(field, value)}
-      darkMode={darkMode}
-    />
-    <ConfigItem
-      type="input"
-      title="Tamano fuente descripcion"
-      field="descriptionFontSize"
-      placeholder="16"
-      value={format.descriptionFontSize}
-      keyboardType="numeric"
-      handleChange={(field, value) => onChange(field, value)}
-      darkMode={darkMode}
-    />
-    <ConfigItem
-      type="input"
-      title="Tamano fuente precio"
-      field="priceFontSize"
-      placeholder="24"
-      value={format.priceFontSize}
-      keyboardType="numeric"
-      handleChange={(field, value) => onChange(field, value)}
-      darkMode={darkMode}
-    />
-    <ConfigItem
-      type="select"
-      title="Alineacion"
-      field="alignment"
-      value={format.alignment}
-      options={ALIGNMENT_OPTIONS}
-      handleChange={(field, value) => onChange(field, value)}
-      darkMode={darkMode}
-    />
-    <ConfigItem
-      type="input"
-      title="Cantidad de copias"
-      field="copies"
-      placeholder="1"
-      value={format.copies}
-      keyboardType="numeric"
-      handleChange={(field, value) => onChange(field, value)}
-      darkMode={darkMode}
-    />
-    <ConfigItem
-      type="input"
-      title="Margen superior"
-      field="marginTop"
-      placeholder="0"
-      value={format.marginTop}
-      keyboardType="numeric"
-      handleChange={(field, value) => onChange(field, value)}
-      darkMode={darkMode}
-    />
-    <ConfigItem
-      type="input"
-      title="Margen inferior"
-      field="marginBottom"
-      placeholder="0"
-      value={format.marginBottom}
-      keyboardType="numeric"
-      handleChange={(field, value) => onChange(field, value)}
-      darkMode={darkMode}
-    />
-    <BooleanRow title="Mostrar codigo de barra" field="showBarcode" value={format.showBarcode} handleChange={onChange} darkMode={darkMode} />
-    <BooleanRow title="Mostrar precio" field="showPrice" value={format.showPrice} handleChange={onChange} darkMode={darkMode} />
-    <BooleanRow title="Mostrar descripcion" field="showDescription" value={format.showDescription} handleChange={onChange} darkMode={darkMode} />
-    <BooleanRow title="Mostrar stock" field="showStock" value={format.showStock} handleChange={onChange} darkMode={darkMode} />
-    <BooleanRow title="Mostrar fecha" field="showDate" value={format.showDate} handleChange={onChange} darkMode={darkMode} />
-    <BooleanRow title="Mostrar nombre empresa" field="showCompanyName" value={format.showCompanyName} handleChange={onChange} darkMode={darkMode} />
-    <BooleanRow title="Mostrar codigo interno" field="showInternalCode" value={format.showInternalCode} handleChange={onChange} darkMode={darkMode} />
-    <BooleanRow title="Precio en negrita" field="boldPrice" value={format.boldPrice} handleChange={onChange} darkMode={darkMode} />
-    <BooleanRow title="Vista previa antes de imprimir" field="previewBeforePrint" value={format.previewBeforePrint} handleChange={onChange} darkMode={darkMode} />
+const ThemeSwitcher = ({ value, onChange, darkMode }) => (
+  <View style={[styles.themeSelector, darkMode && styles.themeSelectorDark]}>
+    {THEME_OPTIONS.map((item) => {
+      const active = value === item.value;
+      return (
+        <TouchableOpacity
+          key={item.label}
+          onPress={() => onChange(item.value)}
+          style={[
+            styles.themeOption,
+            active &&
+              (darkMode
+                ? styles.themeOptionActiveDark
+                : styles.themeOptionActiveLight),
+          ]}
+        >
+          <Ionicons
+            name={item.icon}
+            size={18}
+            color={active ? (darkMode ? "#8FC3FF" : "#1A395A") : "#7A8A9A"}
+          />
+          <Text
+            style={[
+              styles.themeOptionText,
+              {
+                color: active ? (darkMode ? "#E8F0F8" : "#1A395A") : "#7A8A9A",
+              },
+            ]}
+          >
+            {item.label}
+          </Text>
+        </TouchableOpacity>
+      );
+    })}
   </View>
 );
 
+const PasswordField = ({ title, value, onChange, placeholder, darkMode }) => {
+  const [secure, setSecure] = useState(true);
+
+  return (
+    <View>
+      <Text style={[styles.fieldLabel, darkMode && styles.fieldLabelDark]}>
+        {title}
+      </Text>
+      <View style={[styles.passwordWrap, darkMode && styles.passwordWrapDark]}>
+        <TextInput
+          style={[styles.passwordInput, darkMode && styles.passwordInputDark]}
+          placeholder={placeholder}
+          placeholderTextColor={darkMode ? "#9CB2C8" : Colors.MUTED}
+          value={value}
+          onChangeText={onChange}
+          secureTextEntry={secure}
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
+        <TouchableOpacity
+          onPress={() => setSecure((current) => !current)}
+          style={styles.passwordIconButton}
+          hitSlop={10}
+          accessibilityRole="button"
+          accessibilityLabel={
+            secure ? "Mostrar contraseña" : "Ocultar contraseña"
+          }
+        >
+          <Ionicons
+            name={secure ? "eye-outline" : "eye-off-outline"}
+            size={20}
+            color={darkMode ? "#BFD0E0" : Colors.MUTED}
+          />
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+};
+
+const ConnectionStatusCard = ({ result, theme, darkMode }) => {
+  if (!result) return null;
+
+  const config = {
+    loading: {
+      icon: "sync-outline",
+      iconColor: "#1E88E5",
+      iconBg: darkMode ? "#152332" : "#EAF4FF",
+      border: darkMode ? "#243241" : "#D7E6F5",
+    },
+    success: {
+      icon: "checkmark-circle",
+      iconColor: "#1F8B4C",
+      iconBg: darkMode ? "#163123" : "#E4F6EA",
+      border: darkMode ? "#254732" : "#CDEAD8",
+    },
+    unavailable: {
+      icon: "information-circle",
+      iconColor: "#5A728A",
+      iconBg: darkMode ? "#1B2633" : "#E8EEF5",
+      border: darkMode ? "#304152" : "#CBD5E1",
+    },
+    error: {
+      icon: "alert-circle",
+      iconColor: "#E5484D",
+      iconBg: darkMode ? "#3A1D22" : "#FDEBEC",
+      border: darkMode ? "#5A2A31" : "#F5C8CD",
+    },
+  }[result.status];
+
+  return (
+    <View
+      style={[
+        styles.connectionCard,
+        { backgroundColor: theme.surface, borderColor: config.border },
+        Shadow.sm,
+      ]}
+    >
+      <View
+        style={[styles.connectionIconWrap, { backgroundColor: config.iconBg }]}
+      >
+        {result.status === "loading" ? (
+          <ActivityIndicator color={config.iconColor} />
+        ) : (
+          <Ionicons name={config.icon} size={24} color={config.iconColor} />
+        )}
+      </View>
+      <View style={styles.connectionTextWrap}>
+        <Text style={[styles.connectionTitle, { color: theme.text }]}>
+          {result.title}
+        </Text>
+        <Text style={[styles.connectionSubtitle, { color: theme.muted }]}>
+          {result.subtitle}
+        </Text>
+        {result.detail ? (
+          <Text
+            style={[styles.connectionDetail, { color: theme.text }]}
+            numberOfLines={2}
+          >
+            {result.detail}
+          </Text>
+        ) : null}
+      </View>
+    </View>
+  );
+};
+
 export default function ConfigurationScreen({ navigation }) {
-  const [config, setConfig] = useState(DEFAULT_CONFIG);
-  const [printFormats, setPrintFormats] = useState(DEFAULT_PRINT_FORMATS);
-  const [saving, setSaving] = useState(false);
-  const [status, setStatus] = useState("");
-  const [testLoading, setTestLoading] = useState(false);
-  const [syncLoading, setSyncLoading] = useState(false);
+  const [config, setConfig] = useState(defaultConfig);
   const [activeMode, setActiveMode] = useState("API");
+  const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [status, setStatus] = useState("");
+  const [connectionResult, setConnectionResult] = useState(null);
   const { darkMode, refreshTheme } = useThemeConfig();
+  const insets = useSafeAreaInsets();
 
   const theme = useMemo(
     () => ({
       background: darkMode ? "#0F1720" : "#E8F2FC",
       surface: darkMode ? "#16212D" : Colors.SURFACE,
+      surfaceAlt: darkMode ? "#1B2633" : "#F7FBFF",
       text: darkMode ? "#E8F0F8" : Colors.DGREY,
       muted: darkMode ? "#BFD0E0" : Colors.MUTED,
       border: darkMode ? "#243241" : Colors.BORDER,
@@ -358,68 +291,59 @@ export default function ConfigurationScreen({ navigation }) {
       accentDark: "#0B5FA5",
       success: "#1F8B4C",
     }),
-    [darkMode]
+    [darkMode],
   );
 
   const loadConfiguration = useCallback(async () => {
     await Configuration.createTable();
     const rows = await Configuration.query();
-    const nextConfig = { ...DEFAULT_CONFIG };
-    let formatsRaw = "";
+    const map = loadConfigMap(rows);
 
-    rows.forEach((item) => {
-      const key = String(item.key ?? "").trim();
-      const value = item.value;
+    const nextConfig = {
+      ...defaultConfig,
+      CONNECTION_TYPE: normalizeMode(map.CONNECTION_TYPE || map.SQL_MODE),
+      API_URI: String(map.API_URI ?? "").trim(),
+      API_ACCOUNT_CODE: String(
+        map.API_ACCOUNT_CODE ?? map.ALFA_ACCOUNT ?? "",
+      ).trim(),
+      API_USER: String(map.API_USER ?? map.USERNAME_SYNC ?? "").trim(),
+      API_PASSWORD: String(map.API_PASSWORD ?? map.PASSWORD_SYNC ?? "").trim(),
+      API_BASE_ID: String(map.API_BASE_ID ?? map.ALFA_DATABASE_ID ?? "").trim(),
+      API_TIMEOUT: String(map.API_TIMEOUT ?? map.SQL_TIMEOUT ?? "15").trim(),
+      API_SSL: Configuration.isTruthyConfigValue(map.API_SSL),
+      SYNC_FREQUENCY: normalizeFrequency(map.SYNC_FREQUENCY),
+      SQL_SERVER: String(map.SQL_SERVER ?? "").trim(),
+      SQL_DATABASE: String(map.SQL_DATABASE ?? "").trim(),
+      SQL_USER: String(map.SQL_USER ?? "").trim(),
+      SQL_PASSWORD: String(map.SQL_PASSWORD ?? "").trim(),
+      SQL_ARTICLES_TABLE: String(
+        map.SQL_ARTICLES_TABLE ?? map.SQL_TABLE_VIEW ?? "Productos",
+      ).trim(),
+      SQL_INSTANCE: String(map.SQL_INSTANCE ?? "").trim(),
+      SQL_PORT: String(map.SQL_PORT ?? "").trim(),
+      SQL_TIMEOUT: String(map.SQL_TIMEOUT ?? "15").trim(),
+      SQL_TRUST_SERVER_CERTIFICATE: Configuration.isTruthyConfigValue(
+        map.SQL_TRUST_SERVER_CERTIFICATE,
+      ),
+      SQL_USE_SSL: Configuration.isTruthyConfigValue(map.SQL_USE_SSL),
+      SQL_MODE: normalizeMode(map.SQL_MODE || "LOCAL"),
+      TEMA_OSCURO: Configuration.isTruthyConfigValue(map.TEMA_OSCURO),
+    };
 
-      if (key === "PRINT_FORMATS_JSON") {
-        formatsRaw = String(value ?? "");
-        return;
-      }
+    const parsedServer = parseSqlServerAddress(nextConfig.SQL_SERVER);
+    if (!nextConfig.SQL_PORT && parsedServer.port !== null) {
+      nextConfig.SQL_PORT = String(parsedServer.port);
+    }
+    if (!nextConfig.SQL_INSTANCE && parsedServer.instance) {
+      nextConfig.SQL_INSTANCE = parsedServer.instance;
+    }
 
-      if (key === "ALFA_ACCOUNT") {
-        nextConfig.API_ACCOUNT_CODE = String(value ?? "");
-        return;
-      }
+    if (nextConfig.CONNECTION_TYPE === "API" && !nextConfig.API_URI) {
+      nextConfig.API_URI = DEFAULT_API_URI;
+    }
 
-      if (key === "USERNAME_SYNC") {
-        nextConfig.API_USER = String(value ?? "");
-        return;
-      }
-
-      if (key === "PASSWORD_SYNC") {
-        nextConfig.API_PASSWORD = String(value ?? "");
-        return;
-      }
-
-      if (key === "ALFA_DATABASE_ID") {
-        nextConfig.API_BASE_ID = String(value ?? "");
-        return;
-      }
-
-      if (key === "API_URI") {
-        nextConfig.API_URI = String(value ?? "");
-        return;
-      }
-
-      if (key === "SQL_MODE") {
-        nextConfig.SQL_MODE = String(value ?? "").toUpperCase() || "LOCAL";
-        return;
-      }
-
-      if (key === "CONNECTION_TYPE") {
-        nextConfig.CONNECTION_TYPE = String(value ?? "").toUpperCase() || "API";
-        return;
-      }
-
-      if (Object.prototype.hasOwnProperty.call(nextConfig, key)) {
-        nextConfig[key] = BOOLEAN_KEYS.has(key) ? Configuration.isTruthyConfigValue(value) : String(value ?? "");
-      }
-    });
-
-    nextConfig.CONNECTION_TYPE = parseConnectionMode(nextConfig);
     setActiveMode(nextConfig.CONNECTION_TYPE);
     setConfig(nextConfig);
-    setPrintFormats(parsePrintFormats(formatsRaw));
   }, []);
 
   useEffect(() => {
@@ -429,49 +353,42 @@ export default function ConfigurationScreen({ navigation }) {
   useFocusEffect(
     useCallback(() => {
       loadConfiguration();
-    }, [loadConfiguration])
+    }, [loadConfiguration]),
   );
 
-  useEffect(() => {
-    setConfig((current) => ({
-      ...current,
-      SQL_MODE: normalizeSqlMode(activeMode),
-    }));
-  }, [activeMode]);
-
   const handleChange = (field, value) => {
-    setConfig((current) => ({
-      ...current,
-      [field]: value,
-    }));
+    if (
+      [
+        "API_URI",
+        "API_ACCOUNT_CODE",
+        "API_USER",
+        "API_PASSWORD",
+        "API_BASE_ID",
+        "SQL_SERVER",
+        "SQL_DATABASE",
+        "SQL_USER",
+        "SQL_PASSWORD",
+        "SQL_ARTICLES_TABLE",
+      ].includes(field)
+    ) {
+      setConnectionResult(null);
+    }
+    setConfig((current) => ({ ...current, [field]: value }));
   };
 
   const handleModeChange = (mode) => {
     setActiveMode(mode);
-  };
-
-  const updatePrintFormat = (index, field, value) => {
-    setPrintFormats((current) =>
-      current.map((item, idx) => (idx === index ? { ...item, [field]: value } : item))
-    );
-  };
-
-  const validateConfig = () => {
-    if (activeMode === "API") {
-      if (!String(config.API_URI).trim()) throw new Error("Complete la ruta web service.");
-      if (!String(config.API_ACCOUNT_CODE).trim()) throw new Error("Complete el codigo de cuenta AlfaNet.");
-      if (!String(config.API_USER).trim()) throw new Error("Complete el usuario.");
-      if (!String(config.API_PASSWORD).trim()) throw new Error("Complete la password.");
-      if (!String(config.API_BASE_ID).trim()) throw new Error("Complete el ID base.");
-    }
-
-    if (activeMode === "LOCAL" || activeMode === "ONLINE") {
-      if (!String(config.SQL_SERVER).trim()) throw new Error("Complete el servidor SQL.");
-      if (!String(config.SQL_DATABASE).trim()) throw new Error("Complete la base de datos SQL.");
-      if (!String(config.SQL_USER).trim()) throw new Error("Complete el usuario SQL.");
-      if (!String(config.SQL_PASSWORD).trim()) throw new Error("Complete la contrasena SQL.");
-      if (!String(config.SQL_TABLE_VIEW).trim()) throw new Error("Complete la tabla o vista de articulos.");
-    }
+    setConnectionResult(null);
+    setConfig((current) => {
+      const next = { ...current, CONNECTION_TYPE: mode };
+      if (mode === "API" && !String(next.API_URI).trim()) {
+        next.API_URI = DEFAULT_API_URI;
+      }
+      if (mode === "ONLINE" || mode === "LOCAL") {
+        next.SQL_MODE = mode;
+      }
+      return next;
+    });
   };
 
   const saveConfiguration = async () => {
@@ -479,157 +396,297 @@ export default function ConfigurationScreen({ navigation }) {
     setStatus("");
 
     try {
-      validateConfig();
-      await Configuration.createTable();
+      const parsedServer = parseSqlServerAddress(config.SQL_SERVER);
 
-      const payload = {
-        ...config,
-        CONNECTION_TYPE: activeMode,
-        SQL_MODE: normalizeSqlMode(activeMode),
-        API_SSL: !!config.API_SSL,
-        TEMA_OSCURO: !!config.TEMA_OSCURO,
-        PRINT_FORMATS_JSON: serializePrintFormats(printFormats),
-        ALFA_ACCOUNT: config.API_ACCOUNT_CODE,
-        USERNAME_SYNC: config.API_USER,
-        PASSWORD_SYNC: config.API_PASSWORD,
-        ALFA_DATABASE_ID: config.API_BASE_ID,
-      };
-
-      for (const [key, rawValue] of Object.entries(payload)) {
-        let value = rawValue;
-        if (BOOLEAN_KEYS.has(key)) {
-          value = value ? "1" : "0";
-        }
-        if (value === null || value === undefined) {
-          value = "";
-        }
-        await Configuration.setConfigValue(key, String(value).trim());
+      if (activeMode === "API") {
+        if (!String(config.API_URI).trim())
+          throw new Error("Complete la ruta web service.");
+        if (!String(config.API_ACCOUNT_CODE).trim())
+          throw new Error("Complete el código de cuenta AlfaNet.");
+        if (!String(config.API_USER).trim())
+          throw new Error("Complete el usuario.");
+        if (!String(config.API_PASSWORD).trim())
+          throw new Error("Complete la contraseña.");
+        if (!String(config.API_BASE_ID).trim())
+          throw new Error("Complete el ID base.");
       }
 
-      setStatus("Configuracion guardada correctamente.");
+      if (activeMode === "LOCAL" || activeMode === "ONLINE") {
+        if (!String(config.SQL_SERVER).trim())
+          throw new Error("Complete el servidor SQL.");
+        if (!String(config.SQL_DATABASE).trim())
+          throw new Error("Complete la base de datos SQL.");
+        if (!String(config.SQL_USER).trim())
+          throw new Error("Complete el usuario SQL.");
+        if (!String(config.SQL_PASSWORD).trim())
+          throw new Error("Complete la contraseña SQL.");
+        if (!String(config.SQL_ARTICLES_TABLE).trim())
+          throw new Error("Complete la tabla o vista de artículos.");
+      }
+
+      const payload = [
+        ["CONNECTION_TYPE", activeMode],
+        [
+          "SQL_MODE",
+          activeMode === "ONLINE"
+            ? "ONLINE"
+            : activeMode === "LOCAL"
+              ? "LOCAL"
+              : config.SQL_MODE,
+        ],
+        ["API_URI", config.API_URI],
+        ["ALFA_ACCOUNT", config.API_ACCOUNT_CODE],
+        ["API_ACCOUNT_CODE", config.API_ACCOUNT_CODE],
+        ["USERNAME_SYNC", config.API_USER],
+        ["API_USER", config.API_USER],
+        ["PASSWORD_SYNC", config.API_PASSWORD],
+        ["API_PASSWORD", config.API_PASSWORD],
+        ["ALFA_DATABASE_ID", config.API_BASE_ID],
+        ["API_BASE_ID", config.API_BASE_ID],
+        ["API_TIMEOUT", config.API_TIMEOUT],
+        ["API_SSL", config.API_SSL ? "1" : "0"],
+        [
+          "SQL_SERVER",
+          config.SQL_SERVER,
+        ],
+        [
+          "SQL_PORT",
+          parsedServer.port !== null
+            ? String(parsedServer.port)
+            : config.SQL_PORT,
+        ],
+        ["SQL_TIMEOUT", config.SQL_TIMEOUT],
+        [
+          "SQL_INSTANCE",
+          parsedServer.instance || config.SQL_INSTANCE,
+        ],
+        ["SQL_DATABASE", config.SQL_DATABASE],
+        ["SQL_USER", config.SQL_USER],
+        ["SQL_PASSWORD", config.SQL_PASSWORD],
+        ["SQL_ARTICLES_TABLE", config.SQL_ARTICLES_TABLE],
+        ["SQL_TABLE_VIEW", config.SQL_ARTICLES_TABLE],
+        ["TEMA_OSCURO", config.TEMA_OSCURO ? "1" : "0"],
+      ];
+
+      for (const [key, value] of payload) {
+        await Configuration.setConfigValue(key, String(value ?? "").trim());
+      }
+
+      await loadConfiguration();
+      setStatus("Configuración guardada correctamente.");
       await refreshTheme();
     } catch (e) {
-      setStatus(e?.message || "No se pudo guardar la configuracion.");
+      setStatus(e?.message || "No se pudo guardar la configuración.");
     } finally {
       setSaving(false);
     }
   };
 
   const testConnection = async () => {
-    setTestLoading(true);
-    setStatus("");
+    if (testing) {
+      return;
+    }
 
-    try {
-      validateConfig();
-
-      if (activeMode === "API") {
-        const response = await fetch(String(config.API_URI).trim(), { method: "GET" });
-        if (!response) {
-          throw new Error("No fue posible contactar la ruta web service.");
-        }
-        setStatus("Conexion API verificada.");
+    if (activeMode === "API") {
+      if (!String(config.API_URI).trim()) {
+        setConnectionResult({
+          status: "error",
+          title: "No se pudo conectar",
+          subtitle: "Completá la ruta web service antes de probar.",
+        });
         return;
       }
 
-      const target = buildSqlTarget(config);
-      await MSSQL.connect({
-        server: target.server,
+      setTesting(true);
+      setConnectionResult({
+        status: "loading",
+        title: "Conectando...",
+        subtitle: "Estamos verificando la conexión con el servidor SQL.",
+      });
+
+      try {
+        const response = await fetch(String(config.API_URI).trim(), {
+          method: "GET",
+        });
+        if (!response.ok && response.status !== 0) {
+          throw new Error("No fue posible contactar la ruta web service.");
+        }
+        setConnectionResult({
+          status: "success",
+          title: "Conexión exitosa",
+          subtitle: "La app pudo conectarse correctamente al servidor.",
+        });
+      } catch (e) {
+        const rawMessage = String(
+          e?.message || "No se pudo probar la conexión.",
+        ).trim();
+        const detail =
+          rawMessage.length > 140
+            ? `${rawMessage.slice(0, 137).trimEnd()}...`
+            : rawMessage;
+        setConnectionResult({
+          status: "error",
+          title: "No se pudo conectar",
+          subtitle: "Revisá los datos y volvé a intentar.",
+          detail,
+        });
+      } finally {
+        setTesting(false);
+      }
+      return;
+    }
+
+    if (
+      !String(config.SQL_SERVER).trim() ||
+      !String(config.SQL_DATABASE).trim() ||
+      !String(config.SQL_USER).trim() ||
+      !String(config.SQL_PASSWORD).trim() ||
+      !String(config.SQL_ARTICLES_TABLE).trim()
+    ) {
+      setConnectionResult({
+        status: "error",
+        title: "No se pudo conectar",
+        subtitle:
+          "Completá servidor, base, usuario, contraseña y tabla/vista antes de probar.",
+      });
+      return;
+    }
+
+    if (!isSqlConnectorAvailable()) {
+      setConnectionResult({
+        status: "unavailable",
+        title: "Conector SQL no disponible",
+        subtitle: getSqlConnectorAvailabilityError(),
+      });
+      return;
+    }
+
+    setTesting(true);
+    setConnectionResult({
+      status: "loading",
+      title: "Conectando...",
+      subtitle: "Estamos verificando la conexión con el servidor SQL.",
+    });
+
+    try {
+      await connectSql({
+        server: config.SQL_SERVER,
+        instance: config.SQL_INSTANCE,
+        port: config.SQL_PORT,
         username: String(config.SQL_USER).trim(),
         password: String(config.SQL_PASSWORD),
         database: String(config.SQL_DATABASE).trim(),
-        port: target.port,
-        timeout: Number(config.SQL_TIMEOUT || config.API_TIMEOUT || 15),
+        timeout: Number(config.SQL_TIMEOUT || 15),
+        trustServerCertificate: config.SQL_TRUST_SERVER_CERTIFICATE
+          ? true
+          : undefined,
+        encrypt: config.SQL_USE_SSL ? true : undefined,
       });
-      await MSSQL.close();
-      setStatus("Conexion SQL verificada.");
+      await closeSql();
+      setConnectionResult({
+        status: "success",
+        title: "Conexión exitosa",
+        subtitle: "La app pudo conectarse correctamente al servidor.",
+      });
     } catch (e) {
-      setStatus(e?.message || "No se pudo probar la conexion.");
-      try {
-        await MSSQL.close();
-      } catch (closeError) {
-        // ignore close errors
+      const rawMessage = String(
+        e?.message || getSqlConnectorAvailabilityError(),
+      ).trim();
+      if (rawMessage === getSqlConnectorAvailabilityError()) {
+        setConnectionResult({
+          status: "unavailable",
+          title: "Conector SQL no disponible",
+          subtitle: rawMessage,
+        });
+        return;
       }
+      const detail =
+        rawMessage.length > 140
+          ? `${rawMessage.slice(0, 137).trimEnd()}...`
+          : rawMessage;
+      setConnectionResult({
+        status: "error",
+        title: "No se pudo conectar",
+        subtitle: "Revisá los datos y volvé a intentar.",
+        detail,
+      });
+      await closeSql();
     } finally {
-      setTestLoading(false);
+      setTesting(false);
     }
   };
 
   const syncNow = async () => {
     if (activeMode !== "LOCAL") {
-      Alert.alert("AlfaScan", "La sincronizacion manual solo aplica en SQL Local.");
+      Alert.alert(
+        "AlfaScan",
+        "La sincronización manual aplica solo para SQL Local.",
+      );
       return;
     }
 
-    setSyncLoading(true);
+    setSyncing(true);
     setStatus("");
-
     try {
       const result = await syncCatalogToLocal({
         onProgress: ({ inserted, page }) => {
-          setStatus(`Sincronizando catalogo... ${inserted} registros importados (lote ${page}).`);
+          setStatus(
+            `Sincronizando catálogo... ${inserted} registros importados (lote ${page}).`,
+          );
         },
       });
-
       const now = new Date().toISOString();
       await Configuration.setConfigValue("LAST_SYNC_AT", now);
-      setStatus(`Sincronizacion completada. Registros importados: ${result.inserted}.`);
+      setStatus(
+        `Sincronización completada. Registros importados: ${result.inserted}.`,
+      );
     } catch (e) {
-      setStatus(e?.message || "No se pudo sincronizar el catalogo.");
+      setStatus(e?.message || "No se pudo sincronizar el catálogo.");
     } finally {
-      setSyncLoading(false);
+      setSyncing(false);
     }
   };
 
-  const sqlFields = [
-    { title: "Servidor SQL", field: "SQL_SERVER", placeholder: "SERVIDOR, IP o IP\\INSTANCIA" },
-    { title: "Instancia SQL opcional", field: "SQL_INSTANCE", placeholder: "SQLEXPRESS" },
-    { title: "Puerto opcional", field: "SQL_PORT", placeholder: "1433", keyboardType: "numeric" },
-    { title: "Base de datos", field: "SQL_DATABASE", placeholder: "MiBase" },
-    { title: "Usuario", field: "SQL_USER", placeholder: "sa" },
-    { title: "Contrasena", field: "SQL_PASSWORD", placeholder: "********", secureTextEntry: true },
-    { title: "Tabla o vista de articulos", field: "SQL_TABLE_VIEW", placeholder: "dbo.Articulos" },
-    { title: "Campo codigo de barra", field: "SQL_BARCODE_FIELD", placeholder: "codigoBarra" },
-    { title: "Campo descripcion", field: "SQL_DESCRIPTION_FIELD", placeholder: "descripcion" },
-    { title: "Campo precio", field: "SQL_PRICE_FIELD", placeholder: "precio" },
-    { title: "Campo stock opcional", field: "SQL_STOCK_FIELD", placeholder: "stock" },
-    { title: "Timeout SQL (segundos)", field: "SQL_TIMEOUT", placeholder: "15", keyboardType: "numeric" },
-  ];
+  const testButtonLabel = testing ? "Probando..." : "Probar conexión";
 
   return (
     <View style={[styles.root, { backgroundColor: theme.background }]}>
-      <ScrollView contentContainerStyle={styles.content}>
-        <View style={[styles.card, { backgroundColor: theme.surface }, Shadow.sm]}>
-          <Text style={[styles.title, { color: theme.text }]}>Configuracion AlfaScan</Text>
+      <ScrollView
+        contentContainerStyle={[
+          styles.content,
+          { paddingBottom: 28 + insets.bottom },
+        ]}
+      >
+        <View
+          style={[styles.card, { backgroundColor: theme.surface }, Shadow.sm]}
+        >
+          <Text style={[styles.title, { color: theme.text }]}>
+            Configuración AlfaScan
+          </Text>
           <Text style={[styles.subtitle, { color: theme.muted }]}>
-            Defina el modo de uso, los datos de conexion y los formatos de impresion.
+            Defina el modo de conexión principal y los datos esenciales de
+            acceso.
           </Text>
 
           <View style={styles.modeRow}>
-            {MODE_OPTIONS.map((item) => {
-              const active = activeMode === item.value;
-              return (
-                <TouchableOpacity
-                  key={item.value}
-                  style={[
-                    styles.modeChip,
-                    {
-                      backgroundColor: active ? theme.accent : theme.surface,
-                      borderColor: active ? theme.accent : theme.border,
-                    },
-                  ]}
-                  onPress={() => handleModeChange(item.value)}
-                >
-                  <Text style={[styles.modeChipText, { color: active ? Colors.WHITE : theme.text }]}>
-                    {item.label}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
+            {MODE_OPTIONS.map((item) => (
+              <ModeChip
+                key={item.value}
+                label={item.label}
+                active={activeMode === item.value}
+                onPress={() => handleModeChange(item.value)}
+                darkMode={darkMode}
+              />
+            ))}
           </View>
 
           {activeMode === "API" ? (
             <>
-              <SectionTitle color={theme.text}>Configuracion AlfaNet / API</SectionTitle>
+              <SectionTitle color={theme.text}>API AlfaNet</SectionTitle>
+              <Text style={[styles.sectionHint, { color: theme.muted }]}>
+                Alternativa disponible, pero no es el camino principal para
+                precios ni catalogo.
+              </Text>
               <ConfigItem
                 type="input"
                 title="Ruta web service"
@@ -641,7 +698,7 @@ export default function ConfigurationScreen({ navigation }) {
               />
               <ConfigItem
                 type="input"
-                title="Codigo cuenta AlfaNet"
+                title="Código cuenta AlfaNet"
                 field="API_ACCOUNT_CODE"
                 placeholder="112010001"
                 value={config.API_ACCOUNT_CODE}
@@ -657,14 +714,11 @@ export default function ConfigurationScreen({ navigation }) {
                 handleChange={handleChange}
                 darkMode={darkMode}
               />
-              <ConfigItem
-                type="input"
+              <PasswordField
                 title="Password"
-                field="API_PASSWORD"
                 placeholder="********"
                 value={config.API_PASSWORD}
-                secureTextEntry
-                handleChange={handleChange}
+                onChange={(value) => handleChange("API_PASSWORD", value)}
                 darkMode={darkMode}
               />
               <ConfigItem
@@ -686,7 +740,8 @@ export default function ConfigurationScreen({ navigation }) {
                 handleChange={handleChange}
                 darkMode={darkMode}
               />
-              <BooleanRow
+              <ConfigItem
+                type="checkbox"
                 title="Usar SSL"
                 field="API_SSL"
                 value={config.API_SSL}
@@ -696,97 +751,179 @@ export default function ConfigurationScreen({ navigation }) {
             </>
           ) : (
             <>
-              <SectionTitle color={theme.text}>Configuracion SQL</SectionTitle>
-              <Text style={[styles.helperText, { color: theme.muted }]}>
-                El formato del servidor soporta SERVIDOR, IP, SERVIDOR\INSTANCIA, IP\INSTANCIA, IP,PUERTO y SERVIDOR,PUERTO.
+              <SectionTitle color={theme.text}>
+                {activeMode === "LOCAL" ? "SQL Local" : "SQL Online"}
+              </SectionTitle>
+              <Text style={[styles.sectionHint, { color: theme.muted }]}>
+                SQL directo requiere APK propia / development build. No
+                funciona en Expo Go.
               </Text>
-              {sqlFields.map((item) => (
-                <ConfigItem
-                  key={item.field}
-                  type="input"
-                  title={item.title}
-                  field={item.field}
-                  placeholder={item.placeholder}
-                  value={config[item.field]}
-                  keyboardType={item.keyboardType || "default"}
-                  secureTextEntry={item.secureTextEntry || false}
-                  handleChange={handleChange}
-                  darkMode={darkMode}
-                />
-              ))}
-              <TouchableOpacity
-                style={[styles.smallButton, { backgroundColor: theme.accent }]}
-                onPress={testConnection}
-                disabled={testLoading}
-              >
-                {testLoading ? <ActivityIndicator color={Colors.WHITE} /> : <Ionicons name="checkmark-circle-outline" size={18} color={Colors.WHITE} />}
-                <Text style={styles.smallButtonText}>Probar conexion</Text>
-              </TouchableOpacity>
-              {activeMode === "LOCAL" ? (
-                <TouchableOpacity
-                  style={[styles.smallButton, { backgroundColor: theme.success }]}
-                  onPress={syncNow}
-                  disabled={syncLoading}
-                >
-                  {syncLoading ? <ActivityIndicator color={Colors.WHITE} /> : <Ionicons name="sync-outline" size={18} color={Colors.WHITE} />}
-                  <Text style={styles.smallButtonText}>Sincronizar ahora</Text>
-                </TouchableOpacity>
-              ) : null}
+              <ConfigItem
+                type="input"
+                title="Servidor"
+                field="SQL_SERVER"
+                placeholder="SERVIDOR, IP o SERVIDOR\\INSTANCIA"
+                value={config.SQL_SERVER}
+                handleChange={handleChange}
+                darkMode={darkMode}
+                helperText="Formatos permitidos: IP, SERVIDOR, IP,PUERTO, SERVIDOR,PUERTO, IP\\INSTANCIA. Recomendado: IP,PUERTO."
+              />
+              <ConfigItem
+                type="input"
+                title="Base"
+                field="SQL_DATABASE"
+                placeholder="MiBase"
+                value={config.SQL_DATABASE}
+                handleChange={handleChange}
+                darkMode={darkMode}
+              />
+              <ConfigItem
+                type="input"
+                title="Usuario"
+                field="SQL_USER"
+                placeholder="sa"
+                value={config.SQL_USER}
+                handleChange={handleChange}
+                darkMode={darkMode}
+              />
+              <PasswordField
+                title="Contraseña"
+                placeholder="********"
+                value={config.SQL_PASSWORD}
+                onChange={(value) => handleChange("SQL_PASSWORD", value)}
+                darkMode={darkMode}
+              />
+              <ConfigItem
+                type="input"
+                title="Tabla / Vista de artículos"
+                field="SQL_ARTICLES_TABLE"
+                placeholder="Productos"
+                value={config.SQL_ARTICLES_TABLE}
+                handleChange={handleChange}
+                darkMode={darkMode}
+                helperText="Vista o tabla del cliente. Por defecto: Productos."
+              />
             </>
           )}
-        </View>
 
-        <View style={[styles.card, { backgroundColor: theme.surface }, Shadow.sm]}>
-          <Text style={[styles.sectionTitle, { color: theme.text }]}>Configuracion de impresion</Text>
-          <Text style={[styles.helperText, { color: theme.muted }]}>
-            Se pueden editar hasta 4 formatos. El formato personalizado deja activos todos los campos.
-          </Text>
+          <View style={styles.inlineActions}>
+            <TouchableOpacity
+              style={[
+                styles.smallButton,
+                { backgroundColor: theme.accent },
+                testing && styles.buttonDisabled,
+              ]}
+              onPress={testConnection}
+              disabled={testing}
+            >
+              {testing ? (
+                <ActivityIndicator color={Colors.WHITE} />
+              ) : (
+                <Ionicons
+                  name="checkmark-circle-outline"
+                  size={18}
+                  color={Colors.WHITE}
+                />
+              )}
+              <Text style={styles.smallButtonText}>{testButtonLabel}</Text>
+            </TouchableOpacity>
 
-          {printFormats.map((format, index) => (
-            <PrintFormatEditor
-              key={format.key}
-              format={format}
-              index={index}
+            {activeMode === "LOCAL" ? (
+              <TouchableOpacity
+                style={[
+                  styles.smallButton,
+                  { backgroundColor: theme.success },
+                  syncing && styles.buttonDisabled,
+                ]}
+                onPress={syncNow}
+                disabled={syncing}
+              >
+                {syncing ? (
+                  <ActivityIndicator color={Colors.WHITE} />
+                ) : (
+                  <Ionicons
+                    name="cloud-upload-outline"
+                    size={18}
+                    color={Colors.WHITE}
+                  />
+                )}
+                <Text style={styles.smallButtonText}>Sincronizar ahora</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+
+          <View style={{ marginTop: 12 }}>
+            <ConnectionStatusCard
+              result={connectionResult}
+              theme={theme}
               darkMode={darkMode}
-              accentColor={theme.accent}
-              onChange={(field, value) => updatePrintFormat(index, field, value)}
             />
-          ))}
+          </View>
         </View>
 
-        <View style={[styles.card, { backgroundColor: theme.surface }, Shadow.sm]}>
-          <Text style={[styles.sectionTitle, { color: theme.text }]}>Opciones generales</Text>
-          <BooleanRow
-            title="Tema oscuro"
-            field="TEMA_OSCURO"
+        <View
+          style={[styles.card, { backgroundColor: theme.surface }, Shadow.sm]}
+        >
+          <Text style={[styles.sectionTitle, { color: theme.text }]}>
+            Modo oscuro
+          </Text>
+          <ThemeSwitcher
             value={config.TEMA_OSCURO}
-            handleChange={handleChange}
+            onChange={async (value) => {
+              handleChange("TEMA_OSCURO", value);
+              setConfig((current) => ({ ...current, TEMA_OSCURO: value }));
+              await Configuration.setConfigValue(
+                "TEMA_OSCURO",
+                value ? "1" : "0",
+              );
+              await refreshTheme();
+            }}
             darkMode={darkMode}
           />
         </View>
 
-        <View style={[styles.actionsCard, { backgroundColor: theme.surface }, Shadow.sm]}>
-          <ActionButton
-            label="Probar conexion"
-            icon="flash-outline"
-            onPress={testConnection}
-            backgroundColor={theme.accent}
-            color={Colors.WHITE}
-            disabled={testLoading}
-          />
-          <ActionButton
-            label="Guardar configuracion"
-            icon="save-outline"
+        <View
+          style={[
+            styles.actionsCard,
+            { backgroundColor: theme.surface },
+            Shadow.sm,
+          ]}
+        >
+          <TouchableOpacity
+            style={[styles.actionButton, { backgroundColor: theme.accentDark }]}
+            onPress={() => navigation.navigate("ConfigurationAdditionalScreen")}
+          >
+            <Ionicons name="options-outline" size={18} color={Colors.WHITE} />
+            <Text style={styles.actionButtonText}>Configuración adicional</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.actionButton, { backgroundColor: theme.accent }]}
+            onPress={() => navigation.navigate("PrintConfigurationScreen")}
+          >
+            <Ionicons name="print-outline" size={18} color={Colors.WHITE} />
+            <Text style={styles.actionButtonText}>Configurar impresión</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.actionButton, { backgroundColor: theme.accent }]}
             onPress={saveConfiguration}
-            backgroundColor={theme.accentDark}
-            color={Colors.WHITE}
             disabled={saving}
-          />
+          >
+            {saving ? (
+              <ActivityIndicator color={Colors.WHITE} />
+            ) : (
+              <Ionicons name="save-outline" size={18} color={Colors.WHITE} />
+            )}
+            <Text style={styles.actionButtonText}>Guardar configuración</Text>
+          </TouchableOpacity>
         </View>
 
         {!!status ? (
-          <View style={[styles.card, { backgroundColor: theme.surface }, Shadow.sm]}>
-            <Text style={[styles.statusText, { color: theme.text }]}>{status}</Text>
+          <View
+            style={[styles.card, { backgroundColor: theme.surface }, Shadow.sm]}
+          >
+            <Text style={[styles.statusText, { color: theme.text }]}>
+              {status}
+            </Text>
           </View>
         ) : null}
       </ScrollView>
@@ -795,13 +932,8 @@ export default function ConfigurationScreen({ navigation }) {
 }
 
 const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-  },
-  content: {
-    padding: 16,
-    paddingBottom: 28,
-  },
+  root: { flex: 1 },
+  content: { padding: 16, paddingBottom: 28 },
   card: {
     borderRadius: Radii.xl,
     padding: 18,
@@ -823,16 +955,11 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.display,
     marginBottom: 10,
   },
-  sectionLabel: {
-    fontSize: 16,
-    fontFamily: Fonts.display,
-    marginBottom: 8,
-  },
-  helperText: {
+  sectionHint: {
     fontSize: 12,
     lineHeight: 17,
     fontFamily: Fonts.body,
-    marginBottom: 6,
+    marginBottom: 10,
   },
   modeRow: {
     flexDirection: "row",
@@ -841,7 +968,7 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   modeChip: {
-    minHeight: 40,
+    minHeight: 42,
     paddingHorizontal: 14,
     borderRadius: 999,
     borderWidth: 1,
@@ -851,32 +978,131 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.display,
     fontSize: 13,
   },
-  formatCard: {
-    borderRadius: Radii.lg,
-    borderWidth: 1,
+  fieldLabel: {
+    fontSize: 13,
+    marginTop: 12,
+    color: Colors.BLACK,
+    fontFamily: Fonts.body,
+    letterSpacing: 0.3,
+  },
+  fieldLabelDark: {
+    color: "#E8F0F8",
+  },
+  passwordWrap: {
+    marginVertical: 8,
     borderColor: Colors.BORDER,
-    padding: 14,
-    marginBottom: 12,
+    borderWidth: 1,
+    borderRadius: 12,
+    backgroundColor: Colors.SURFACE,
+    flexDirection: "row",
+    alignItems: "center",
+    overflow: "hidden",
   },
-  formatCardDark: {
-    borderColor: "#243241",
+  passwordWrapDark: {
+    backgroundColor: "#152332",
+    borderColor: "#2D4154",
   },
-  formatTitle: {
-    fontFamily: Fonts.display,
-    fontSize: 16,
-    marginBottom: 8,
+  passwordInput: {
+    flex: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    color: Colors.BLACK,
+    fontFamily: Fonts.body,
+  },
+  passwordInputDark: {
+    color: "#E8F0F8",
+  },
+  passwordIconButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  inlineActions: {
+    marginTop: 8,
+    gap: 10,
   },
   smallButton: {
     minHeight: 48,
     borderRadius: 16,
-    marginTop: 10,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 10,
   },
+  buttonDisabled: {
+    opacity: 0.72,
+  },
   smallButtonText: {
     color: Colors.WHITE,
+    fontFamily: Fonts.display,
+    fontSize: 14,
+  },
+  connectionCard: {
+    borderWidth: 1,
+    borderRadius: 18,
+    padding: 16,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+  },
+  connectionIconWrap: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 2,
+  },
+  connectionTextWrap: {
+    flex: 1,
+  },
+  connectionTitle: {
+    fontFamily: Fonts.display,
+    fontSize: 16,
+    marginBottom: 2,
+  },
+  connectionSubtitle: {
+    fontFamily: Fonts.body,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  connectionDetail: {
+    fontFamily: Fonts.body,
+    fontSize: 12,
+    lineHeight: 16,
+    marginTop: 6,
+  },
+  themeSelector: {
+    flexDirection: "row",
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#D0D9E2",
+    backgroundColor: "#F3F7FB",
+    padding: 4,
+  },
+  themeSelectorDark: {
+    backgroundColor: "#1F2935",
+    borderColor: "#324255",
+  },
+  themeOption: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 10,
+    paddingVertical: 10,
+    gap: 6,
+  },
+  themeOptionActiveLight: {
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#E3EDF7",
+  },
+  themeOptionActiveDark: {
+    backgroundColor: "#152332",
+    borderWidth: 1,
+    borderColor: "#2D4154",
+  },
+  themeOptionText: {
     fontFamily: Fonts.display,
     fontSize: 14,
   },
@@ -896,6 +1122,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
   },
   actionButtonText: {
+    color: Colors.WHITE,
     fontFamily: Fonts.display,
     fontSize: 14,
   },

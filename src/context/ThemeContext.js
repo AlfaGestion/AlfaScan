@@ -1,6 +1,9 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
-import { View } from "react-native";
+import { ImageBackground, StyleSheet, View } from "react-native";
+import * as SplashScreen from "expo-splash-screen";
 import Configuration from "@db/Configuration";
+
+SplashScreen.preventAutoHideAsync().catch(() => {});
 
 const ThemeContext = createContext({
   darkMode: false,
@@ -28,6 +31,12 @@ function ThemeProvider({ children }) {
     refreshTheme();
   }, []);
 
+  useEffect(() => {
+    if (themeLoaded) {
+      SplashScreen.hideAsync().catch(() => {});
+    }
+  }, [themeLoaded]);
+
   const value = useMemo(() => ({
     darkMode,
     themeLoaded,
@@ -35,7 +44,16 @@ function ThemeProvider({ children }) {
   }), [darkMode, themeLoaded]);
 
   if (!themeLoaded) {
-    return <View style={{ flex: 1, backgroundColor: "#0F1720" }} />;
+    return (
+      <View style={styles.root}>
+        <ImageBackground
+          source={require("../../assets/splashDark.png")}
+          style={styles.splash}
+          imageStyle={styles.splashImage}
+          resizeMode="cover"
+        />
+      </View>
+    );
   }
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
@@ -44,5 +62,22 @@ function ThemeProvider({ children }) {
 function useThemeConfig() {
   return useContext(ThemeContext);
 }
+
+const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+    backgroundColor: "#0F1720",
+  },
+  splash: {
+    flex: 1,
+    backgroundColor: "#0F1720",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  splashImage: {
+    width: "100%",
+    height: "100%",
+  },
+});
 
 export { ThemeProvider, useThemeConfig };

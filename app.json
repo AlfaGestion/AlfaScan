@@ -7,11 +7,13 @@
     "icon": "./assets/icon.png",
     "splash": {
       "image": "./assets/splash.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#ffffff",
+      "imageWidth": 420,
+      "resizeMode": "cover",
+      "backgroundColor": "#0F1720",
       "dark": {
         "image": "./assets/splashDark.png",
-        "resizeMode": "contain",
+        "imageWidth": 420,
+        "resizeMode": "cover",
         "backgroundColor": "#0F1720"
       }
     },
@@ -32,17 +34,17 @@
         "foregroundImage": "./assets/icon.png",
         "backgroundColor": "#FFFFFF"
       },
-      "package": "com.alfagestion.alfalector"
+      "package": "com.alfagestion.alfascan"
     },
     "web": {
       "favicon": "./assets/icon.png"
     },
     "extra": {
       "eas": {
-        "projectId": "ace4232c-2673-4405-8ce5-588a2689b944"
+        "projectId": "1449bcd3-b8db-4693-a147-a2e3774bed9c"
       }
     },
-    "owner": "albertofavioantunez",
+    "owner": "alfaapp",
     "plugins": [
       "@react-native-community/datetimepicker",
       "expo-build-properties",

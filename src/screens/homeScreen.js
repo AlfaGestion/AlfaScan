@@ -16,12 +16,14 @@ import {
 import { useFocusEffect } from "@react-navigation/native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import BrandMark from "@components/BrandMark";
 import Colors from "@styles/Colors";
 import { Fonts, Radii, Shadow } from "@styles/Theme";
 import Configuration from "@db/Configuration";
 import { appendPrintHistory } from "@services/printHistory";
+import { printArticle } from "@services/printerService";
 import { searchArticle } from "@services/articleService";
 import { useThemeConfig } from "@context/ThemeContext";
 
@@ -34,10 +36,10 @@ const MENU_ITEMS = [
 ];
 
 const PRINT_BUTTONS = [
-  { key: "gondola", label: "Imprimir Góndola" },
-  { key: "product", label: "Imprimir Producto" },
-  { key: "small", label: "Imprimir Precio Chico" },
-  { key: "custom", label: "Imprimir Personalizado" },
+  { key: "gondola", label: "Gónd." },
+  { key: "product", label: "Prod." },
+  { key: "small", label: "Chico" },
+  { key: "custom", label: "Pers." },
 ];
 
 const formatCurrency = (value) => {
@@ -80,6 +82,7 @@ export default function HomeScreen({ navigation }) {
   const [permission, requestPermission] = useCameraPermissions();
   const scanningRef = useRef(false);
   const { darkMode } = useThemeConfig();
+  const insets = useSafeAreaInsets();
 
   const loadSyncInfo = useCallback(async () => {
     try {
@@ -195,21 +198,21 @@ export default function HomeScreen({ navigation }) {
   const handlePrint = useCallback(
     async (formatKey) => {
       if (!article) {
-        Alert.alert("Sin articulo", "Busque un articulo antes de imprimir.");
+        setMessage("Busque un artículo antes de imprimir.");
         return;
       }
 
-      const format = PRINT_BUTTONS.find((item) => item.key === formatKey)?.label || formatKey;
-      await appendPrintHistory({
-        formatKey,
-        formatLabel: format,
-        article,
-      });
-
-      Alert.alert(
-        "Impresion preparada",
-        `Se registro el formato ${format} para ${article.descripcion}. La integracion Sunmi se completa en la siguiente etapa.`
-      );
+      try {
+        const format = PRINT_BUTTONS.find((item) => item.key === formatKey)?.label || formatKey;
+        await printArticle({ article, formatKey });
+        await appendPrintHistory({
+          formatKey,
+          formatLabel: format,
+          article,
+        });
+      } catch (e) {
+        setMessage(e?.message || "No se pudo imprimir el artículo.");
+      }
     },
     [article]
   );
@@ -383,37 +386,54 @@ export default function HomeScreen({ navigation }) {
           {!!message ? <Text style={[styles.messageText, { color: themeStyles.accentDark }]}>{message}</Text> : null}
         </View>
 
-        <View style={styles.printGrid}>
-          {PRINT_BUTTONS.map((button) => (
-            <TouchableOpacity
-              key={button.key}
-              style={[styles.printButton, { backgroundColor: themeStyles.surface }, Shadow.sm]}
-              onPress={() => handlePrint(button.key)}
-              disabled={!article}
-            >
-              <Ionicons
-                name="print-outline"
-                size={20}
-                color={article ? themeStyles.accent : themeStyles.muted}
-              />
-              <Text
-                style={[
-                  styles.printButtonText,
-                  { color: article ? themeStyles.text : themeStyles.muted },
-                ]}
-              >
-                {button.label}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
         <View style={styles.footerInfo}>
           <Text style={[styles.footerText, { color: themeStyles.muted }]}>
             AlfaScan listo para dispositivos Sunmi y uso en mostrador.
           </Text>
         </View>
       </ScrollView>
+
+      <View
+        style={[
+          styles.printBar,
+          {
+            backgroundColor: themeStyles.surface,
+            borderTopColor: themeStyles.border,
+            paddingBottom: Math.max(insets.bottom, 10),
+          },
+          Shadow.md,
+        ]}
+      >
+        {PRINT_BUTTONS.map((button) => (
+          <TouchableOpacity
+            key={button.key}
+            style={[
+              styles.printButton,
+              { backgroundColor: themeStyles.surface },
+              Shadow.sm,
+            ]}
+            onPress={() => handlePrint(button.key)}
+            disabled={!article}
+          >
+            <Ionicons
+              name="print-outline"
+              size={20}
+              color={article ? themeStyles.accent : themeStyles.muted}
+            />
+            <Text
+              style={[
+                styles.printButtonText,
+                { color: article ? themeStyles.text : themeStyles.muted },
+              ]}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.82}
+            >
+              {button.label}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
     </SafeAreaView>
   );
 }
@@ -424,7 +444,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: 16,
-    paddingBottom: 28,
+    paddingBottom: 116,
   },
   headerCard: {
     borderRadius: Radii.xl,
@@ -583,6 +603,18 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontFamily: Fonts.body,
   },
+  printBar: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    flexDirection: "row",
+    gap: 8,
+    paddingHorizontal: 10,
+    paddingTop: 10,
+    paddingBottom: 12,
+    borderTopWidth: 1,
+  },
   printGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -590,19 +622,19 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   printButton: {
-    width: "48.5%",
-    minHeight: 66,
+    flex: 1,
+    minHeight: 58,
     borderRadius: Radii.lg,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
   },
   printButtonText: {
     flex: 1,
-    fontSize: 13,
-    lineHeight: 17,
+    fontSize: 11,
+    lineHeight: 13,
     fontFamily: Fonts.display,
   },
   footerInfo: {
