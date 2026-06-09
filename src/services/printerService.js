@@ -41,13 +41,10 @@ export const printArticle = async ({ article, formatKey = "product", format = nu
 
   const diagnosticsModule = NativeModules?.SunmiDiagnostics;
   if (diagnosticsModule && typeof diagnosticsModule.printSimpleProductLabel === "function") {
-    try {
-      return await printSimpleProductLabel(normalizedKey, article);
-    } catch {
-      // Fall through to the legacy primitive path only when the diagnostics path is unavailable or fails.
-    }
+    return await printSimpleProductLabel(normalizedKey, article);
   }
 
+  console.log("[PRINT] SunmiDiagnostics not available, trying fallback");
   console.log("[PRINT] using direct Sunmi primitives");
   console.log("[PRINT] calling native Sunmi print");
   const description = String(article?.descripcion ?? article?.name ?? "").trim();
