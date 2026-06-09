@@ -7,6 +7,7 @@ export {
   getDefaultPrintFormat,
   getDefaultPrintFormats,
   loadPrintFormats,
+  normalizePrintConfig,
   normalizePrintFormats,
   renderPrintLayout,
   savePrintFormats,

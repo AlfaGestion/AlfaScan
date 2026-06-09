@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  InteractionManager,
   Image,
   Keyboard,
   Modal,
@@ -21,13 +22,13 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 
 import BrandMark from "@components/BrandMark";
 import ProductImage from "@components/ProductImage";
+import Product from "@db/Product";
 import Colors from "@styles/Colors";
 import { Fonts, Radii, Shadow } from "@styles/Theme";
 import Configuration from "@db/Configuration";
 import { appendPrintHistory } from "@services/printHistory";
-import { printArticle } from "@services/printerService";
-import { searchArticle } from "@services/articleService";
-import { getPrinterStatus, initPrinter } from "@services/sunmiPrinterService";
+import { searchArticle, scanSearchArticle } from "@services/articleService";
+import { getPrinterStatus, initPrinter, printSimpleProductLabel } from "@services/sunmiPrinterService";
 import { useThemeConfig } from "@context/ThemeContext";
 
 import alfaLogo from "../../assets/alfa_logo.png";
@@ -126,6 +127,8 @@ export default function HomeScreen({ navigation }) {
   const [loading, setLoading] = useState(false);
   const [menuVisible, setMenuVisible] = useState(false);
   const [scannerVisible, setScannerVisible] = useState(false);
+  const [cameraMounted, setCameraMounted] = useState(false);
+  const [cameraSlow, setCameraSlow] = useState(false);
   const [lastSyncAt, setLastSyncAt] = useState("");
   const [printerStatus, setPrinterStatus] = useState(() => getPrinterStatus());
   const [screenConfig, setScreenConfig] = useState({
@@ -139,6 +142,9 @@ export default function HomeScreen({ navigation }) {
 
   const lastScanRef = useRef({ code: "", at: 0 });
   const scanLockRef = useRef(false);
+  const cameraMountTimerRef = useRef(null);
+  const cameraWarningTimerRef = useRef(null);
+  const cameraOpenRequestedAtRef = useRef(0);
   const { darkMode } = useThemeConfig();
   const insets = useSafeAreaInsets();
 
@@ -206,6 +212,10 @@ export default function HomeScreen({ navigation }) {
     }, [refreshPrinterStatus]),
   );
 
+  useEffect(() => {
+    Product.ensureIndexes().catch(() => {});
+  }, []);
+
   const themeStyles = useMemo(
     () => ({
       background: darkMode ? "#0F1720" : "#E8F2FC",
@@ -261,13 +271,44 @@ export default function HomeScreen({ navigation }) {
     [],
   );
 
+  const executeScanSearch = useCallback(async (rawValue) => {
+    const value = String(rawValue ?? "").trim();
+    setQuery(value);
+    setMessage("");
+    setLoading(true);
+
+    try {
+      if (!value) {
+        setArticle(null);
+        setMessage("Ingresá o escaneá un código para buscar.");
+        return;
+      }
+
+      const result = await scanSearchArticle(value);
+      if (!result) {
+        setArticle(null);
+        setMessage("No se encontró el artículo por código de barra.");
+        return;
+      }
+
+      setArticle(result);
+    } catch (e) {
+      setArticle(null);
+      setMessage(e?.message || "No se pudo buscar el artículo.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   const ensureCameraPermission = useCallback(async () => {
     if (permission?.granted) {
+      console.log("[Camera] permission ready", Date.now());
       return true;
     }
 
     const result = await requestPermission();
     if (result?.granted) {
+      console.log("[Camera] permission ready", Date.now());
       return true;
     }
 
@@ -282,12 +323,57 @@ export default function HomeScreen({ navigation }) {
 
   const handleScanPress = useCallback(async () => {
     Keyboard.dismiss();
+    console.log("[Camera] open requested", Date.now());
     if (await ensureCameraPermission()) {
       lastScanRef.current = { code: "", at: 0 };
       scanLockRef.current = false;
+      cameraOpenRequestedAtRef.current = Date.now();
+      setCameraMounted(false);
+      setCameraSlow(false);
       setScannerVisible(true);
     }
   }, [ensureCameraPermission]);
+
+  useEffect(() => {
+    if (!scannerVisible) {
+      if (cameraMountTimerRef.current) {
+        clearTimeout(cameraMountTimerRef.current);
+        cameraMountTimerRef.current = null;
+      }
+      if (cameraWarningTimerRef.current) {
+        clearTimeout(cameraWarningTimerRef.current);
+        cameraWarningTimerRef.current = null;
+      }
+      setCameraMounted(false);
+      setCameraSlow(false);
+      return undefined;
+    }
+
+    cameraMountTimerRef.current = setTimeout(() => {
+      InteractionManager.runAfterInteractions(() => {
+        setCameraMounted(true);
+        console.log("[Camera] mounted", Date.now());
+        if (cameraOpenRequestedAtRef.current) {
+          console.log("[Camera] mount delay ms", Date.now() - cameraOpenRequestedAtRef.current);
+        }
+      });
+    }, 0);
+
+    cameraWarningTimerRef.current = setTimeout(() => {
+      setCameraSlow(true);
+    }, 5000);
+
+    return () => {
+      if (cameraMountTimerRef.current) {
+        clearTimeout(cameraMountTimerRef.current);
+        cameraMountTimerRef.current = null;
+      }
+      if (cameraWarningTimerRef.current) {
+        clearTimeout(cameraWarningTimerRef.current);
+        cameraWarningTimerRef.current = null;
+      }
+    };
+  }, [scannerVisible]);
 
   const handleBarcodeScanned = useCallback(
     async ({ data }) => {
@@ -310,6 +396,10 @@ export default function HomeScreen({ navigation }) {
 
       scanLockRef.current = true;
       lastScanRef.current = { code, at: now };
+      console.log("[Camera] barcode scanned", now, code);
+      if (cameraOpenRequestedAtRef.current) {
+        console.log("[Camera] read delay ms", now - cameraOpenRequestedAtRef.current);
+      }
 
       try {
         Vibration.vibrate(40);
@@ -318,9 +408,16 @@ export default function HomeScreen({ navigation }) {
       }
 
       setScannerVisible(false);
-      await executeSearch(code);
+      await executeScanSearch(code);
     },
-    [executeSearch],
+    [executeScanSearch],
+  );
+
+  const barcodeScannerSettings = useMemo(
+    () => ({
+      barcodeTypes: ["ean13", "ean8", "upc_a", "upc_e", "code128", "code39"],
+    }),
+    [],
   );
 
   const handlePrint = useCallback(
@@ -331,22 +428,18 @@ export default function HomeScreen({ navigation }) {
       }
 
       try {
-        await refreshPrinterStatus();
-        const currentStatus = getPrinterStatus();
-        setPrinterStatus(currentStatus);
-        if (!currentStatus.available) {
-          Alert.alert("Impresora", currentStatus.message || "Impresora no detectada.");
-          return;
-        }
-
-        const format = PRINT_BUTTONS.find((item) => item.key === formatKey)?.label || formatKey;
-        await printArticle({ article, formatKey });
+        console.log("[PRINT] Home button pressed");
+        console.log("[PRINT] formatKey", formatKey);
+        await printSimpleProductLabel(formatKey, article);
         await appendPrintHistory({
           formatKey,
-          formatLabel: format,
+          formatLabel: PRINT_BUTTONS.find((item) => item.key === formatKey)?.label || formatKey,
           article,
         });
+        await refreshPrinterStatus();
+        setPrinterStatus(getPrinterStatus());
       } catch (e) {
+        console.log("[PRINT] error", e?.message || e);
         Alert.alert("Impresora", e?.message || "No se pudo imprimir el artículo.");
       }
     },
@@ -372,14 +465,24 @@ export default function HomeScreen({ navigation }) {
     <SafeAreaView style={[styles.root, { backgroundColor: themeStyles.background }]}>
       <Modal visible={scannerVisible} animationType="slide" onRequestClose={() => setScannerVisible(false)}>
         <View style={styles.scannerContainer}>
-          <CameraView
-            style={StyleSheet.absoluteFillObject}
-            autofocus="on"
-            barcodeScannerSettings={{
-              barcodeTypes: ["ean13", "ean8", "upc_a", "upc_e", "code128", "code39", "code93"],
-            }}
-            onBarcodeScanned={scannerVisible ? handleBarcodeScanned : undefined}
-          />
+          {cameraMounted ? (
+            <CameraView
+              style={StyleSheet.absoluteFillObject}
+              autofocus="on"
+              barcodeScannerSettings={barcodeScannerSettings}
+              onBarcodeScanned={scannerVisible ? handleBarcodeScanned : undefined}
+            />
+          ) : (
+            <View style={styles.cameraLoadingScreen}>
+              <ActivityIndicator size="large" color={Colors.WHITE} />
+              <Text style={styles.cameraLoadingText}>Abriendo cámara...</Text>
+              {cameraSlow ? (
+                <Text style={styles.cameraLoadingHint}>
+                  La cámara está tardando más de lo normal...
+                </Text>
+              ) : null}
+            </View>
+          )}
 
           <View pointerEvents="box-none" style={styles.scannerOverlay}>
             <TouchableOpacity
@@ -904,6 +1007,25 @@ const styles = StyleSheet.create({
   scannerContainer: {
     flex: 1,
     backgroundColor: "#000",
+  },
+  cameraLoadingScreen: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 12,
+    backgroundColor: "#000",
+  },
+  cameraLoadingText: {
+    color: Colors.WHITE,
+    fontSize: 16,
+    fontFamily: Fonts.display,
+  },
+  cameraLoadingHint: {
+    color: "#D8E4EE",
+    fontSize: 13,
+    fontFamily: Fonts.body,
+    textAlign: "center",
+    paddingHorizontal: 24,
   },
   scannerOverlay: {
     ...StyleSheet.absoluteFillObject,

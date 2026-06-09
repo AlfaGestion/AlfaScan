@@ -204,6 +204,66 @@ export default class Product extends BaseModel {
     return [];
   }
 
+  static async findByBarcodeExact(barcode, lista = '') {
+    const config = await CatalogService.getCatalogConfig();
+    if (config.mode === "ONLINE") {
+      const rows = await CatalogService.findCatalogByBarcodeExact({
+        barcode,
+        classPrice: 1,
+      });
+      if (rows && rows.length > 0) {
+        return Product.maskStockRows(rows, config.useStockColumn);
+      }
+
+      const fallbackRows = await CatalogService.findCatalogByCode({
+        code: barcode,
+        classPrice: 1,
+      });
+      return Product.maskStockRows(fallbackRows, config.useStockColumn);
+    }
+
+    const rawBarcode = String(barcode ?? "").trim();
+    const normalizedBarcode = rawBarcode.replace(/\s+/g, "").replace(/[^0-9a-z]/gi, "").toLowerCase();
+    if (!rawBarcode) return [];
+
+    const select = `SELECT cant_propuesta, code, codigoArticulo, codigoBarras, codigoBarra, codigoBarra1, codigoBarra2, codigoBarra3, codigoBarra4, codigoBarraDun, name, descripcion, precio, stock, fechaActualizacion, id, price1, price2, price3, price4, price5, price6, price7, price8, price9, price10`;
+    const barcodeWhere = `(
+      lower(trim(codigoBarras)) = ? OR lower(replace(trim(codigoBarras), ' ', '')) = ? OR
+      lower(trim(codigoBarra)) = ? OR lower(replace(trim(codigoBarra), ' ', '')) = ? OR
+      lower(trim(codigoBarra1)) = ? OR lower(replace(trim(codigoBarra1), ' ', '')) = ? OR
+      lower(trim(codigoBarra2)) = ? OR lower(replace(trim(codigoBarra2), ' ', '')) = ? OR
+      lower(trim(codigoBarra3)) = ? OR lower(replace(trim(codigoBarra3), ' ', '')) = ? OR
+      lower(trim(codigoBarra4)) = ? OR lower(replace(trim(codigoBarra4), ' ', '')) = ? OR
+      lower(trim(codigoBarraDun)) = ? OR lower(replace(trim(codigoBarraDun), ' ', '')) = ?
+    )`;
+
+    if (lista != '' && lista != null && lista != undefined) {
+      const sqlListas = `
+        ${select}
+        FROM products_listas
+        WHERE lista=? AND ${barcodeWhere}
+        ORDER BY name ASC LIMIT 1`;
+
+      let rowsListas = await this.repository.databaseLayer.executeSql(sqlListas, [lista, rawBarcode.toLowerCase(), normalizedBarcode, rawBarcode.toLowerCase(), normalizedBarcode, rawBarcode.toLowerCase(), normalizedBarcode, rawBarcode.toLowerCase(), normalizedBarcode, rawBarcode.toLowerCase(), normalizedBarcode, rawBarcode.toLowerCase(), normalizedBarcode, rawBarcode.toLowerCase(), normalizedBarcode]).then(({ rows }) => rows);
+      if (rowsListas && rowsListas.length > 0) {
+        return Product.maskStockRows(rowsListas, config.useStockColumn);
+      }
+    }
+
+    const sql = `
+      ${select}
+      FROM products
+      WHERE ${barcodeWhere}
+      ORDER BY name ASC LIMIT 1`;
+
+    const rows = await this.repository.databaseLayer.executeSql(sql, [rawBarcode.toLowerCase(), normalizedBarcode, rawBarcode.toLowerCase(), normalizedBarcode, rawBarcode.toLowerCase(), normalizedBarcode, rawBarcode.toLowerCase(), normalizedBarcode, rawBarcode.toLowerCase(), normalizedBarcode, rawBarcode.toLowerCase(), normalizedBarcode, rawBarcode.toLowerCase(), normalizedBarcode]).then(({ rows }) => rows);
+    if (rows && rows.length > 0) {
+      return Product.maskStockRows(rows, config.useStockColumn);
+    }
+
+    return Product.maskStockRows(await Product.findByCode(rawBarcode, lista), config.useStockColumn);
+  }
+
   static async ensureIndexes() {
     const sqls = [
       "CREATE INDEX IF NOT EXISTS idx_products_code ON products(code)",

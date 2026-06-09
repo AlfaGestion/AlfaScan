@@ -649,6 +649,36 @@ export const findCatalogByCode = async ({ code = "", classPrice = 1 } = {}) => {
   return rows.map((row) => getRowPriceClass(row, classPrice, config.useStockColumn));
 };
 
+export const findCatalogByBarcodeExact = async ({ barcode = "", classPrice = 1 } = {}) => {
+  const config = await loadSqlConfig();
+  if (config.mode !== "ONLINE") {
+    throw new Error(
+      "La consulta remota solo estÃ¡ disponible en modo SQL Online.",
+    );
+  }
+
+  const normalized = normalizeSearchText(barcode);
+  const raw = normalizeText(barcode);
+  if (!normalized && !raw) {
+    return [];
+  }
+
+  const objectName = buildObjectName(config.objectName);
+  const barcodeField = buildFieldReference(config.barcodeField, "CodigoBarra");
+  const selectColumns = buildCatalogColumns(config);
+  const query = `
+    SELECT ROW_NUMBER() OVER (ORDER BY LOWER(LTRIM(RTRIM(ISNULL(${buildFieldReference(config.descriptionField, "Descripcion")}, '')))), LOWER(LTRIM(RTRIM(ISNULL(${buildFieldReference(config.codeField, "CodigoArticulo")}, ''))))) AS id, ${selectColumns}
+    FROM ${objectName}
+    WHERE (
+      LTRIM(RTRIM(ISNULL(${barcodeField}, ''))) = ${sqlLiteral(raw)}
+      OR REPLACE(LTRIM(RTRIM(ISNULL(${barcodeField}, ''))), ' ', '') = ${sqlLiteral(normalized)}
+    )
+  `;
+
+  const rows = await executeSqlServerQuery(query, config);
+  return rows.map((row) => getRowPriceClass(row, classPrice, config.useStockColumn));
+};
+
 export const findCatalogByCodes = async ({
   codes = [],
   classPrice = 1,
@@ -868,6 +898,7 @@ const CatalogService = {
   queryCatalogPage,
   findCatalogLikeName,
   findCatalogByCode,
+  findCatalogByBarcodeExact,
   findCatalogByCodes,
   findCatalogByBarcodePrefix,
   syncCatalogToLocal,

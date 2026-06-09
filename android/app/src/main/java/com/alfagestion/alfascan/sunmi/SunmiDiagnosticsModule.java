@@ -185,6 +185,22 @@ public class SunmiDiagnosticsModule extends ReactContextBaseJavaModule {
     bindPrinterServiceInternal(promise, true);
   }
 
+  @ReactMethod
+  public void printSimpleProductLabel(String formatKey, String description, String price, String barcode, String internalCode, Promise promise) {
+    if (printerService == null || !bound) {
+      promise.reject("SERVICE_NOT_CONNECTED", "Servicio no conectado.");
+      return;
+    }
+
+    try {
+      printSimpleProductLabelInternal(printerService, formatKey, description, price, barcode, internalCode);
+      promise.resolve(buildStatusMap());
+    } catch (Exception e) {
+      lastError = e.getMessage();
+      promise.reject("PRINT_ERROR", e.getMessage(), e);
+    }
+  }
+
   private WritableMap buildDeviceInfo() {
     WritableMap map = Arguments.createMap();
     map.putString("manufacturer", String.valueOf(Build.MANUFACTURER));
@@ -398,6 +414,65 @@ public class SunmiDiagnosticsModule extends ReactContextBaseJavaModule {
       if (i < lines.length - 1) {
         callPrinterCommand(callback -> service.lineWrap(1, callback));
       }
+    }
+
+    callPrinterCommand(callback -> service.lineWrap(2, callback));
+  }
+
+  private void printSimpleProductLabelInternal(IWoyouService service, String formatKey, String description, String price, String barcode, String internalCode) throws Exception {
+    String key = String.valueOf(formatKey == null ? "" : formatKey).trim().toLowerCase(Locale.ROOT);
+    String desc = String.valueOf(description == null ? "" : description).trim();
+    String priceText = String.valueOf(price == null ? "" : price).trim();
+    String barcodeText = String.valueOf(barcode == null ? "" : barcode).trim();
+    String internalText = String.valueOf(internalCode == null ? "" : internalCode).trim();
+
+    callPrinterCommand(callback -> service.printerInit(callback));
+    callPrinterCommand(callback -> service.setAlignment(1, callback));
+
+    final float titleSize;
+    final float descSize;
+    final float priceSize;
+    float titleTmp = 18f;
+    float descTmp = 22f;
+    float priceTmp = 28f;
+    if ("small".equals(key)) {
+      titleTmp = 16f;
+      descTmp = 16f;
+      priceTmp = 24f;
+    } else if ("gondola".equals(key)) {
+      titleTmp = 20f;
+      descTmp = 26f;
+      priceTmp = 34f;
+    }
+    titleSize = titleTmp;
+    descSize = descTmp;
+    priceSize = priceTmp;
+
+    callPrinterCommand(callback -> service.setFontSize(titleSize, callback));
+    callPrinterCommand(callback -> service.printText("AlfaScan", callback));
+    callPrinterCommand(callback -> service.lineWrap(1, callback));
+
+    if (!barcodeText.isEmpty() && ("product".equals(key) || "gondola".equals(key) || "custom".equals(key) || "small".equals(key))) {
+      callPrinterCommand(callback -> service.printBarCode(barcodeText, 2, "small".equals(key) ? 100 : 130, 2, 2, callback));
+      callPrinterCommand(callback -> service.lineWrap(1, callback));
+    }
+
+    if (!desc.isEmpty()) {
+      callPrinterCommand(callback -> service.setFontSize(descSize, callback));
+      callPrinterCommand(callback -> service.printText(desc, callback));
+      callPrinterCommand(callback -> service.lineWrap(1, callback));
+    }
+
+    if (!priceText.isEmpty()) {
+      callPrinterCommand(callback -> service.setFontSize(priceSize, callback));
+      callPrinterCommand(callback -> service.printText(priceText, callback));
+      callPrinterCommand(callback -> service.lineWrap(1, callback));
+    }
+
+    if (!internalText.isEmpty()) {
+      callPrinterCommand(callback -> service.setFontSize(16f, callback));
+      callPrinterCommand(callback -> service.printText("Cod: " + internalText, callback));
+      callPrinterCommand(callback -> service.lineWrap(1, callback));
     }
 
     callPrinterCommand(callback -> service.lineWrap(2, callback));

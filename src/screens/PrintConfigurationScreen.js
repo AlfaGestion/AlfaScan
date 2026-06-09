@@ -7,14 +7,16 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import ConfigItem from "@components/ConfigItem";
 import PrintPreview from "@components/print/PrintPreview";
 import PrintPropertiesPanel from "@components/print/PrintPropertiesPanel";
+import Configuration from "@db/Configuration";
 import Colors from "@styles/Colors";
 import { Fonts, Radii, Shadow } from "@styles/Theme";
 import { useThemeConfig } from "@context/ThemeContext";
 import {
   createSampleProduct,
   DEFAULT_PRINT_FORMATS,
+  PRINT_FORMAT_KEYS,
   getDefaultPrintFormat,
-  loadPrintFormats,
+  normalizePrintConfig,
   renderPrintLayout,
   savePrintFormats,
 } from "@services/printFormats";
@@ -67,6 +69,11 @@ const normalizeElementValue = (field, value) => {
 const getSelectedElement = (format, selectedKey) =>
   (format?.elements || []).find((element) => element.key === selectedKey) || null;
 
+const DEFAULT_SELECTED_ELEMENT_KEY = "description";
+
+const pickFormatList = (formats) =>
+  PRINT_FORMAT_KEYS.map((key, index) => formats?.[key] || DEFAULT_PRINT_FORMATS[index]);
+
 const FormatTabs = ({ formats, activeIndex, onChange, theme }) => (
   <View style={styles.tabsRow}>
     {(Array.isArray(formats) ? formats : []).map((item, index) => {
@@ -95,9 +102,9 @@ const SectionTitle = ({ children, theme }) => (
 );
 
 export default function PrintConfigurationScreen() {
-  const [formats, setFormats] = useState(DEFAULT_PRINT_FORMATS);
+  const [formats, setFormats] = useState(() => normalizePrintConfig(DEFAULT_PRINT_FORMATS));
   const [activeIndex, setActiveIndex] = useState(0);
-  const [selectedElementKey, setSelectedElementKey] = useState("description");
+  const [selectedElementKey, setSelectedElementKey] = useState(DEFAULT_SELECTED_ELEMENT_KEY);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [status, setStatus] = useState("");
@@ -120,8 +127,9 @@ export default function PrintConfigurationScreen() {
     [darkMode],
   );
 
-  const safeFormats = Array.isArray(formats) && formats.length > 0 ? formats : DEFAULT_PRINT_FORMATS;
-  const activeFormat = safeFormats[activeIndex] || safeFormats[0] || DEFAULT_PRINT_FORMATS[0];
+  const safeFormats = normalizePrintConfig(formats);
+  const formatList = pickFormatList(safeFormats);
+  const activeFormat = formatList[activeIndex] || formatList[0] || DEFAULT_PRINT_FORMATS[0];
   const selectedElement = getSelectedElement(activeFormat, selectedElementKey);
   const previewProduct = useMemo(() => createSampleProduct(), []);
 
@@ -132,8 +140,14 @@ export default function PrintConfigurationScreen() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await loadPrintFormats();
-      setFormats(Array.isArray(data) && data.length > 0 ? data : DEFAULT_PRINT_FORMATS);
+      await Configuration.createTable();
+      const raw = await Configuration.getConfigValue("PRINT_FORMATS_JSON");
+      const normalized = normalizePrintConfig(raw);
+      console.log("print config normalized", normalized);
+      setFormats(normalized);
+      if (!raw || String(raw).trim() !== JSON.stringify(normalized)) {
+        await savePrintFormats(normalized);
+      }
     } finally {
       setLoading(false);
     }
@@ -154,9 +168,10 @@ export default function PrintConfigurationScreen() {
   }, [refreshPreviewLayout]);
 
   useEffect(() => {
-    if (!selectedElement && activeFormat?.elements?.length > 0) {
-      const firstVisible = activeFormat.elements.find((element) => element.visible) || activeFormat.elements[0];
-      setSelectedElementKey(firstVisible?.key || "");
+    if (!selectedElement) {
+      const firstVisible =
+        activeFormat?.elements?.find((element) => element?.visible) || activeFormat?.elements?.[0];
+      setSelectedElementKey(firstVisible?.key || DEFAULT_SELECTED_ELEMENT_KEY);
     }
   }, [activeFormat, selectedElement]);
 
@@ -167,8 +182,11 @@ export default function PrintConfigurationScreen() {
   const updateActiveFormat = useCallback(
     (updater) => {
       setFormats((current) => {
-        const source = Array.isArray(current) && current.length > 0 ? current : DEFAULT_PRINT_FORMATS;
-        return source.map((item, index) => (index === activeIndex ? updater(item) : item));
+        const normalized = normalizePrintConfig(current);
+        const next = { ...normalized };
+        const key = PRINT_FORMAT_KEYS[activeIndex] || PRINT_FORMAT_KEYS[0];
+        next[key] = updater(normalized[key] || DEFAULT_PRINT_FORMATS[activeIndex] || DEFAULT_PRINT_FORMATS[0]);
+        return next;
       });
     },
     [activeIndex],
@@ -274,7 +292,7 @@ export default function PrintConfigurationScreen() {
     setSaving(true);
     setStatus("");
     try {
-      await savePrintFormats(formats);
+      await savePrintFormats(safeFormats);
       setStatus("Diseño de impresión guardado correctamente.");
     } catch (e) {
       setStatus(e?.message || "No se pudo guardar el diseño.");
@@ -294,10 +312,18 @@ export default function PrintConfigurationScreen() {
           style: "destructive",
           onPress: () => {
             const fresh = getDefaultPrintFormat(activeFormat.key);
-            setFormats((current) =>
-              current.map((item, index) => (index === activeIndex ? fresh : item)),
+            setFormats((current) => {
+              const normalized = normalizePrintConfig(current);
+              return {
+                ...normalized,
+                [fresh.key]: fresh,
+              };
+            });
+            setSelectedElementKey(
+              fresh.elements?.find((item) => item.visible)?.key ||
+                fresh.elements?.[0]?.key ||
+                DEFAULT_SELECTED_ELEMENT_KEY,
             );
-            setSelectedElementKey(fresh.elements?.find((item) => item.visible)?.key || fresh.elements?.[0]?.key || "");
             setStatus("Diseño restaurado.");
           },
         },
@@ -373,7 +399,7 @@ export default function PrintConfigurationScreen() {
             </TouchableOpacity>
           </View>
 
-          <FormatTabs formats={formats} activeIndex={activeIndex} onChange={setActiveIndex} theme={theme} />
+          <FormatTabs formats={formatList} activeIndex={activeIndex} onChange={setActiveIndex} theme={theme} />
           <Text style={[styles.paperInfo, { color: theme.muted }]}>{previewPaperInfo}</Text>
         </View>
 

@@ -36,4 +36,6 @@ rootProject.name = 'AlfaScan'
 expoAutolinking.useExpoVersionCatalog()
 
 include ':app'
+include ':react-native-sunmi-v2-printer'
+project(':react-native-sunmi-v2-printer').projectDir = new File(rootDir, '../node_modules/react-native-sunmi-v2-printer/android')
 includeBuild(expoAutolinking.reactNativeGradlePlugin)

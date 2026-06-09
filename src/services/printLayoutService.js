@@ -286,6 +286,12 @@ const customTemplate = {
 };
 
 const DEFAULT_PRINT_FORMATS = [gondolaTemplate, productTemplate, smallTemplate, customTemplate];
+const DEFAULT_PRINT_CONFIG = {
+  gondola: gondolaTemplate,
+  product: productTemplate,
+  small: smallTemplate,
+  custom: customTemplate,
+};
 
 const getPaperWidthPx = (format = {}) => {
   if (String(format.paperWidth) === "58") return 240;
@@ -422,36 +428,70 @@ const migrateLegacyFormat = (raw = {}, fallbackTemplate = DEFAULT_PRINT_FORMATS[
   return result;
 };
 
-export const normalizePrintFormats = (value) => {
-  if (!value) {
-    return clone(DEFAULT_PRINT_FORMATS);
-  }
+const normalizeFormatKey = (key = "", index = 0) => {
+  const normalized = String(key ?? "").trim().toLowerCase();
+  if (normalized === "gondola" || normalized === "góndola") return "gondola";
+  if (normalized === "product" || normalized === "producto") return "product";
+  if (normalized === "small" || normalized === "chico") return "small";
+  if (normalized === "custom" || normalized === "personalizado") return "custom";
+  return PRINT_FORMAT_KEYS[index] || PRINT_FORMAT_KEYS[0];
+};
 
-  try {
-    const parsed = JSON.parse(value);
-    if (!Array.isArray(parsed) || parsed.length === 0) {
-      return clone(DEFAULT_PRINT_FORMATS);
+export const normalizePrintConfig = (savedConfig) => {
+  let parsed = savedConfig;
+
+  if (typeof parsed === "string") {
+    try {
+      parsed = JSON.parse(parsed);
+    } catch (error) {
+      parsed = null;
     }
-
-    return PRINT_FORMAT_KEYS.map((key, index) => {
-      const fallback = DEFAULT_PRINT_FORMATS[index];
-      const raw = parsed[index] || {};
-      return migrateLegacyFormat({ ...raw, key }, fallback);
-    });
-  } catch (e) {
-    return clone(DEFAULT_PRINT_FORMATS);
   }
+
+  const sourceObject =
+    Array.isArray(parsed)
+      ? PRINT_FORMAT_KEYS.reduce((acc, key, index) => {
+          acc[key] = parsed[index];
+          return acc;
+        }, {})
+      : parsed && typeof parsed === "object"
+        ? parsed
+        : {};
+
+  const normalized = PRINT_FORMAT_KEYS.reduce((acc, key, index) => {
+    const template = DEFAULT_PRINT_CONFIG[key] || DEFAULT_PRINT_FORMATS[index];
+    const candidate =
+      sourceObject[key] ||
+      sourceObject[index] ||
+      sourceObject[normalizeFormatKey(key, index)] ||
+      sourceObject[normalizeFormatKey(template.name, index)] ||
+      {};
+
+    acc[key] = migrateLegacyFormat({ ...candidate, key }, template);
+    return acc;
+  }, {});
+
+  if (__DEV__) {
+    console.log("print config normalized", normalized);
+  }
+
+  return normalized;
+};
+
+export const normalizePrintFormats = (value) => {
+  return Object.values(normalizePrintConfig(value));
 };
 
 export const loadPrintFormats = async () => {
   await Configuration.createTable();
   const raw = await Configuration.getConfigValue("PRINT_FORMATS_JSON");
-  return normalizePrintFormats(raw);
+  return normalizePrintConfig(raw);
 };
 
 export const savePrintFormats = async (formats) => {
   await Configuration.createTable();
-  await Configuration.setConfigValue("PRINT_FORMATS_JSON", JSON.stringify(formats));
+  const normalized = normalizePrintConfig(formats);
+  await Configuration.setConfigValue("PRINT_FORMATS_JSON", JSON.stringify(normalized));
 };
 
 export const getDefaultPrintFormat = (key = "product") => {

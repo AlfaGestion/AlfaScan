@@ -16,6 +16,7 @@ import com.facebook.react.defaults.DefaultReactNativeHost
 import expo.modules.ApplicationLifecycleDispatcher
 import expo.modules.ReactNativeHostWrapper
 import com.alfagestion.alfascan.sunmi.SunmiDiagnosticsPackage
+import com.alfagestion.alfascan.sunmi.SunmiPrinterPackage
 
 class MainApplication : Application(), ReactApplication {
 
@@ -27,7 +28,8 @@ class MainApplication : Application(), ReactApplication {
             // Packages that cannot be autolinked yet can be added manually here, for example:
             // add(MyReactNativePackage())
             add(SunmiDiagnosticsPackage())
-          }
+            add(SunmiPrinterPackage())
+        }
 
           override fun getJSMainModuleName(): String = ".expo/.virtual-metro-entry"
 

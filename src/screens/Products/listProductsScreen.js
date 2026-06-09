@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useLayoutEffect } from "react";
+import { useEffect, useState, useRef, useLayoutEffect, useCallback, useMemo } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -10,6 +10,7 @@ import {
   StyleSheet,
   Alert,
   Image,
+  InteractionManager,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { CameraView, useCameraPermissions } from "expo-camera";
@@ -40,9 +41,15 @@ export default function Products({ navigation }) {
 
   const [permission, requestPermission] = useCameraPermissions();
   const [scannerVisible, setScannerVisible] = useState(false);
+  const [cameraMounted, setCameraMounted] = useState(false);
+  const [cameraSlow, setCameraSlow] = useState(false);
 
   const refInput = useRef();
   const scanningRef = useRef(false);
+  const cameraMountTimerRef = useRef(null);
+  const cameraWarningTimerRef = useRef(null);
+  const cameraOpenRequestedAtRef = useRef(0);
+  const lastScanRef = useRef({ code: "", at: 0 });
 
   useEffect(() => {
     loadConfiguration();
@@ -56,6 +63,10 @@ export default function Products({ navigation }) {
       headerTitleStyle: { color: darkMode ? "#E8F0F8" : "#1A395A", fontWeight: "700" },
     });
   }, [navigation, darkMode]);
+
+  useEffect(() => {
+    Product.ensureIndexes().catch(() => {});
+  }, []);
 
   const loadConfiguration = async () => {
     try {
@@ -231,28 +242,125 @@ export default function Products({ navigation }) {
     }
   };
 
-  const handleBarCodeScanned = async ({ data }) => {
-    if (scanningRef.current) return;
-    scanningRef.current = true;
-    setScannerVisible(false);
-    try {
-      setSearchText(data);
-      await loadProducts(data, true);
-    } finally {
-      scanningRef.current = false;
+  useEffect(() => {
+    if (!scannerVisible) {
+      if (cameraMountTimerRef.current) {
+        clearTimeout(cameraMountTimerRef.current);
+        cameraMountTimerRef.current = null;
+      }
+      if (cameraWarningTimerRef.current) {
+        clearTimeout(cameraWarningTimerRef.current);
+        cameraWarningTimerRef.current = null;
+      }
+      setCameraMounted(false);
+      setCameraSlow(false);
+      return undefined;
     }
-  };
 
-  const ensureCameraPermission = async () => {
-    if (permission?.granted) return true;
+    cameraMountTimerRef.current = setTimeout(() => {
+      InteractionManager.runAfterInteractions(() => {
+        setCameraMounted(true);
+        console.log("[Camera] mounted", Date.now());
+        if (cameraOpenRequestedAtRef.current) {
+          console.log("[Camera] mount delay ms", Date.now() - cameraOpenRequestedAtRef.current);
+        }
+      });
+    }, 0);
+
+    cameraWarningTimerRef.current = setTimeout(() => {
+      setCameraSlow(true);
+    }, 5000);
+
+    return () => {
+      if (cameraMountTimerRef.current) {
+        clearTimeout(cameraMountTimerRef.current);
+        cameraMountTimerRef.current = null;
+      }
+      if (cameraWarningTimerRef.current) {
+        clearTimeout(cameraWarningTimerRef.current);
+        cameraWarningTimerRef.current = null;
+      }
+    };
+  }, [scannerVisible]);
+
+  const handleBarCodeScanned = useCallback(
+    async ({ data }) => {
+      if (scanningRef.current) return;
+
+      const code = String(data ?? "").trim();
+      if (!code) return;
+
+      const now = Date.now();
+      if (lastScanRef.current.code === code && now - lastScanRef.current.at < 1000) {
+        return;
+      }
+
+      scanningRef.current = true;
+      lastScanRef.current = { code, at: now };
+      console.log("[Camera] barcode scanned", now, code);
+      if (cameraOpenRequestedAtRef.current) {
+        console.log("[Camera] read delay ms", now - cameraOpenRequestedAtRef.current);
+      }
+
+      try {
+        const searchStartedAt = Date.now();
+        console.log("[SEARCH] scan barcode start");
+        setSearchText(code);
+        setScannerVisible(false);
+        const rows = await Product.findByBarcodeExact(code);
+        console.log(`[SEARCH] scan barcode finished in ${Date.now() - searchStartedAt} ms`);
+        if (Array.isArray(rows) && rows.length > 0) {
+          setEmpty(false);
+          setProducts(rows);
+          setHasMoreProducts(false);
+          setProductsLimit(1);
+        } else {
+          setEmpty(true);
+          setProducts([]);
+          setHasMoreProducts(false);
+        }
+      } finally {
+        scanningRef.current = false;
+      }
+    },
+    [],
+  );
+
+  const ensureCameraPermission = useCallback(async () => {
+    if (permission?.granted) {
+      console.log("[Camera] permission ready", Date.now());
+      return true;
+    }
     const result = await requestPermission();
-    if (result?.granted) return true;
+    if (result?.granted) {
+      console.log("[Camera] permission ready", Date.now());
+      return true;
+    }
     const message = result?.canAskAgain
       ? "Debes permitir el acceso a la camara para escanear."
       : "Permiso de camara denegado. Habilitalo desde los ajustes.";
     Alert.alert("Sin acceso", message);
     return false;
-  };
+  }, [permission, requestPermission]);
+
+  const handleOpenScanner = useCallback(async () => {
+    console.log("[Camera] open requested", Date.now());
+    if (await ensureCameraPermission()) {
+      lastScanRef.current = { code: "", at: 0 };
+      scanningRef.current = false;
+      cameraOpenRequestedAtRef.current = Date.now();
+      setCameraMounted(false);
+      setCameraSlow(false);
+      setScannerVisible(true);
+    }
+  }, [ensureCameraPermission]);
+
+  const barcodeScannerSettings = useMemo(
+    () => ({
+      barcodeTypes: ["ean13", "ean8", "upc_a", "upc_e", "code128", "code39"],
+    }),
+    [],
+  );
 
   const onChangeSearchText = (text) => {
     setSearchText(text);
@@ -272,13 +380,22 @@ export default function Products({ navigation }) {
     <SafeAreaView style={{ flex: 1, backgroundColor: darkMode ? "#0F1720" : "#E7F1F9" }} key={refreshKey}>
       <RNModal visible={scannerVisible} animationType="slide">
         <View style={styles.scannerContainer}>
-          <CameraView
-            onBarcodeScanned={scannerVisible ? handleBarCodeScanned : undefined}
-            barcodeScannerSettings={{
-              barcodeTypes: ["ean13", "ean8", "upc_a", "upc_e", "code128", "code39", "code93", "qr"],
-            }}
-            style={StyleSheet.absoluteFillObject}
-          />
+          {cameraMounted ? (
+            <CameraView
+              onBarcodeScanned={scannerVisible ? handleBarCodeScanned : undefined}
+              barcodeScannerSettings={barcodeScannerSettings}
+              autofocus="on"
+              style={StyleSheet.absoluteFillObject}
+            />
+          ) : (
+            <View style={styles.cameraLoadingScreen}>
+              <ActivityIndicator size="large" color="white" />
+              <Text style={styles.cameraLoadingText}>Abriendo cámara...</Text>
+              {cameraSlow ? (
+                <Text style={styles.cameraLoadingHint}>La cámara está tardando más de lo normal...</Text>
+              ) : null}
+            </View>
+          )}
           <View style={styles.overlay}>
             <Text style={styles.scanText}>Encuadre el codigo de barras</Text>
             <TouchableOpacity
@@ -321,11 +438,7 @@ export default function Products({ navigation }) {
         />
 
         <TouchableOpacity
-          onPress={async () => {
-            if (await ensureCameraPermission()) {
-              setScannerVisible(true);
-            }
-          }}
+          onPress={handleOpenScanner}
           style={styles.cameraIcon}
         >
           <Ionicons name="camera-outline" size={24} color={darkMode ? "#8FC3FF" : Colors.DBLUE} />
@@ -424,6 +537,24 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#000",
     justifyContent: "center",
+  },
+  cameraLoadingScreen: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 12,
+    backgroundColor: "#000",
+  },
+  cameraLoadingText: {
+    color: "white",
+    fontSize: 16,
+    fontWeight: "700",
+  },
+  cameraLoadingHint: {
+    color: "#D8E4EE",
+    fontSize: 13,
+    textAlign: "center",
+    paddingHorizontal: 24,
   },
   overlay: {
     position: "absolute",

@@ -3,10 +3,7 @@ import Constants from "expo-constants";
 
 import { renderPrintLayout } from "@services/printLayoutService";
 
-const LabelPrinterModule = NativeModules?.SunmiV2Printer || null;
-const DiagnosticsModule = NativeModules?.SunmiDiagnostics || null;
-
-const INTEGRATION_NOT_IMPLEMENTED_MESSAGE = "Integración nativa Sunmi no implementada";
+const INTEGRATION_NOT_IMPLEMENTED_MESSAGE = "Integración Sunmi no disponible en esta build.";
 
 const ALIGNMENT_MAP = {
   left: 0,
@@ -58,7 +55,9 @@ const callNativeAsync = async (module, methodName, ...args) => {
 };
 
 const getDiagnosticsModule = () => NativeModules?.SunmiDiagnostics || null;
-const getLabelModule = () => NativeModules?.SunmiV2Printer || null;
+const getLabelModule = () => NativeModules?.SunmiPrinterModule || NativeModules?.SunmiV2Printer || null;
+const getSimplePrintModule = () =>
+  NativeModules?.SunmiDiagnostics || NativeModules?.SunmiPrinterModule || NativeModules?.SunmiV2Printer || null;
 
 const buildDeviceInfo = () => {
   const constants = Platform?.constants || {};
@@ -141,36 +140,75 @@ export const initPrinter = async () => {
   }
 
   initPromise = (async () => {
-    if (!getDiagnosticsModule()) {
-      return setStatus({
-        ...DEFAULT_STATUS,
-        hasModule: Boolean(getLabelModule()),
-        isSunmiDevice: isSunmiDevice(),
-        available: false,
-        mode: "UNAVAILABLE",
-        message: INTEGRATION_NOT_IMPLEMENTED_MESSAGE,
-        initializedAt: new Date().toISOString(),
-      });
-    }
-
     try {
-      const diagnostics = await readNativeDiagnostics();
-      const nativeStatus = diagnostics.printerStatus || {};
-      const available = Boolean(nativeStatus.bound || nativeStatus.printerReady);
+      const diagnostics = getDiagnosticsModule();
+      if (diagnostics) {
+        try {
+          const diagnosticStatus = await getSunmiDiagnostics();
+          const printerStatus = diagnosticStatus?.printerStatus || {};
+          const available = Boolean(
+            printerStatus?.available ||
+              diagnosticStatus?.bindStatus?.success ||
+              diagnosticStatus?.innerPrinterAvailable,
+          );
+
+          return setStatus({
+            ...DEFAULT_STATUS,
+            hasModule: true,
+            isSunmiDevice: Boolean(diagnosticStatus?.isSunmiDevice ?? isSunmiDevice()),
+            available,
+            mode: available ? "NATIVE" : "UNAVAILABLE",
+            message:
+              printerStatus?.message ||
+              diagnosticStatus?.error ||
+              (available ? "Impresora detectada." : INTEGRATION_NOT_IMPLEMENTED_MESSAGE),
+            printerVersion: String(printerStatus?.printerVersion ?? "").trim(),
+            printerModal: String(printerStatus?.printerModal ?? "").trim(),
+            printerSerialNo: String(printerStatus?.printerSerialNo ?? "").trim(),
+            initializedAt: new Date().toISOString(),
+          });
+          return cloneStatus();
+        } catch (diagnosticError) {
+          if (__DEV__) {
+            console.log("[SUNMI] diagnostics init fallback", diagnosticError?.message || diagnosticError);
+          }
+        }
+      }
+
+      const module = getLabelModule();
+      if (!module) {
+        return setStatus({
+          ...DEFAULT_STATUS,
+          hasModule: false,
+          isSunmiDevice: isSunmiDevice(),
+          available: false,
+          mode: "UNAVAILABLE",
+          message: INTEGRATION_NOT_IMPLEMENTED_MESSAGE,
+          initializedAt: new Date().toISOString(),
+        });
+      }
+
+      if (typeof module.initPrinter === "function") {
+        await module.initPrinter();
+      } else if (typeof module.printerInit === "function") {
+        await module.printerInit();
+      }
+
+      const printerInfo = await getPrinterInfo().catch(() => ({}));
+      const available = Boolean(printerInfo?.hasPrinter ?? printerInfo?.available);
 
       return setStatus({
         ...DEFAULT_STATUS,
         hasModule: true,
-        isSunmiDevice: Boolean(diagnostics.isSunmi),
+        isSunmiDevice: isSunmiDevice(),
         available,
         mode: available ? "NATIVE" : "UNAVAILABLE",
         message:
-          nativeStatus.lastError ||
-          nativeStatus.message ||
+          printerInfo?.message ||
           (available ? "Impresora detectada." : INTEGRATION_NOT_IMPLEMENTED_MESSAGE),
-        printerVersion: String(nativeStatus.printerVersion ?? "").trim(),
-        printerModal: String(nativeStatus.printerModal ?? "").trim(),
-        printerSerialNo: String(nativeStatus.printerSerialNo ?? "").trim(),
+        printerVersion: String(printerInfo?.printerVersion ?? "").trim(),
+        printerModal: String(printerInfo?.printerModal ?? "").trim(),
+        printerSerialNo: String(printerInfo?.printerSerialNo ?? "").trim(),
         initializedAt: new Date().toISOString(),
       });
     } catch (error) {
@@ -191,6 +229,32 @@ export const initPrinter = async () => {
   } finally {
     initPromise = null;
   }
+};
+
+export const getPrinterInfo = async () => {
+  const module = getLabelModule();
+  if (!module) {
+    throw new Error(INTEGRATION_NOT_IMPLEMENTED_MESSAGE);
+  }
+
+  if (typeof module.getPrinterInfo === "function") {
+    return module.getPrinterInfo();
+  }
+
+  const [printerVersion, printerModal, printerSerialNo, hasPrinter] = await Promise.all([
+    typeof module.getPrinterVersion === "function" ? module.getPrinterVersion() : "",
+    typeof module.getPrinterModal === "function" ? module.getPrinterModal() : "",
+    typeof module.getPrinterSerialNo === "function" ? module.getPrinterSerialNo() : "",
+    typeof module.hasPrinter === "function" ? module.hasPrinter() : false,
+  ]);
+
+  return {
+    hasPrinter: Boolean(hasPrinter),
+    available: Boolean(hasPrinter),
+    printerVersion: String(printerVersion ?? "").trim(),
+    printerModal: String(printerModal ?? "").trim(),
+    printerSerialNo: String(printerSerialNo ?? "").trim(),
+  };
 };
 
 const ensureInitialized = async () => {
@@ -224,7 +288,7 @@ export const printText = async (text, options = {}) => {
   if (!status.available) {
     throw new Error(status.message || INTEGRATION_NOT_IMPLEMENTED_MESSAGE);
   }
-  if (!module || typeof module.printString !== "function") {
+  if (!module || (typeof module.printText !== "function" && typeof module.printString !== "function")) {
     throw new Error(INTEGRATION_NOT_IMPLEMENTED_MESSAGE);
   }
 
@@ -235,7 +299,11 @@ export const printText = async (text, options = {}) => {
 
   await setPrinterAlignment(options.align || "left");
   await setPrinterFontSize(options.fontSize || 16);
-  await module.printString(`${body}\n`);
+  if (typeof module.printText === "function") {
+    await module.printText(`${body}\n`);
+  } else {
+    await module.printString(`${body}\n`);
+  }
   return { printed: true, text: body };
 };
 
@@ -245,7 +313,10 @@ export const printBarcode = async (code, options = {}) => {
   if (!status.available) {
     throw new Error(status.message || INTEGRATION_NOT_IMPLEMENTED_MESSAGE);
   }
-  if (!module || typeof module.printBarCode !== "function") {
+  if (
+    !module ||
+    (typeof module.printBarcode !== "function" && typeof module.printBarCode !== "function")
+  ) {
     throw new Error(INTEGRATION_NOT_IMPLEMENTED_MESSAGE);
   }
 
@@ -259,13 +330,47 @@ export const printBarcode = async (code, options = {}) => {
   const width = Math.max(2, Math.min(6, Number(options.width) || 2));
   const textposition = options.showNumber === false ? 0 : 2;
   await setPrinterAlignment("center");
-  await module.printBarCode(value, symbology, height, width, textposition);
+  if (typeof module.printBarcode === "function") {
+    await module.printBarcode(value);
+  } else {
+    await module.printBarCode(value, symbology, height, width, textposition);
+  }
   return { printed: true, code: value };
+};
+
+export const printQrCode = async (text, options = {}) => {
+  const status = await ensureInitialized();
+  const module = getLabelModule();
+  if (!status.available) {
+    throw new Error(status.message || INTEGRATION_NOT_IMPLEMENTED_MESSAGE);
+  }
+  if (!module || (typeof module.printQrCode !== "function" && typeof module.printQRCode !== "function")) {
+    throw new Error(INTEGRATION_NOT_IMPLEMENTED_MESSAGE);
+  }
+
+  const value = normalizeText(text);
+  if (!value) {
+    return { printed: false };
+  }
+
+  if (typeof module.printQrCode === "function") {
+    await module.printQrCode(value);
+  } else {
+    const modulesize = Math.max(1, Math.min(16, Number(options.modulesize) || 4));
+    const errorlevel = Math.max(0, Math.min(3, Number(options.errorlevel) || 2));
+    await module.printQRCode(value, modulesize, errorlevel);
+  }
+  return { printed: true, text: value };
 };
 
 export const printLabel = async (formatConfig = {}, product = {}, options = {}) => {
   const status = await ensureInitialized();
   const module = getLabelModule();
+  if (__DEV__) {
+    console.log("[PRINT] format", formatConfig);
+    console.log("[PRINT] printer available", status.available);
+    console.log("[PRINT] printing", product);
+  }
   if (!status.available) {
     throw new Error(status.message || INTEGRATION_NOT_IMPLEMENTED_MESSAGE);
   }
@@ -311,6 +416,73 @@ export const printLabel = async (formatConfig = {}, product = {}, options = {}) 
   }
 
   return { printed: true, layout };
+};
+
+const formatSimpleCurrency = (value) => {
+  const amount = Number(value ?? 0);
+  return Number.isFinite(amount)
+    ? amount.toLocaleString("es-AR", {
+        style: "currency",
+        currency: "ARS",
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      })
+    : (0).toLocaleString("es-AR", {
+        style: "currency",
+        currency: "ARS",
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      });
+};
+
+export const printSimpleProductLabel = async (formatKey = "product", product = {}) => {
+  const key = String(formatKey ?? "product").trim().toLowerCase();
+  const diagnostics = await getSunmiDiagnostics().catch(() => null);
+  const printerAvailable = Boolean(
+    diagnostics?.printerStatus?.available ||
+      diagnostics?.bindStatus?.success ||
+      diagnostics?.innerPrinterAvailable,
+  );
+
+  console.log("[PRINT] Home button pressed");
+  console.log("[PRINT] formatKey", key);
+  console.log("[PRINT] printer available", printerAvailable);
+
+  if (!printerAvailable) {
+    throw new Error(diagnostics?.error || diagnostics?.printerStatus?.message || "No se pudo conectar con la impresora.");
+  }
+
+  const module = getSimplePrintModule();
+  if (!module || typeof module.printSimpleProductLabel !== "function") {
+    throw new Error("La build no incluye la impresión simple de Sunmi.");
+  }
+
+  if (typeof module.bindPrinterService === "function") {
+    await module.bindPrinterService().catch(() => {});
+  } else if (typeof module.initPrinter === "function") {
+    await module.initPrinter().catch(() => {});
+  } else if (typeof module.printerInit === "function") {
+    await module.printerInit().catch(() => {});
+  }
+
+  const payload = {
+    description: String(product?.descripcion ?? product?.name ?? "").trim(),
+    price: formatSimpleCurrency(product?.precio ?? product?.price1 ?? product?.price ?? 0),
+    barcode: String(product?.codigoBarra ?? product?.codigoBarras ?? product?.code ?? "").trim(),
+    internalCode: String(product?.codigoInterno ?? product?.codigoArticulo ?? product?.code ?? "").trim(),
+  };
+
+  console.log("[PRINT] calling native Sunmi print");
+  await module.printSimpleProductLabel(
+    key,
+    payload.description,
+    payload.price,
+    payload.barcode,
+    payload.internalCode,
+  );
+  console.log("[PRINT] success");
+
+  return { printed: true, payload, formatKey: key };
 };
 
 export const getSunmiDiagnostics = async () => {
@@ -408,12 +580,35 @@ export const getSunmiDiagnostics = async () => {
 };
 
 export const printSunmiDiagnosticTest = async () => {
-  const diagnostics = getDiagnosticsModule();
-  if (!diagnostics) {
+  const module = getLabelModule() || getDiagnosticsModule();
+  if (!module) {
     throw new Error(INTEGRATION_NOT_IMPLEMENTED_MESSAGE);
   }
 
-  return callNativeAsync(diagnostics, "printTestPage");
+  if (typeof module.printTestPage === "function") {
+    return module.printTestPage();
+  }
+
+  const lines = [
+    "AlfaScan",
+    "Prueba de impresora",
+    "",
+    `Fecha/Hora: ${new Date().toLocaleString("es-AR")}`,
+    "",
+    "1234567890123",
+  ];
+
+  if (typeof module.printerInit === "function") {
+    await module.printerInit();
+  }
+  if (typeof module.printString !== "function" || typeof module.lineWrap !== "function") {
+    throw new Error(INTEGRATION_NOT_IMPLEMENTED_MESSAGE);
+  }
+  for (const line of lines) {
+    await module.printString(`${line}\n`);
+  }
+  await module.lineWrap(2);
+  return { printed: true };
 };
 
 export default {
@@ -423,7 +618,10 @@ export default {
   printText,
   printBarcode,
   printLabel,
+  printSimpleProductLabel,
   getPrinterStatus,
+  getPrinterInfo,
   getSunmiDiagnostics,
   printSunmiDiagnosticTest,
+  printQrCode,
 };
