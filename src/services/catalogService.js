@@ -42,6 +42,20 @@ const safeInt = (value, fallback = 0, min = 0, max = 2147483647) => {
   return Math.min(max, Math.max(min, parsed));
 };
 
+const parseOptionalPort = (value) => {
+  const raw = String(value ?? "").trim();
+  if (!raw) {
+    return null;
+  }
+
+  const parsed = parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed < 1 || parsed > 65535) {
+    return null;
+  }
+
+  return parsed;
+};
+
 const safeFloat = (value, fallback = 0) => {
   const parsed = parseFloat(
     String(value ?? "")
@@ -232,7 +246,7 @@ const loadSqlConfig = async () => {
     instance: String(
       (await Configuration.getConfigValue("SQL_INSTANCE")) || "",
     ).trim(),
-    port: safeInt(await Configuration.getConfigValue("SQL_PORT"), 0, 0, 65535),
+    port: parseOptionalPort(await Configuration.getConfigValue("SQL_PORT")),
     user: String((await Configuration.getConfigValue("SQL_USER")) || "").trim(),
     password: String(
       (await Configuration.getConfigValue("SQL_PASSWORD")) || "",
