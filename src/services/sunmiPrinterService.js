@@ -2,6 +2,7 @@ import { NativeModules, Platform } from "react-native";
 import Constants from "expo-constants";
 
 import { renderPrintLayout } from "@services/printLayoutService";
+import { getCompanyNameFromSqlConfig } from "@services/catalogService";
 
 const INTEGRATION_NOT_IMPLEMENTED_MESSAGE = "Integración Sunmi no disponible en esta build.";
 
@@ -467,10 +468,13 @@ export const printSimpleProductLabel = async (formatKey = "product", product = {
     barcode: String(product?.codigoBarra ?? product?.codigoBarras ?? product?.code ?? "").trim(),
     internalCode: String(product?.codigoInterno ?? product?.codigoArticulo ?? product?.code ?? "").trim(),
   };
+  const companyName = String(product?.companyName ?? "").trim() || (await getCompanyNameFromSqlConfig().catch(() => ""));
   const safeCode = payload.barcode || payload.internalCode || "-";
 
+  console.log("[PRINT] companyName", companyName || "");
   console.log("[PRINT] payload", {
     formatKey: key,
+    companyName: companyName || "",
     descripcionLength: payload.description.length,
     precioTexto: payload.price,
     codigo: safeCode,
@@ -483,6 +487,7 @@ export const printSimpleProductLabel = async (formatKey = "product", product = {
     payload.price,
     payload.barcode,
     payload.internalCode,
+    companyName,
   );
   console.log("[PRINT] success");
 

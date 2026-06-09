@@ -186,14 +186,14 @@ public class SunmiDiagnosticsModule extends ReactContextBaseJavaModule {
   }
 
   @ReactMethod
-  public void printSimpleProductLabel(String formatKey, String description, String price, String barcode, String internalCode, Promise promise) {
+  public void printSimpleProductLabel(String formatKey, String description, String price, String barcode, String internalCode, String companyName, Promise promise) {
     if (printerService == null || !bound) {
       promise.reject("SERVICE_NOT_CONNECTED", "Servicio no conectado.");
       return;
     }
 
     try {
-      printSimpleProductLabelInternal(printerService, formatKey, description, price, barcode, internalCode);
+      printSimpleProductLabelInternal(printerService, formatKey, description, price, barcode, internalCode, companyName);
       promise.resolve(Boolean.TRUE);
     } catch (Exception e) {
       lastError = e.getMessage();
@@ -483,25 +483,84 @@ public class SunmiDiagnosticsModule extends ReactContextBaseJavaModule {
     callPrinterCommand(callback -> service.lineWrap(2, callback));
   }
 
-  private void printSimpleProductLabelInternal(IWoyouService service, String formatKey, String description, String price, String barcode, String internalCode) throws Exception {
+  private void printSimpleProductLabelInternal(IWoyouService service, String formatKey, String description, String price, String barcode, String internalCode, String companyName) throws Exception {
     String desc = String.valueOf(description == null ? "" : description).trim();
     String priceText = String.valueOf(price == null ? "" : price).trim();
     String internalText = String.valueOf(internalCode == null ? "" : internalCode).trim();
+    String companyText = String.valueOf(companyName == null ? "" : companyName).trim();
 
     Log.i(TAG, "[SUNMI] printSimpleProductLabel start");
     callPrinterCommand(callback -> service.printerInit(callback));
-    callPrinterCommand(callback -> service.setAlignment(0, callback));
+    if (!companyText.isEmpty()) {
+      String companyWrapped = wrapText(companyText, 28).toUpperCase(Locale.ROOT);
+      Log.i(TAG, "[SUNMI] print company");
+      callPrinterCommand(callback -> service.setAlignment(1, callback));
+      callPrinterCommand(callback -> service.setFontSize(18f, callback));
+      callPrinterCommand(callback -> service.printText(companyWrapped + "\n", callback));
+      callPrinterCommand(callback -> service.lineWrap(1, callback));
+    }
 
-    String ticket =
-      "AlfaScan\n\n" +
-      (desc.isEmpty() ? "Producto" : desc) + "\n\n" +
-      (priceText.isEmpty() ? "$ 0,00" : priceText) + "\n\n" +
-      "Cod: " + (internalText.isEmpty() ? "-" : internalText) + "\n\n";
-    Log.i(TAG, "[SUNMI] print ticket text length=" + ticket.length());
-    Log.i(TAG, "[SUNMI] using printOriginalText");
-    callPrinterCommand(callback -> service.printOriginalText(ticket, callback));
+    Log.i(TAG, "[SUNMI] print description");
+    callPrinterCommand(callback -> service.setAlignment(0, callback));
+    callPrinterCommand(callback -> service.setFontSize(20f, callback));
+    callPrinterCommand(callback -> service.printText(wrapText(desc.isEmpty() ? "Producto" : desc, 28) + "\n", callback));
+    callPrinterCommand(callback -> service.lineWrap(1, callback));
+
+    Log.i(TAG, "[SUNMI] print price");
+    callPrinterCommand(callback -> service.setAlignment(1, callback));
+    callPrinterCommand(callback -> service.setFontSize(24f, callback));
+    callPrinterCommand(callback -> service.printText((priceText.isEmpty() ? "$ 0,00" : priceText) + "\n", callback));
+    callPrinterCommand(callback -> service.lineWrap(1, callback));
+
+    Log.i(TAG, "[SUNMI] print code");
+    callPrinterCommand(callback -> service.setAlignment(0, callback));
+    callPrinterCommand(callback -> service.setFontSize(18f, callback));
+    callPrinterCommand(callback -> service.printText("Cod: " + (internalText.isEmpty() ? "-" : internalText) + "\n", callback));
     callPrinterCommand(callback -> service.lineWrap(2, callback));
     Log.i(TAG, "[SUNMI] print done");
+  }
+
+  private String wrapText(String text, int maxChars) {
+    String value = String.valueOf(text == null ? "" : text).trim();
+    if (value.isEmpty() || maxChars <= 0) {
+      return value;
+    }
+
+    String[] words = value.split("\\s+");
+    StringBuilder out = new StringBuilder();
+    StringBuilder line = new StringBuilder();
+
+    for (String word : words) {
+      if (word.isEmpty()) {
+        continue;
+      }
+
+      if (line.length() == 0) {
+        line.append(word);
+        continue;
+      }
+
+      if (line.length() + 1 + word.length() <= maxChars) {
+        line.append(' ').append(word);
+        continue;
+      }
+
+      if (out.length() > 0) {
+        out.append('\n');
+      }
+      out.append(line);
+      line.setLength(0);
+      line.append(word);
+    }
+
+    if (line.length() > 0) {
+      if (out.length() > 0) {
+        out.append('\n');
+      }
+      out.append(line);
+    }
+
+    return out.toString();
   }
 
   private interface PrinterInvoker {

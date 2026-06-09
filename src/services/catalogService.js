@@ -693,6 +693,48 @@ export const findCatalogByBarcodeExact = async ({ barcode = "", classPrice = 1 }
   return rows.map((row) => getRowPriceClass(row, classPrice, config.useStockColumn));
 };
 
+const getCachedCompanyName = async () => {
+  await Configuration.createTable();
+  for (const key of ["COMPANY_NAME", "SQL_COMPANY_NAME"]) {
+    const value = String((await Configuration.getConfigValue(key)) || "").trim();
+    if (value) {
+      return value;
+    }
+  }
+  return "";
+};
+
+export const getCompanyNameFromSqlConfig = async () => {
+  const cached = await getCachedCompanyName().catch(() => "");
+  if (cached) {
+    return cached;
+  }
+
+  const config = await loadSqlConfig().catch(() => null);
+  if (!config || config.mode !== "ONLINE") {
+    return "";
+  }
+
+  try {
+    const query = `
+      SELECT TOP 1 LTRIM(RTRIM(ISNULL(Valor, ''))) AS companyName
+      FROM [dbo].[TA_CONFIGURACION]
+      WHERE LTRIM(RTRIM(ISNULL(Clave, ''))) = 'NOMBRE'
+    `;
+    const rows = await executeSqlServerQuery(query, config);
+    const companyName = String(rows?.[0]?.companyName ?? rows?.[0]?.Valor ?? "").trim();
+    if (!companyName) {
+      return "";
+    }
+
+    await Configuration.setConfigValue("COMPANY_NAME", companyName).catch(() => {});
+    await Configuration.setConfigValue("SQL_COMPANY_NAME", companyName).catch(() => {});
+    return companyName;
+  } catch (error) {
+    return "";
+  }
+};
+
 export const findCatalogByCodes = async ({
   codes = [],
   classPrice = 1,
@@ -913,6 +955,7 @@ const CatalogService = {
   findCatalogLikeName,
   findCatalogByCode,
   findCatalogByBarcodeExact,
+  getCompanyNameFromSqlConfig,
   findCatalogByCodes,
   findCatalogByBarcodePrefix,
   syncCatalogToLocal,
