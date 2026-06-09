@@ -75,99 +75,12 @@ export const printArticle = async ({
     format && typeof format === "object"
       ? format
       : (await loadPrintFormats().catch(() => null))?.[normalizedKey] || getDefaultPrintFormat(normalizedKey);
-  const fallbackProduct = {
-    descripcion: String(article?.descripcion ?? article?.description ?? article?.name ?? "").trim(),
-    name: String(article?.name ?? article?.descripcion ?? article?.description ?? "").trim(),
-    precio: Number(article?.precio ?? article?.price1 ?? article?.price ?? 0) || 0,
-    price: Number(article?.precio ?? article?.price1 ?? article?.price ?? 0) || 0,
-    price1: Number(article?.precio ?? article?.price1 ?? article?.price ?? 0) || 0,
-    codigoBarra: String(
-      article?.codigoBarra ||
-        article?.CodigoBarra ||
-        article?.codigoBarras ||
-        article?.CodigoBarras ||
-        article?.barcode ||
-        article?.codigo ||
-        article?.Codigo ||
-        article?.code ||
-        "",
-    ).trim(),
-    CodigoBarra: String(
-      article?.codigoBarra ||
-        article?.CodigoBarra ||
-        article?.codigoBarras ||
-        article?.CodigoBarras ||
-        article?.barcode ||
-        article?.codigo ||
-        article?.Codigo ||
-        article?.code ||
-        "",
-    ).trim(),
-    codigoBarras: String(
-      article?.codigoBarra ||
-        article?.CodigoBarra ||
-        article?.codigoBarras ||
-        article?.CodigoBarras ||
-        article?.barcode ||
-        article?.codigo ||
-        article?.Codigo ||
-        article?.code ||
-        "",
-    ).trim(),
-    CodigoBarras: String(
-      article?.codigoBarra ||
-        article?.CodigoBarra ||
-        article?.codigoBarras ||
-        article?.CodigoBarras ||
-        article?.barcode ||
-        article?.codigo ||
-        article?.Codigo ||
-        article?.code ||
-        "",
-    ).trim(),
-    barcode: String(
-      article?.codigoBarra ||
-        article?.CodigoBarra ||
-        article?.codigoBarras ||
-        article?.CodigoBarras ||
-        article?.barcode ||
-        article?.codigo ||
-        article?.Codigo ||
-        article?.code ||
-        "",
-    ).trim(),
-    code: String(
-      article?.codigoArticulo ||
-        article?.CodigoArticulo ||
-        article?.codigoInterno ||
-        article?.CodigoInterno ||
-        article?.codigoBarra ||
-        article?.CodigoBarra ||
-        article?.barcode ||
-        article?.code ||
-        "",
-    ).trim(),
-    codigo: String(
-      article?.codigoArticulo ||
-        article?.CodigoArticulo ||
-        article?.codigoInterno ||
-        article?.CodigoInterno ||
-        article?.codigoBarra ||
-        article?.CodigoBarra ||
-        article?.barcode ||
-        article?.code ||
-        "",
-    ).trim(),
-    codigoArticulo: String(article?.codigoArticulo ?? article?.CodigoArticulo ?? article?.codigoInterno ?? article?.CodigoInterno ?? "").trim(),
-    CodigoArticulo: String(article?.codigoArticulo ?? article?.CodigoArticulo ?? article?.codigoInterno ?? article?.CodigoInterno ?? "").trim(),
-    codigoInterno: String(article?.codigoInterno ?? article?.CodigoInterno ?? article?.codigoArticulo ?? article?.CodigoArticulo ?? "").trim(),
-    CodigoInterno: String(article?.codigoInterno ?? article?.CodigoInterno ?? article?.codigoArticulo ?? article?.CodigoArticulo ?? "").trim(),
-    internalCode: String(article?.internalCode ?? article?.codigoInterno ?? article?.CodigoInterno ?? article?.codigoArticulo ?? article?.CodigoArticulo ?? "").trim(),
-    companyName: resolvedCompanyName,
-  };
   const fallbackResult = await printLabel(
     resolvedFormat,
-    fallbackProduct,
+    {
+      ...article,
+      companyName: resolvedCompanyName,
+    },
     {
       companyName: resolvedCompanyName,
     },

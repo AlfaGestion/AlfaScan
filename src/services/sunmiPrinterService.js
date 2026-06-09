@@ -570,7 +570,33 @@ export const printSimpleProductLabel = async (payloadOrFormatKey = "product", pr
     companyName,
   };
 
-  const result = await printLabel(formatConfig, printProduct, { companyName, fallbackText: "" });
+  const layout = renderPrintLayout(formatConfig, printProduct, { companyName, fallbackText: "" });
+
+  const module = getDiagnosticsModule();
+  console.log("[PRINT] using module", module ? "SunmiDiagnostics" : "none");
+  if (!module || typeof module.printSimpleProductLabel !== "function") {
+    throw new Error("SunmiDiagnostics existe pero no expone printSimpleProductLabel. RecompilÃ¡ la app con npx expo run:android.");
+  }
+
+  if (typeof module.bindPrinterService === "function") {
+    await module.bindPrinterService().catch(() => {});
+  } else if (typeof module.initPrinter === "function") {
+    await module.initPrinter().catch(() => {});
+  } else if (typeof module.printerInit === "function") {
+    await module.printerInit().catch(() => {});
+  }
+
+  console.log("[PRINT] calling native Sunmi print");
+  const result = await module.printSimpleProductLabel({
+    formatKey: key,
+    description: payload.description,
+    price: formatSimpleCurrency(payload.price),
+    barcode: payload.barcode,
+    internalCode: payload.internalCode,
+    companyName,
+    copies: Math.max(1, Number(input?.copies ?? 1) || 1),
+    items: Array.isArray(layout?.items) ? layout.items : [],
+  });
   console.log("[PRINT] success");
 
   return { printed: true, payload, formatKey: key, layout: result?.layout || null };

@@ -17,6 +17,7 @@ import com.facebook.react.bridge.Promise;
 import com.facebook.react.bridge.ReactApplicationContext;
 import com.facebook.react.bridge.ReactContextBaseJavaModule;
 import com.facebook.react.bridge.ReactMethod;
+import com.facebook.react.bridge.ReadableArray;
 import com.facebook.react.bridge.ReadableMap;
 import com.facebook.react.bridge.WritableMap;
 
@@ -201,7 +202,12 @@ public class SunmiDiagnosticsModule extends ReactContextBaseJavaModule {
       String internalCode = getStringSafe(payload, "internalCode");
       String companyName = getStringSafe(payload, "companyName");
       int copies = Math.max(1, getIntSafe(payload, "copies", 1));
-      printSimpleProductLabelInternal(printerService, formatKey, description, price, barcode, internalCode, companyName, copies);
+      ReadableArray items = payload.hasKey("items") && !payload.isNull("items") ? payload.getArray("items") : null;
+      if (items != null && items.size() > 0) {
+        printLayoutItemsInternal(printerService, items, copies);
+      } else {
+        printSimpleProductLabelInternal(printerService, formatKey, description, price, barcode, internalCode, companyName, copies);
+      }
       promise.resolve(Boolean.TRUE);
     } catch (Exception e) {
       lastError = e.getMessage();
@@ -536,6 +542,64 @@ public class SunmiDiagnosticsModule extends ReactContextBaseJavaModule {
     Log.i(TAG, "[SUNMI] print done");
   }
 
+  private void printLayoutItemsInternal(IWoyouService service, ReadableArray items, int copies) throws Exception {
+    int totalCopies = Math.max(1, copies);
+    Log.i(TAG, "[SUNMI] print layout items count=" + items.size());
+    callPrinterCommand(callback -> service.printerInit(callback));
+
+    for (int copy = 0; copy < totalCopies; copy++) {
+      if (copy > 0) {
+        callPrinterCommand(callback -> service.lineWrap(2, callback));
+      }
+
+      int lastBottom = 0;
+      for (int i = 0; i < items.size(); i++) {
+        ReadableMap item = items.getMap(i);
+        if (item == null) {
+          continue;
+        }
+
+        int targetTop = getIntSafe(item, "y", 0);
+        int itemHeight = Math.max(1, getIntSafe(item, "height", 24));
+        int gap = Math.max(0, Math.round((targetTop - lastBottom) / 18f));
+        if (gap > 0) {
+          callPrinterCommand(callback -> service.lineWrap(gap, callback));
+        }
+
+        String type = getStringSafe(item, "type");
+        String value = getStringSafe(item, "value");
+        String align = getStringSafe(item, "align");
+        int fontSize = Math.max(10, getIntSafe(item, "fontSize", 16));
+
+        if ("barcode".equalsIgnoreCase(type)) {
+          String code = value.trim();
+          if (!code.isEmpty()) {
+            int symbology = getIntSafe(item, "barcodeSymbology", 2);
+            int height = Math.max(80, getIntSafe(item, "height", 120));
+            int width = Math.max(2, getIntSafe(item, "width", 2));
+            int textposition = getBooleanSafe(item, "showNumber", true) ? 2 : 0;
+            Log.i(TAG, "[SUNMI] print barcode");
+            callPrinterCommand(callback -> service.setAlignment(1, callback));
+            callPrinterCommand(callback -> service.printBarCode(code, symbology, height, width, textposition, callback));
+          }
+        } else {
+          String text = value.trim();
+          if (!text.isEmpty()) {
+            Log.i(TAG, "[SUNMI] print text type=" + type);
+            callPrinterCommand(callback -> service.setAlignment(resolveAlignmentValue(align), callback));
+            callPrinterCommand(callback -> service.setFontSize((float) fontSize, callback));
+            callPrinterCommand(callback -> service.printText(text + "\n", callback));
+          }
+        }
+
+        lastBottom = targetTop + itemHeight;
+      }
+
+      callPrinterCommand(callback -> service.lineWrap(1, callback));
+    }
+    Log.i(TAG, "[SUNMI] print layout done");
+  }
+
   private String wrapText(String text, int maxChars) {
     String value = String.valueOf(text == null ? "" : text).trim();
     if (value.isEmpty() || maxChars <= 0) {
@@ -619,6 +683,37 @@ public class SunmiDiagnosticsModule extends ReactContextBaseJavaModule {
         }
       }
     }
+  }
+
+  private boolean getBooleanSafe(ReadableMap map, String key, boolean fallback) {
+    if (map == null || !map.hasKey(key) || map.isNull(key)) {
+      return fallback;
+    }
+
+    try {
+      return map.getBoolean(key);
+    } catch (Exception ignored) {
+      try {
+        return map.getInt(key) != 0;
+      } catch (Exception ignoredToo) {
+        String value = String.valueOf(map.getString(key)).trim().toLowerCase(Locale.ROOT);
+        if (value.isEmpty()) {
+          return fallback;
+        }
+        return "1".equals(value) || "true".equals(value) || "yes".equals(value);
+      }
+    }
+  }
+
+  private int resolveAlignmentValue(String alignment) {
+    String normalized = String.valueOf(alignment == null ? "" : alignment).trim().toLowerCase(Locale.ROOT);
+    if ("left".equals(normalized) || "izquierda".equals(normalized)) {
+      return 0;
+    }
+    if ("right".equals(normalized) || "derecha".equals(normalized)) {
+      return 2;
+    }
+    return 1;
   }
 
   private interface PrinterInvoker {
