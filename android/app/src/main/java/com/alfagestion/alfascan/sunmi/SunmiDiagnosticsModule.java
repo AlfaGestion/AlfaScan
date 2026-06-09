@@ -219,7 +219,7 @@ public class SunmiDiagnosticsModule extends ReactContextBaseJavaModule {
 
       Log.i(TAG, "[SUNMI] smoke description");
       callPrinterCommand(callback -> printerService.setAlignment(0, callback));
-      callPrinterCommand(callback -> printerService.printText("Prueba de impresiÃ³n\n\n", callback));
+      callPrinterCommand(callback -> printerService.printText("Prueba de impresion\n\n", callback));
       callPrinterCommand(callback -> printerService.lineWrap(1, callback));
 
       Log.i(TAG, "[SUNMI] smoke price");
@@ -241,6 +241,30 @@ public class SunmiDiagnosticsModule extends ReactContextBaseJavaModule {
     }
   }
 
+  @ReactMethod
+  public void printPlainTextTest(Promise promise) {
+    if (printerService == null || !bound) {
+      promise.reject("SERVICE_NOT_CONNECTED", "Servicio no conectado.");
+      return;
+    }
+
+    try {
+      Log.i(TAG, "[SUNMI] printPlainTextTest start");
+      callPrinterCommand(callback -> printerService.printerInit(callback));
+      callPrinterCommand(callback -> printerService.setAlignment(0, callback));
+      String text = "ALFASCAN TEST\n123456789\n";
+      Log.i(TAG, "[SUNMI] printPlainTextTest length=" + text.length());
+      Log.i(TAG, "[SUNMI] using printOriginalText");
+      callPrinterCommand(callback -> printerService.printOriginalText(text, callback));
+      callPrinterCommand(callback -> printerService.lineWrap(3, callback));
+      Log.i(TAG, "[SUNMI] printPlainTextTest done");
+      promise.resolve(Boolean.TRUE);
+    } catch (Exception e) {
+      lastError = e.getMessage();
+      Log.e(TAG, "[SUNMI] printPlainTextTest error", e);
+      promise.reject("SUNMI_PLAIN_TEXT_ERROR", e.getMessage(), e);
+    }
+  }
   private WritableMap buildDeviceInfo() {
     WritableMap map = Arguments.createMap();
     map.putString("manufacturer", String.valueOf(Build.MANUFACTURER));
@@ -442,7 +466,7 @@ public class SunmiDiagnosticsModule extends ReactContextBaseJavaModule {
 
     String[] lines = new String[] {
       "AlfaScan",
-      "Prueba de impresión",
+      "Prueba de impresion",
       String.valueOf(System.currentTimeMillis()),
       "1234567890123",
       "-------------"
@@ -466,24 +490,16 @@ public class SunmiDiagnosticsModule extends ReactContextBaseJavaModule {
 
     Log.i(TAG, "[SUNMI] printSimpleProductLabel start");
     callPrinterCommand(callback -> service.printerInit(callback));
-    Log.i(TAG, "[SUNMI] print title");
-    callPrinterCommand(callback -> service.setAlignment(1, callback));
-    callPrinterCommand(callback -> service.printText("AlfaScan\n\n", callback));
-    callPrinterCommand(callback -> service.lineWrap(1, callback));
-
-    Log.i(TAG, "[SUNMI] print description");
     callPrinterCommand(callback -> service.setAlignment(0, callback));
-    callPrinterCommand(callback -> service.printText((desc.isEmpty() ? "Producto" : desc) + "\n\n", callback));
-    callPrinterCommand(callback -> service.lineWrap(1, callback));
 
-    Log.i(TAG, "[SUNMI] print price");
-    callPrinterCommand(callback -> service.setAlignment(1, callback));
-    callPrinterCommand(callback -> service.printText((priceText.isEmpty() ? "$ 0,00" : priceText) + "\n\n", callback));
-    callPrinterCommand(callback -> service.lineWrap(1, callback));
-
-    Log.i(TAG, "[SUNMI] print code");
-    callPrinterCommand(callback -> service.setAlignment(0, callback));
-    callPrinterCommand(callback -> service.printText("Cod: " + (internalText.isEmpty() ? "-" : internalText) + "\n\n", callback));
+    String ticket =
+      "AlfaScan\n\n" +
+      (desc.isEmpty() ? "Producto" : desc) + "\n\n" +
+      (priceText.isEmpty() ? "$ 0,00" : priceText) + "\n\n" +
+      "Cod: " + (internalText.isEmpty() ? "-" : internalText) + "\n\n";
+    Log.i(TAG, "[SUNMI] print ticket text length=" + ticket.length());
+    Log.i(TAG, "[SUNMI] using printOriginalText");
+    callPrinterCommand(callback -> service.printOriginalText(ticket, callback));
     callPrinterCommand(callback -> service.lineWrap(2, callback));
     Log.i(TAG, "[SUNMI] print done");
   }

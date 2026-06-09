@@ -145,6 +145,7 @@ export default function HomeScreen({ navigation }) {
   const cameraMountTimerRef = useRef(null);
   const cameraWarningTimerRef = useRef(null);
   const cameraOpenRequestedAtRef = useRef(0);
+  const searchInProgressRef = useRef(false);
   const { darkMode } = useThemeConfig();
   const insets = useSafeAreaInsets();
 
@@ -238,6 +239,50 @@ export default function HomeScreen({ navigation }) {
   const showProductImage = screenConfig.useProductImage && Boolean(article?.codigoInterno || article?.codigoBarra);
   const productImageSize = IMAGE_SIZE_MAP[screenConfig.productImageHomeSize] || IMAGE_SIZE_MAP.MEDIUM;
   const syncLabel = useMemo(() => formatRelativeSync(lastSyncAt), [lastSyncAt]);
+
+  const handleSearch = useCallback(
+    async (rawValue, source = "manual") => {
+      if (searchInProgressRef.current) {
+        return;
+      }
+
+      const value = String(rawValue ?? "").trim();
+      if (!value) {
+        setQuery("");
+        setArticle(null);
+        setMessage("IngresÃ¡ o escaneÃ¡ un cÃ³digo para buscar.");
+        return;
+      }
+
+      searchInProgressRef.current = true;
+      setQuery(value);
+      setMessage("");
+      setLoading(true);
+
+      try {
+        if (source === "keyboard") {
+          console.log("[SEARCH] submit search from keyboard");
+        }
+        console.log("[SEARCH] query", value);
+
+        const result = await searchArticle(value);
+        if (!result) {
+          setArticle(null);
+          setMessage("No se encontrÃ³ el artÃ­culo.");
+          return;
+        }
+
+        setArticle(result);
+      } catch (e) {
+        setArticle(null);
+        setMessage(e?.message || "No se pudo buscar el artÃ­culo.");
+      } finally {
+        setLoading(false);
+        searchInProgressRef.current = false;
+      }
+    },
+    [],
+  );
 
   const executeSearch = useCallback(
     async (rawValue) => {
@@ -576,7 +621,8 @@ export default function HomeScreen({ navigation }) {
               placeholderTextColor={themeStyles.muted}
               style={[styles.searchInput, { color: themeStyles.text }]}
               returnKeyType="search"
-              onSubmitEditing={() => executeSearch(query)}
+              blurOnSubmit={false}
+              onSubmitEditing={() => handleSearch(query, "keyboard")}
               autoCorrect={false}
               autoCapitalize="none"
             />
@@ -585,7 +631,7 @@ export default function HomeScreen({ navigation }) {
                 <Ionicons name="close-circle" size={20} color={themeStyles.muted} />
               </TouchableOpacity>
             ) : null}
-            <TouchableOpacity style={styles.searchAction} onPress={() => executeSearch(query)}>
+            <TouchableOpacity style={styles.searchAction} onPress={() => handleSearch(query, "manual")}>
               <Ionicons name="search" size={22} color={themeStyles.accent} />
             </TouchableOpacity>
           </View>
