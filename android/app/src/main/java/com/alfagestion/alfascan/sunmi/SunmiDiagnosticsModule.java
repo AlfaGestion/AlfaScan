@@ -17,6 +17,7 @@ import com.facebook.react.bridge.Promise;
 import com.facebook.react.bridge.ReactApplicationContext;
 import com.facebook.react.bridge.ReactContextBaseJavaModule;
 import com.facebook.react.bridge.ReactMethod;
+import com.facebook.react.bridge.ReadableMap;
 import com.facebook.react.bridge.WritableMap;
 
 import java.util.List;
@@ -186,14 +187,21 @@ public class SunmiDiagnosticsModule extends ReactContextBaseJavaModule {
   }
 
   @ReactMethod
-  public void printSimpleProductLabel(String formatKey, String description, String price, String barcode, String internalCode, String companyName, Promise promise) {
+  public void printSimpleProductLabel(ReadableMap payload, Promise promise) {
     if (printerService == null || !bound) {
       promise.reject("SERVICE_NOT_CONNECTED", "Servicio no conectado.");
       return;
     }
 
     try {
-      printSimpleProductLabelInternal(printerService, formatKey, description, price, barcode, internalCode, companyName);
+      String formatKey = getStringSafe(payload, "formatKey");
+      String description = getStringSafe(payload, "description");
+      String price = getStringSafe(payload, "price");
+      String barcode = getStringSafe(payload, "barcode");
+      String internalCode = getStringSafe(payload, "internalCode");
+      String companyName = getStringSafe(payload, "companyName");
+      int copies = Math.max(1, getIntSafe(payload, "copies", 1));
+      printSimpleProductLabelInternal(printerService, formatKey, description, price, barcode, internalCode, companyName, copies);
       promise.resolve(Boolean.TRUE);
     } catch (Exception e) {
       lastError = e.getMessage();
@@ -483,40 +491,48 @@ public class SunmiDiagnosticsModule extends ReactContextBaseJavaModule {
     callPrinterCommand(callback -> service.lineWrap(2, callback));
   }
 
-  private void printSimpleProductLabelInternal(IWoyouService service, String formatKey, String description, String price, String barcode, String internalCode, String companyName) throws Exception {
+  private void printSimpleProductLabelInternal(IWoyouService service, String formatKey, String description, String price, String barcode, String internalCode, String companyName, int copies) throws Exception {
     String desc = String.valueOf(description == null ? "" : description).trim();
     String priceText = String.valueOf(price == null ? "" : price).trim();
     String internalText = String.valueOf(internalCode == null ? "" : internalCode).trim();
     String companyText = String.valueOf(companyName == null ? "" : companyName).trim();
+    int totalCopies = Math.max(1, copies);
 
     Log.i(TAG, "[SUNMI] printSimpleProductLabel start");
     callPrinterCommand(callback -> service.printerInit(callback));
-    if (!companyText.isEmpty()) {
-      String companyWrapped = wrapText(companyText, 28).toUpperCase(Locale.ROOT);
-      Log.i(TAG, "[SUNMI] print company");
-      callPrinterCommand(callback -> service.setAlignment(1, callback));
-      callPrinterCommand(callback -> service.setFontSize(18f, callback));
-      callPrinterCommand(callback -> service.printText(companyWrapped + "\n", callback));
+
+    for (int copy = 0; copy < totalCopies; copy++) {
+      if (copy > 0) {
+        callPrinterCommand(callback -> service.lineWrap(2, callback));
+      }
+
+      if (!companyText.isEmpty()) {
+        String companyWrapped = wrapText(companyText, 28).toUpperCase(Locale.ROOT);
+        Log.i(TAG, "[SUNMI] print company");
+        callPrinterCommand(callback -> service.setAlignment(1, callback));
+        callPrinterCommand(callback -> service.setFontSize(18f, callback));
+        callPrinterCommand(callback -> service.printText(companyWrapped + "\n", callback));
+        callPrinterCommand(callback -> service.lineWrap(1, callback));
+      }
+
+      Log.i(TAG, "[SUNMI] print description");
+      callPrinterCommand(callback -> service.setAlignment(0, callback));
+      callPrinterCommand(callback -> service.setFontSize(20f, callback));
+      callPrinterCommand(callback -> service.printText(wrapText(desc.isEmpty() ? "Producto" : desc, 28) + "\n", callback));
       callPrinterCommand(callback -> service.lineWrap(1, callback));
+
+      Log.i(TAG, "[SUNMI] print price");
+      callPrinterCommand(callback -> service.setAlignment(1, callback));
+      callPrinterCommand(callback -> service.setFontSize(24f, callback));
+      callPrinterCommand(callback -> service.printText((priceText.isEmpty() ? "$ 0,00" : priceText) + "\n", callback));
+      callPrinterCommand(callback -> service.lineWrap(1, callback));
+
+      Log.i(TAG, "[SUNMI] print code");
+      callPrinterCommand(callback -> service.setAlignment(0, callback));
+      callPrinterCommand(callback -> service.setFontSize(18f, callback));
+      callPrinterCommand(callback -> service.printText("Cod: " + (internalText.isEmpty() ? "-" : internalText) + "\n", callback));
+      callPrinterCommand(callback -> service.lineWrap(2, callback));
     }
-
-    Log.i(TAG, "[SUNMI] print description");
-    callPrinterCommand(callback -> service.setAlignment(0, callback));
-    callPrinterCommand(callback -> service.setFontSize(20f, callback));
-    callPrinterCommand(callback -> service.printText(wrapText(desc.isEmpty() ? "Producto" : desc, 28) + "\n", callback));
-    callPrinterCommand(callback -> service.lineWrap(1, callback));
-
-    Log.i(TAG, "[SUNMI] print price");
-    callPrinterCommand(callback -> service.setAlignment(1, callback));
-    callPrinterCommand(callback -> service.setFontSize(24f, callback));
-    callPrinterCommand(callback -> service.printText((priceText.isEmpty() ? "$ 0,00" : priceText) + "\n", callback));
-    callPrinterCommand(callback -> service.lineWrap(1, callback));
-
-    Log.i(TAG, "[SUNMI] print code");
-    callPrinterCommand(callback -> service.setAlignment(0, callback));
-    callPrinterCommand(callback -> service.setFontSize(18f, callback));
-    callPrinterCommand(callback -> service.printText("Cod: " + (internalText.isEmpty() ? "-" : internalText) + "\n", callback));
-    callPrinterCommand(callback -> service.lineWrap(2, callback));
     Log.i(TAG, "[SUNMI] print done");
   }
 
@@ -561,6 +577,48 @@ public class SunmiDiagnosticsModule extends ReactContextBaseJavaModule {
     }
 
     return out.toString();
+  }
+
+  private String getStringSafe(ReadableMap map, String key) {
+    if (map != null && map.hasKey(key) && !map.isNull(key)) {
+      try {
+        String stringValue = map.getString(key);
+        if (stringValue != null) {
+          return stringValue.trim();
+        }
+      } catch (Exception ignored) {
+        try {
+          return String.valueOf(map.getInt(key)).trim();
+        } catch (Exception ignoredToo) {
+          try {
+            return String.valueOf(map.getDouble(key)).trim();
+          } catch (Exception ignoredThree) {
+            return "";
+          }
+        }
+      }
+    }
+    return "";
+  }
+
+  private int getIntSafe(ReadableMap map, String key, int fallback) {
+    if (map == null || !map.hasKey(key) || map.isNull(key)) {
+      return fallback;
+    }
+
+    try {
+      return map.getInt(key);
+    } catch (Exception ignored) {
+      try {
+        return (int) Math.round(map.getDouble(key));
+      } catch (Exception ignoredToo) {
+        try {
+          return Integer.parseInt(String.valueOf(map.getString(key)).trim());
+        } catch (Exception ignoredThree) {
+          return fallback;
+        }
+      }
+    }
   }
 
   private interface PrinterInvoker {

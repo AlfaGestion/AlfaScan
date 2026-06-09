@@ -481,14 +481,15 @@ export const printSimpleProductLabel = async (formatKey = "product", product = {
   });
 
   console.log("[PRINT] calling native Sunmi print");
-  await module.printSimpleProductLabel(
-    key,
-    payload.description,
-    payload.price,
-    payload.barcode,
-    payload.internalCode,
+  await module.printSimpleProductLabel({
+    formatKey: key,
+    description: payload.description,
+    price: payload.price,
+    barcode: payload.barcode,
+    internalCode: payload.internalCode,
     companyName,
-  );
+    copies: Math.max(1, Number(product?.copies ?? 1) || 1),
+  });
   console.log("[PRINT] success");
 
   return { printed: true, payload, formatKey: key };

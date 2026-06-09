@@ -481,7 +481,7 @@ export default function HomeScreen({ navigation }) {
         setPrinterStatus(getPrinterStatus());
       } catch (e) {
         console.log("[PRINT] error", e?.message || e);
-        Alert.alert("Impresora", e?.message || "No se pudo imprimir el artículo.");
+        Alert.alert("Impresora", "No se pudo imprimir. Revisá la impresora y volvé a intentar.");
       }
     },
     [article, refreshPrinterStatus],

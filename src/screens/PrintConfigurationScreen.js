@@ -385,7 +385,8 @@ export default function PrintConfigurationScreen() {
       await printArticle({ article: previewProduct, formatKey: activeFormat.key, format: activeFormat });
       setStatus("Prueba de impresión enviada.");
     } catch (e) {
-      setStatus(e?.message || "No se pudo imprimir la prueba.");
+      console.log("[PRINT] test error", e?.message || e);
+      setStatus("No se pudo imprimir. Revisá la impresora y volvé a intentar.");
     } finally {
       setTesting(false);
     }
