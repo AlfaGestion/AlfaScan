@@ -201,6 +201,46 @@ public class SunmiDiagnosticsModule extends ReactContextBaseJavaModule {
     }
   }
 
+  @ReactMethod
+  public void printAlfaScanSmokeTest(Promise promise) {
+    if (printerService == null || !bound) {
+      promise.reject("SERVICE_NOT_CONNECTED", "Servicio no conectado.");
+      return;
+    }
+
+    try {
+      Log.i(TAG, "[SUNMI] printAlfaScanSmokeTest start");
+      callPrinterCommand(callback -> printerService.printerInit(callback));
+
+      Log.i(TAG, "[SUNMI] smoke title");
+      callPrinterCommand(callback -> printerService.setAlignment(1, callback));
+      callPrinterCommand(callback -> printerService.printText("AlfaScan Smoke Test\n\n", callback));
+      callPrinterCommand(callback -> printerService.lineWrap(1, callback));
+
+      Log.i(TAG, "[SUNMI] smoke description");
+      callPrinterCommand(callback -> printerService.setAlignment(0, callback));
+      callPrinterCommand(callback -> printerService.printText("Prueba de impresiÃ³n\n\n", callback));
+      callPrinterCommand(callback -> printerService.lineWrap(1, callback));
+
+      Log.i(TAG, "[SUNMI] smoke price");
+      callPrinterCommand(callback -> printerService.setAlignment(1, callback));
+      callPrinterCommand(callback -> printerService.printText("$ 0,00\n\n", callback));
+      callPrinterCommand(callback -> printerService.lineWrap(1, callback));
+
+      Log.i(TAG, "[SUNMI] smoke code");
+      callPrinterCommand(callback -> printerService.setAlignment(0, callback));
+      callPrinterCommand(callback -> printerService.printText("Cod: SMOKE\n\n", callback));
+      callPrinterCommand(callback -> printerService.lineWrap(2, callback));
+      Log.i(TAG, "[SUNMI] printAlfaScanSmokeTest done");
+
+      promise.resolve(Boolean.TRUE);
+    } catch (Exception e) {
+      lastError = e.getMessage();
+      Log.e(TAG, "[SUNMI] printAlfaScanSmokeTest error", e);
+      promise.reject("SUNMI_SMOKE_ERROR", e.getMessage(), e);
+    }
+  }
+
   private WritableMap buildDeviceInfo() {
     WritableMap map = Arguments.createMap();
     map.putString("manufacturer", String.valueOf(Build.MANUFACTURER));

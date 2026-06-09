@@ -2,6 +2,7 @@ import {
   getPrinterStatus,
   initPrinter,
   printBarcode,
+  printAlfaScanSmokeTest,
   printSimpleProductLabel,
   printText,
 } from "@services/sunmiPrinterService";
@@ -41,6 +42,9 @@ export const printArticle = async ({ article, formatKey = "product", format = nu
 
   const diagnosticsModule = NativeModules?.SunmiDiagnostics;
   if (diagnosticsModule && typeof diagnosticsModule.printSimpleProductLabel === "function") {
+    if (typeof diagnosticsModule.printAlfaScanSmokeTest === "function") {
+      await printAlfaScanSmokeTest();
+    }
     return await printSimpleProductLabel(normalizedKey, article);
   }
 

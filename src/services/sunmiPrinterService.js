@@ -489,6 +489,18 @@ export const printSimpleProductLabel = async (formatKey = "product", product = {
   return { printed: true, payload, formatKey: key };
 };
 
+export const printAlfaScanSmokeTest = async () => {
+  const module = getDiagnosticsModule();
+  if (!module || typeof module.printAlfaScanSmokeTest !== "function") {
+    throw new Error("SunmiDiagnostics existe pero no expone printAlfaScanSmokeTest. Recompilá la app con npx expo run:android.");
+  }
+
+  console.log("[PRINT] calling printAlfaScanSmokeTest");
+  const result = await module.printAlfaScanSmokeTest();
+  console.log("[PRINT] smoke test success");
+  return result;
+};
+
 export const getSunmiDiagnostics = async () => {
   const diagnostics = getDiagnosticsModule();
   if (!diagnostics) {
@@ -623,6 +635,7 @@ export default {
   printBarcode,
   printLabel,
   printSimpleProductLabel,
+  printAlfaScanSmokeTest,
   getPrinterStatus,
   getPrinterInfo,
   getSunmiDiagnostics,
