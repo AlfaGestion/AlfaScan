@@ -1,6 +1,6 @@
 import { NativeModules } from "react-native";
 
-import { getCompanyNameFromSqlConfig } from "@services/catalogService";
+import { getCatalogConfig, getCompanyNameFromSqlConfig } from "@services/catalogService";
 import {
   getDefaultPrintFormat,
   getPrinterStatus,
@@ -71,10 +71,15 @@ export const printArticle = async ({
   }
 
   console.log("[PRINT] SunmiDiagnostics not available, trying fallback");
+  const catalogConfig = await getCatalogConfig().catch(() => null);
+  const isOnlineMode = String(catalogConfig?.mode ?? "").trim().toUpperCase() === "ONLINE";
   const resolvedFormat =
     format && typeof format === "object"
       ? format
-      : (await loadPrintFormats().catch(() => null))?.[normalizedKey] || getDefaultPrintFormat(normalizedKey);
+      : (await loadPrintFormats().catch(() => null))?.[normalizedKey] || (!isOnlineMode ? getDefaultPrintFormat(normalizedKey) : null);
+  if (!resolvedFormat) {
+    throw new Error("No se pudo cargar el diseño de impresión desde SQL.");
+  }
   const fallbackResult = await printLabel(
     resolvedFormat,
     {

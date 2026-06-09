@@ -194,11 +194,18 @@ export default function PrintConfigurationScreen() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const normalized = safeNormalizePrintConfig(await loadPrintFormats());
+      const loaded = await loadPrintFormats();
+      if (!loaded) {
+        throw new Error("No se pudo cargar el diseÃ±o desde SQL.");
+      }
+      const normalized = safeNormalizePrintConfig(loaded);
       setFormats((current) => (arePrintConfigsEqual(current, normalized) ? current : normalized));
       if (__DEV__) {
         console.log("[PRINT_CONFIG] loaded print formats");
       }
+      setStatus("DiseÃ±o cargado desde SQL.");
+    } catch (e) {
+      setStatus(e?.message || "No se pudo cargar el diseÃ±o desde SQL.");
     } finally {
       setLoading(false);
     }

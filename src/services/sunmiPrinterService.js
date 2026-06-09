@@ -2,7 +2,7 @@ import { NativeModules, Platform } from "react-native";
 import Constants from "expo-constants";
 
 import { getDefaultPrintFormat, loadPrintFormats, renderPrintLayout } from "@services/printLayoutService";
-import { getCompanyNameFromSqlConfig } from "@services/catalogService";
+import { getCatalogConfig, getCompanyNameFromSqlConfig } from "@services/catalogService";
 
 const INTEGRATION_NOT_IMPLEMENTED_MESSAGE = "Integración Sunmi no disponible en esta build.";
 
@@ -529,10 +529,15 @@ export const printSimpleProductLabel = async (payloadOrFormatKey = "product", pr
   const companyName =
     String(input?.companyName ?? rawSource?.companyName ?? "").trim() ||
     (await getCompanyNameFromSqlConfig().catch(() => ""));
+  const catalogConfig = await getCatalogConfig().catch(() => null);
+  const isOnlineMode = String(catalogConfig?.mode ?? "").trim().toUpperCase() === "ONLINE";
   const formatConfig =
     input?.format && typeof input.format === "object"
       ? input.format
-      : (await loadPrintFormats().catch(() => null))?.[key] || getDefaultPrintFormat(key);
+      : (await loadPrintFormats().catch(() => null))?.[key] || (!isOnlineMode ? getDefaultPrintFormat(key) : null);
+  if (!formatConfig) {
+    throw new Error("No se pudo cargar el diseño de impresión desde SQL.");
+  }
   const safeCode = payload.internalCode || payload.barcode || "-";
 
   console.log("[PRINT] using format", key);

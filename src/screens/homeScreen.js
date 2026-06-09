@@ -34,6 +34,7 @@ import { useThemeConfig } from "@context/ThemeContext";
 import alfaLogo from "../../assets/alfa_logo.png";
 
 const MENU_ITEMS = [
+  { key: "print-config", label: "Config. impresión", screen: "PrintConfigurationScreen", icon: "receipt-outline" },
   { key: "config", label: "Configuración", screen: "ConfigurationScreen", icon: "settings-outline" },
   { key: "sync", label: "Sincronización", screen: "SyncScreen", icon: "cloud-upload-outline" },
   { key: "products", label: "Productos", screen: "ProductsScreen", icon: "search-outline" },
