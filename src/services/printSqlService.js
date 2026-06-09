@@ -156,13 +156,16 @@ const ensurePrintSqlSchema = async () => {
     IF OBJECT_ID(N'dbo.Scan_Reporte', N'U') IS NULL
     BEGIN
       CREATE TABLE dbo.Scan_Reporte (
-        Codigo NVARCHAR(50) NOT NULL PRIMARY KEY,
-        Nombre NVARCHAR(120) NOT NULL,
-        AnchoPapelMm INT NULL,
+        IdReporte INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+        Codigo NVARCHAR(50) NOT NULL UNIQUE,
+        Nombre NVARCHAR(100) NOT NULL,
+        Descripcion NVARCHAR(250) NULL,
+        AnchoPapelMm INT NOT NULL CONSTRAINT DF_Scan_Reporte_AnchoPapelMm DEFAULT (80),
         AltoMm INT NULL,
         Activo BIT NOT NULL CONSTRAINT DF_Scan_Reporte_Activo DEFAULT (1),
         EsPredeterminado BIT NOT NULL CONSTRAINT DF_Scan_Reporte_EsPredeterminado DEFAULT (0),
-        ActualizadoEn DATETIME2 NOT NULL CONSTRAINT DF_Scan_Reporte_ActualizadoEn DEFAULT (SYSUTCDATETIME())
+        FechaAlta DATETIME NOT NULL CONSTRAINT DF_Scan_Reporte_FechaAlta DEFAULT (GETDATE()),
+        FechaModificacion DATETIME NULL
       );
     END;
   `;
@@ -171,22 +174,24 @@ const ensurePrintSqlSchema = async () => {
     IF OBJECT_ID(N'dbo.Scan_ReporteDetalle', N'U') IS NULL
     BEGIN
       CREATE TABLE dbo.Scan_ReporteDetalle (
-        Id INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
-        Codigo NVARCHAR(50) NOT NULL,
-        TipoElemento NVARCHAR(40) NOT NULL,
-        Campo NVARCHAR(80) NULL,
-        TextoFijo NVARCHAR(400) NULL,
-        X INT NULL,
-        Y INT NULL,
-        Ancho INT NULL,
-        Alto INT NULL,
-        TamanoFuente INT NULL,
+        IdDetalle INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+        IdReporte INT NOT NULL,
+        TipoElemento NVARCHAR(30) NOT NULL,
+        Campo NVARCHAR(50) NULL,
+        TextoFijo NVARCHAR(250) NULL,
+        X INT NOT NULL CONSTRAINT DF_Scan_ReporteDetalle_X DEFAULT (0),
+        Y INT NOT NULL CONSTRAINT DF_Scan_ReporteDetalle_Y DEFAULT (0),
+        Ancho INT NOT NULL CONSTRAINT DF_Scan_ReporteDetalle_Ancho DEFAULT (100),
+        Alto INT NOT NULL CONSTRAINT DF_Scan_ReporteDetalle_Alto DEFAULT (30),
+        TamanoFuente INT NOT NULL CONSTRAINT DF_Scan_ReporteDetalle_TamanoFuente DEFAULT (18),
         Negrita BIT NOT NULL CONSTRAINT DF_Scan_ReporteDetalle_Negrita DEFAULT (0),
-        Alineacion NVARCHAR(20) NULL,
+        Alineacion NVARCHAR(20) NOT NULL CONSTRAINT DF_Scan_ReporteDetalle_Alineacion DEFAULT ('center'),
         Visible BIT NOT NULL CONSTRAINT DF_Scan_ReporteDetalle_Visible DEFAULT (1),
-        Orden INT NULL,
-        MaxLineas INT NULL,
-        Mayuscula BIT NOT NULL CONSTRAINT DF_Scan_ReporteDetalle_Mayuscula DEFAULT (0)
+        Orden INT NOT NULL CONSTRAINT DF_Scan_ReporteDetalle_Orden DEFAULT (0),
+        MaxLineas INT NOT NULL CONSTRAINT DF_Scan_ReporteDetalle_MaxLineas DEFAULT (1),
+        Mayuscula BIT NOT NULL CONSTRAINT DF_Scan_ReporteDetalle_Mayuscula DEFAULT (0),
+        FechaModificacion DATETIME NULL,
+        CONSTRAINT FK_Scan_ReporteDetalle_Reporte FOREIGN KEY (IdReporte) REFERENCES dbo.Scan_Reporte(IdReporte)
       );
     END;
   `;
@@ -232,16 +237,35 @@ export const loadPrintFormatsFromSql = async () => {
     connected = true;
 
     const headerRows = await executeSql(`
-      SELECT Codigo, Nombre, AnchoPapelMm, AltoMm, Activo, EsPredeterminado
+      SELECT IdReporte, Codigo, Nombre, Descripcion, AnchoPapelMm, AltoMm, Activo, EsPredeterminado
       FROM dbo.Scan_Reporte
       WHERE Codigo IN (${PRINT_CODES.map(sqlLiteral).join(", ")})
+        AND ISNULL(Activo, 1) = 1
     `);
 
     const detailRows = await executeSql(`
-      SELECT Codigo, TipoElemento, Campo, TextoFijo, X, Y, Ancho, Alto, TamanoFuente, Negrita, Alineacion, Visible, Orden, MaxLineas, Mayuscula
-      FROM dbo.Scan_ReporteDetalle
-      WHERE Codigo IN (${PRINT_CODES.map(sqlLiteral).join(", ")})
-      ORDER BY Codigo, Orden, Id
+      SELECT
+        r.Codigo,
+        d.IdReporte,
+        d.TipoElemento,
+        d.Campo,
+        d.TextoFijo,
+        d.X,
+        d.Y,
+        d.Ancho,
+        d.Alto,
+        d.TamanoFuente,
+        d.Negrita,
+        d.Alineacion,
+        d.Visible,
+        d.Orden,
+        d.MaxLineas,
+        d.Mayuscula
+      FROM dbo.Scan_ReporteDetalle d
+      INNER JOIN dbo.Scan_Reporte r ON r.IdReporte = d.IdReporte
+      WHERE r.Codigo IN (${PRINT_CODES.map(sqlLiteral).join(", ")})
+        AND ISNULL(r.Activo, 1) = 1
+      ORDER BY r.Codigo, d.Orden, d.IdDetalle
     `);
 
     const headers = Array.isArray(headerRows) ? headerRows : headerRows?.rows || headerRows?.recordset || [];
@@ -251,26 +275,16 @@ export const loadPrintFormatsFromSql = async () => {
       return null;
     }
 
-    const grouped = {};
-    for (const row of [...headers, ...details]) {
-      const code = normalizeCode(row.Codigo ?? row.codigo);
-      if (!grouped[code]) {
-        grouped[code] = [];
-      }
-      grouped[code].push(row);
-    }
-
     const loaded = {};
     for (let i = 0; i < PRINT_CODES.length; i += 1) {
       const code = PRINT_CODES[i];
-      const rowsForCode = grouped[code] || [];
-      if (!rowsForCode.length) {
+      const header = headers.find((row) => normalizeCode(row.Codigo ?? row.codigo, i) === code);
+      if (!header) {
         continue;
       }
 
-      const header = rowsForCode.find((row) => row.Nombre !== undefined || row.nombre !== undefined || row.AnchoPapelMm !== undefined) || rowsForCode[0] || {};
-      const elements = rowsForCode
-        .filter((row) => row.TipoElemento !== undefined || row.tipoElemento !== undefined)
+      const elements = details
+        .filter((row) => normalizeCode(row.Codigo ?? row.codigo, i) === code)
         .sort((a, b) => toInt(a.Orden ?? a.orden, 0) - toInt(b.Orden ?? b.orden, 0))
         .map((row, index) => mapSqlDetailToElement(row, index));
       loaded[code] = mapSqlHeaderToFormat(header, i, elements);
@@ -297,8 +311,19 @@ export const savePrintFormatsToSql = async (formats = {}) => {
     await ensurePrintSqlSchema();
 
     const codesToSave = PRINT_CODES.map((code, index) => normalizeCode(code, index));
-    await executeSql(`DELETE FROM dbo.Scan_ReporteDetalle WHERE Codigo IN (${codesToSave.map(sqlLiteral).join(", ")})`);
-    await executeSql(`DELETE FROM dbo.Scan_Reporte WHERE Codigo IN (${codesToSave.map(sqlLiteral).join(", ")})`);
+    const reportIds = await executeSql(`
+      SELECT IdReporte, Codigo
+      FROM dbo.Scan_Reporte
+      WHERE Codigo IN (${codesToSave.map(sqlLiteral).join(", ")})
+    `);
+    const existingReports = Array.isArray(reportIds) ? reportIds : reportIds?.rows || reportIds?.recordset || [];
+    const existingCodes = existingReports.map((row) => normalizeCode(row.Codigo ?? row.codigo)).filter(Boolean);
+    if (existingCodes.length > 0) {
+      await executeSql(`DELETE FROM dbo.Scan_ReporteDetalle WHERE IdReporte IN (
+        SELECT IdReporte FROM dbo.Scan_Reporte WHERE Codigo IN (${existingCodes.map(sqlLiteral).join(", ")})
+      )`);
+      await executeSql(`DELETE FROM dbo.Scan_Reporte WHERE Codigo IN (${existingCodes.map(sqlLiteral).join(", ")})`);
+    }
 
     for (let index = 0; index < PRINT_CODES.length; index += 1) {
       const code = PRINT_CODES[index];
@@ -310,16 +335,32 @@ export const savePrintFormatsToSql = async (formats = {}) => {
       const heightMm = toInt(format.customPaperHeight, 0);
 
       await executeSql(`
-        INSERT INTO dbo.Scan_Reporte (Codigo, Nombre, AnchoPapelMm, AltoMm, Activo, EsPredeterminado)
+        INSERT INTO dbo.Scan_Reporte (Codigo, Nombre, Descripcion, AnchoPapelMm, AltoMm, Activo, EsPredeterminado, FechaAlta, FechaModificacion)
         VALUES (
           ${sqlLiteral(code)},
           ${sqlLiteral(format.name || DISPLAY_NAMES[code] || code)},
-          ${Number.isFinite(widthMm) ? widthMm : "NULL"},
+          ${sqlLiteral(format.description || "")},
+          ${Number.isFinite(widthMm) ? widthMm : 80},
           ${heightMm > 0 ? heightMm : "NULL"},
           1,
-          ${index === 0 ? 1 : 0}
-        )
+          ${index === 0 ? 1 : 0},
+          GETDATE(),
+          NULL
+        );
       `);
+      const insertedLookup = await executeSql(`
+        SELECT TOP 1 IdReporte
+        FROM dbo.Scan_Reporte
+        WHERE Codigo = ${sqlLiteral(code)}
+        ORDER BY IdReporte DESC
+      `);
+      const insertedRows = Array.isArray(insertedLookup)
+        ? insertedLookup
+        : insertedLookup?.rows || insertedLookup?.recordset || [];
+      const insertedId = toInt(insertedRows[0]?.IdReporte ?? insertedRows[0]?.idReporte, 0);
+      if (!insertedId) {
+        throw new Error(`No se pudo obtener IdReporte para ${code}.`);
+      }
 
       for (let elementIndex = 0; elementIndex < elements.length; elementIndex += 1) {
         const element = elements[elementIndex] || {};
@@ -329,9 +370,9 @@ export const savePrintFormatsToSql = async (formats = {}) => {
         const maxLines = Math.max(1, toInt(element.maxLines, 1));
         await executeSql(`
           INSERT INTO dbo.Scan_ReporteDetalle (
-            Codigo, TipoElemento, Campo, TextoFijo, X, Y, Ancho, Alto, TamanoFuente, Negrita, Alineacion, Visible, Orden, MaxLineas, Mayuscula
+            IdReporte, TipoElemento, Campo, TextoFijo, X, Y, Ancho, Alto, TamanoFuente, Negrita, Alineacion, Visible, Orden, MaxLineas, Mayuscula, FechaModificacion
           ) VALUES (
-            ${sqlLiteral(code)},
+            ${insertedId},
             ${sqlLiteral(String(element.type ?? "text"))},
             ${sqlLiteral(String(element.valueKey ?? element.key ?? ""))},
             ${sqlLiteral(String(element.sampleText ?? ""))},
@@ -345,7 +386,8 @@ export const savePrintFormatsToSql = async (formats = {}) => {
             ${visible},
             ${toInt(element.zIndex, elementIndex + 1)},
             ${maxLines},
-            ${uppercase}
+            ${uppercase},
+            NULL
           )
         `);
       }
@@ -374,4 +416,3 @@ export const syncPrintFormatsFromSql = async () => {
   await Configuration.setConfigValue("PRINT_FORMATS_JSON", JSON.stringify(formats));
   return formats;
 };
-
