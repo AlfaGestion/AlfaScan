@@ -1,4 +1,4 @@
-import { Component, useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
+import { Component, useCallback, useEffect, useMemo, useState } from "react";
 import { Alert, ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import Ionicons from "@expo/vector-icons/Ionicons";
@@ -39,8 +39,6 @@ const createVisibilityMap = () => ({
   showLogo: "logo",
 });
 
-const clone = (value) => JSON.parse(JSON.stringify(value));
-
 const safeNormalizePrintConfig = (value) => {
   if (typeof normalizePrintConfig === "function") {
     try {
@@ -59,6 +57,8 @@ const safeNormalizePrintConfig = (value) => {
     custom: getDefaultPrintFormat("custom"),
   };
 };
+
+const arePrintConfigsEqual = (left, right) => JSON.stringify(left) === JSON.stringify(right);
 
 class PrintSectionErrorBoundary extends Component {
   constructor(props) {
@@ -163,7 +163,6 @@ export default function PrintConfigurationScreen() {
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [status, setStatus] = useState("");
-  const [previewLayout, setPreviewLayout] = useState(null);
   const [loading, setLoading] = useState(true);
   const { darkMode } = useThemeConfig();
   const insets = useSafeAreaInsets();
@@ -182,15 +181,12 @@ export default function PrintConfigurationScreen() {
     [darkMode],
   );
 
-  const safeFormats = safeNormalizePrintConfig(formats);
-  const formatList = pickFormatList(safeFormats);
+  const safeFormats = useMemo(() => safeNormalizePrintConfig(formats), [formats]);
+  const formatList = useMemo(() => pickFormatList(safeFormats), [safeFormats]);
   const activeFormat = formatList[activeIndex] || formatList[0] || DEFAULT_PRINT_FORMATS[0];
   const selectedElement = getSelectedElement(activeFormat, selectedElementKey);
   const previewProduct = useMemo(() => createSampleProduct(), []);
-
-  const refreshPreviewLayout = useCallback(() => {
-    setPreviewLayout(renderPrintLayout(activeFormat, previewProduct));
-  }, [activeFormat, previewProduct]);
+  const previewLayout = useMemo(() => renderPrintLayout(activeFormat, previewProduct), [activeFormat, previewProduct]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -198,8 +194,10 @@ export default function PrintConfigurationScreen() {
       await Configuration.createTable();
       const raw = await Configuration.getConfigValue("PRINT_FORMATS_JSON");
       const normalized = safeNormalizePrintConfig(raw);
-      console.log("print config normalized", normalized);
-      setFormats(normalized);
+      setFormats((current) => (arePrintConfigsEqual(current, normalized) ? current : normalized));
+      if (__DEV__) {
+        console.log("[PRINT_CONFIG] loaded and normalized");
+      }
       if (!raw || String(raw).trim() !== JSON.stringify(normalized)) {
         await savePrintFormats(normalized);
       }
@@ -208,19 +206,12 @@ export default function PrintConfigurationScreen() {
     }
   }, []);
 
-  useEffect(() => {
-    load();
-  }, [load]);
-
   useFocusEffect(
     useCallback(() => {
       load();
+      return undefined;
     }, [load]),
   );
-
-  useEffect(() => {
-    refreshPreviewLayout();
-  }, [refreshPreviewLayout]);
 
   useEffect(() => {
     if (!selectedElement) {
@@ -229,10 +220,6 @@ export default function PrintConfigurationScreen() {
       setSelectedElementKey(firstVisible?.key || DEFAULT_SELECTED_ELEMENT_KEY);
     }
   }, [activeFormat, selectedElement]);
-
-  useLayoutEffect(() => {
-    refreshPreviewLayout();
-  }, [refreshPreviewLayout]);
 
   const updateActiveFormat = useCallback(
     (updater) => {
@@ -369,10 +356,11 @@ export default function PrintConfigurationScreen() {
             const fresh = getDefaultPrintFormat(activeFormat.key);
             setFormats((current) => {
               const normalized = safeNormalizePrintConfig(current);
-              return {
+              const next = {
                 ...normalized,
                 [fresh.key]: fresh,
               };
+              return arePrintConfigsEqual(current, next) ? current : next;
             });
             setSelectedElementKey(
               fresh.elements?.find((item) => item.visible)?.key ||

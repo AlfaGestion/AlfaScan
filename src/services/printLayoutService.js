@@ -471,10 +471,6 @@ export const normalizePrintConfig = (savedConfig) => {
     return acc;
   }, {});
 
-  if (__DEV__) {
-    console.log("print config normalized", normalized);
-  }
-
   return normalized;
 };
 
