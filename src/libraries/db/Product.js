@@ -222,6 +222,11 @@ export default class Product extends BaseModel {
       return Product.maskStockRows(fallbackRows, config.useStockColumn);
     }
 
+    return Product.findByBarcodeExactLocal(barcode, lista);
+  }
+
+  static async findByBarcodeExactLocal(barcode, lista = '') {
+    const config = await CatalogService.getCatalogConfig();
     const rawBarcode = String(barcode ?? "").trim();
     const normalizedBarcode = rawBarcode.replace(/\s+/g, "").replace(/[^0-9a-z]/gi, "").toLowerCase();
     if (!rawBarcode) return [];
@@ -261,13 +266,14 @@ export default class Product extends BaseModel {
       return Product.maskStockRows(rows, config.useStockColumn);
     }
 
-    return Product.maskStockRows(await Product.findByCode(rawBarcode, lista), config.useStockColumn);
+    return [];
   }
 
   static async ensureIndexes() {
     const sqls = [
       "CREATE INDEX IF NOT EXISTS idx_products_code ON products(code)",
       "CREATE INDEX IF NOT EXISTS idx_products_barcode ON products(codigoBarras)",
+      "CREATE INDEX IF NOT EXISTS idx_products_codigobarra ON products(codigoBarra)",
       "CREATE INDEX IF NOT EXISTS idx_products_barcode1 ON products(codigoBarra1)",
       "CREATE INDEX IF NOT EXISTS idx_products_barcode2 ON products(codigoBarra2)",
       "CREATE INDEX IF NOT EXISTS idx_products_barcode3 ON products(codigoBarra3)",
@@ -275,6 +281,7 @@ export default class Product extends BaseModel {
       "CREATE INDEX IF NOT EXISTS idx_products_barcodedun ON products(codigoBarraDun)",
       "CREATE INDEX IF NOT EXISTS idx_products_listas_lista_code ON products_listas(lista, code)",
       "CREATE INDEX IF NOT EXISTS idx_products_listas_lista_barcode ON products_listas(lista, codigoBarras)",
+      "CREATE INDEX IF NOT EXISTS idx_products_listas_lista_codigobarra ON products_listas(lista, codigoBarra)",
       "CREATE INDEX IF NOT EXISTS idx_products_listas_lista_barcode1 ON products_listas(lista, codigoBarra1)",
       "CREATE INDEX IF NOT EXISTS idx_products_listas_lista_barcode2 ON products_listas(lista, codigoBarra2)",
       "CREATE INDEX IF NOT EXISTS idx_products_listas_lista_barcode3 ON products_listas(lista, codigoBarra3)",

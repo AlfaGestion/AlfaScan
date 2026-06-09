@@ -10,7 +10,6 @@ import {
   StyleSheet,
   Alert,
   Image,
-  InteractionManager,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { CameraView, useCameraPermissions } from "expo-camera";
@@ -22,6 +21,7 @@ import { listProductsStyles } from "@styles/ProductStyle";
 import Colors from "@styles/Colors";
 import Configuration from "@db/Configuration";
 import { useThemeConfig } from "@context/ThemeContext";
+import CatalogService from "@services/catalogService";
 import iconProduct from "@icons/articulos.png";
 import iconProductDark from "@icons/articulos_b.png";
 
@@ -257,15 +257,11 @@ export default function Products({ navigation }) {
       return undefined;
     }
 
-    cameraMountTimerRef.current = setTimeout(() => {
-      InteractionManager.runAfterInteractions(() => {
-        setCameraMounted(true);
-        console.log("[Camera] mounted", Date.now());
-        if (cameraOpenRequestedAtRef.current) {
-          console.log("[Camera] mount delay ms", Date.now() - cameraOpenRequestedAtRef.current);
-        }
-      });
-    }, 0);
+    setCameraMounted(true);
+    console.log("[Camera] mounted", Date.now());
+    if (cameraOpenRequestedAtRef.current) {
+      console.log("[Camera] mount delay ms", Date.now() - cameraOpenRequestedAtRef.current);
+    }
 
     cameraWarningTimerRef.current = setTimeout(() => {
       setCameraSlow(true);
@@ -307,7 +303,16 @@ export default function Products({ navigation }) {
         console.log("[SEARCH] scan barcode start");
         setSearchText(code);
         setScannerVisible(false);
-        const rows = await Product.findByBarcodeExact(code);
+        let rows = await Product.findByBarcodeExactLocal(code);
+        let source = "sqlite";
+        if (!Array.isArray(rows) || rows.length === 0) {
+          const config = await CatalogService.getCatalogConfig().catch(() => null);
+          if (String(config?.mode ?? "").trim().toUpperCase() === "ONLINE") {
+            rows = await Product.findByBarcodeExact(code);
+            source = "sql";
+          }
+        }
+        console.log(`[SEARCH] scan source ${source}`);
         console.log(`[SEARCH] scan barcode finished in ${Date.now() - searchStartedAt} ms`);
         if (Array.isArray(rows) && rows.length > 0) {
           setEmpty(false);
@@ -384,6 +389,8 @@ export default function Products({ navigation }) {
             <CameraView
               onBarcodeScanned={scannerVisible ? handleBarCodeScanned : undefined}
               barcodeScannerSettings={barcodeScannerSettings}
+              facing="back"
+              zoom={0}
               autofocus="on"
               style={StyleSheet.absoluteFillObject}
             />

@@ -56,8 +56,7 @@ const callNativeAsync = async (module, methodName, ...args) => {
 
 const getDiagnosticsModule = () => NativeModules?.SunmiDiagnostics || null;
 const getLabelModule = () => NativeModules?.SunmiPrinterModule || NativeModules?.SunmiV2Printer || null;
-const getSimplePrintModule = () =>
-  NativeModules?.SunmiDiagnostics || NativeModules?.SunmiPrinterModule || NativeModules?.SunmiV2Printer || null;
+const getSimplePrintModule = () => NativeModules?.SunmiDiagnostics || null;
 
 const buildDeviceInfo = () => {
   const constants = Platform?.constants || {};
@@ -447,14 +446,17 @@ export const printSimpleProductLabel = async (formatKey = "product", product = {
   console.log("[PRINT] Home button pressed");
   console.log("[PRINT] formatKey", key);
   console.log("[PRINT] printer available", printerAvailable);
+  console.log("[PRINT] Native modules keys:", Object.keys(NativeModules || {}));
 
   if (!printerAvailable) {
     throw new Error(diagnostics?.error || diagnostics?.printerStatus?.message || "No se pudo conectar con la impresora.");
   }
 
   const module = getSimplePrintModule();
+  console.log("[PRINT] using module", module ? "SunmiDiagnostics" : "none");
+  console.log("[PRINT] has printSimpleProductLabel", Boolean(module && typeof module.printSimpleProductLabel === "function"));
   if (!module || typeof module.printSimpleProductLabel !== "function") {
-    throw new Error("La build no incluye la impresión simple de Sunmi.");
+    throw new Error("SunmiDiagnostics existe pero no expone printSimpleProductLabel. Recompilá la app con npx expo run:android.");
   }
 
   if (typeof module.bindPrinterService === "function") {

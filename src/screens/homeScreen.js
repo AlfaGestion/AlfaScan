@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  InteractionManager,
   Image,
   Keyboard,
   Modal,
@@ -28,7 +27,8 @@ import { Fonts, Radii, Shadow } from "@styles/Theme";
 import Configuration from "@db/Configuration";
 import { appendPrintHistory } from "@services/printHistory";
 import { searchArticle, scanSearchArticle } from "@services/articleService";
-import { getPrinterStatus, initPrinter, printSimpleProductLabel } from "@services/sunmiPrinterService";
+import { getPrinterStatus, initPrinter } from "@services/sunmiPrinterService";
+import { printArticle } from "@services/printerService";
 import { useThemeConfig } from "@context/ThemeContext";
 
 import alfaLogo from "../../assets/alfa_logo.png";
@@ -349,15 +349,11 @@ export default function HomeScreen({ navigation }) {
       return undefined;
     }
 
-    cameraMountTimerRef.current = setTimeout(() => {
-      InteractionManager.runAfterInteractions(() => {
-        setCameraMounted(true);
-        console.log("[Camera] mounted", Date.now());
-        if (cameraOpenRequestedAtRef.current) {
-          console.log("[Camera] mount delay ms", Date.now() - cameraOpenRequestedAtRef.current);
-        }
-      });
-    }, 0);
+    setCameraMounted(true);
+    console.log("[Camera] mounted", Date.now());
+    if (cameraOpenRequestedAtRef.current) {
+      console.log("[Camera] mount delay ms", Date.now() - cameraOpenRequestedAtRef.current);
+    }
 
     cameraWarningTimerRef.current = setTimeout(() => {
       setCameraSlow(true);
@@ -430,7 +426,7 @@ export default function HomeScreen({ navigation }) {
       try {
         console.log("[PRINT] Home button pressed");
         console.log("[PRINT] formatKey", formatKey);
-        await printSimpleProductLabel(formatKey, article);
+        await printArticle({ article, formatKey });
         await appendPrintHistory({
           formatKey,
           formatLabel: PRINT_BUTTONS.find((item) => item.key === formatKey)?.label || formatKey,
@@ -468,6 +464,8 @@ export default function HomeScreen({ navigation }) {
           {cameraMounted ? (
             <CameraView
               style={StyleSheet.absoluteFillObject}
+              facing="back"
+              zoom={0}
               autofocus="on"
               barcodeScannerSettings={barcodeScannerSettings}
               onBarcodeScanned={scannerVisible ? handleBarcodeScanned : undefined}

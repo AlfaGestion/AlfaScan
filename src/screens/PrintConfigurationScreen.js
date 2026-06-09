@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
+import { Component, useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { Alert, ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import Ionicons from "@expo/vector-icons/Ionicons";
@@ -19,7 +19,7 @@ import {
   normalizePrintConfig,
   renderPrintLayout,
   savePrintFormats,
-} from "@services/printFormats";
+} from "@services/printLayoutService";
 import { printArticle } from "@services/printerService";
 
 const GENERAL_ALIGNMENT_OPTIONS = [
@@ -40,6 +40,61 @@ const createVisibilityMap = () => ({
 });
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
+
+const safeNormalizePrintConfig = (value) => {
+  if (typeof normalizePrintConfig === "function") {
+    try {
+      return normalizePrintConfig(value);
+    } catch (error) {
+      if (__DEV__) {
+        console.log("[PrintConfig] normalize fallback", error?.message || error);
+      }
+    }
+  }
+
+  return {
+    gondola: getDefaultPrintFormat("gondola"),
+    product: getDefaultPrintFormat("product"),
+    small: getDefaultPrintFormat("small"),
+    custom: getDefaultPrintFormat("custom"),
+  };
+};
+
+class PrintSectionErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error) {
+    if (__DEV__) {
+      console.log("[PrintConfig] section error", error?.message || error);
+    }
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        this.props.fallback || (
+          <View style={[styles.sectionErrorBox, { backgroundColor: this.props.theme.surfaceAlt, borderColor: this.props.theme.border }]}>
+            <Text style={[styles.sectionErrorTitle, { color: this.props.theme.text }]}>
+              No se pudo cargar esta sección
+            </Text>
+            <Text style={[styles.sectionErrorText, { color: this.props.theme.muted }]}>
+              Usando configuración básica.
+            </Text>
+          </View>
+        )
+      );
+    }
+
+    return this.props.children;
+  }
+}
 
 const syncElementVisibility = (format, flagKey, visible) => {
   const visibilityMap = createVisibilityMap(format);
@@ -102,7 +157,7 @@ const SectionTitle = ({ children, theme }) => (
 );
 
 export default function PrintConfigurationScreen() {
-  const [formats, setFormats] = useState(() => normalizePrintConfig(DEFAULT_PRINT_FORMATS));
+  const [formats, setFormats] = useState(() => safeNormalizePrintConfig(DEFAULT_PRINT_FORMATS));
   const [activeIndex, setActiveIndex] = useState(0);
   const [selectedElementKey, setSelectedElementKey] = useState(DEFAULT_SELECTED_ELEMENT_KEY);
   const [saving, setSaving] = useState(false);
@@ -127,7 +182,7 @@ export default function PrintConfigurationScreen() {
     [darkMode],
   );
 
-  const safeFormats = normalizePrintConfig(formats);
+  const safeFormats = safeNormalizePrintConfig(formats);
   const formatList = pickFormatList(safeFormats);
   const activeFormat = formatList[activeIndex] || formatList[0] || DEFAULT_PRINT_FORMATS[0];
   const selectedElement = getSelectedElement(activeFormat, selectedElementKey);
@@ -142,7 +197,7 @@ export default function PrintConfigurationScreen() {
     try {
       await Configuration.createTable();
       const raw = await Configuration.getConfigValue("PRINT_FORMATS_JSON");
-      const normalized = normalizePrintConfig(raw);
+      const normalized = safeNormalizePrintConfig(raw);
       console.log("print config normalized", normalized);
       setFormats(normalized);
       if (!raw || String(raw).trim() !== JSON.stringify(normalized)) {
@@ -182,7 +237,7 @@ export default function PrintConfigurationScreen() {
   const updateActiveFormat = useCallback(
     (updater) => {
       setFormats((current) => {
-        const normalized = normalizePrintConfig(current);
+        const normalized = safeNormalizePrintConfig(current);
         const next = { ...normalized };
         const key = PRINT_FORMAT_KEYS[activeIndex] || PRINT_FORMAT_KEYS[0];
         next[key] = updater(normalized[key] || DEFAULT_PRINT_FORMATS[activeIndex] || DEFAULT_PRINT_FORMATS[0]);
@@ -313,7 +368,7 @@ export default function PrintConfigurationScreen() {
           onPress: () => {
             const fresh = getDefaultPrintFormat(activeFormat.key);
             setFormats((current) => {
-              const normalized = normalizePrintConfig(current);
+              const normalized = safeNormalizePrintConfig(current);
               return {
                 ...normalized,
                 [fresh.key]: fresh,
@@ -410,29 +465,53 @@ export default function PrintConfigurationScreen() {
               <Text style={[styles.loadingText, { color: theme.muted }]}>Cargando formatos...</Text>
             </View>
           ) : (
-            <PrintPreview
-              title="Vista previa editable"
-              format={activeFormat}
-              product={previewProduct}
-              selectedElementKey={selectedElementKey}
-              onSelectElement={setSelectedElementKey}
-              onMoveElement={moveElement}
-              editable
+            <PrintSectionErrorBoundary
               theme={theme}
-            />
+              fallback={
+                <View style={[styles.sectionErrorBox, { backgroundColor: theme.surfaceAlt, borderColor: theme.border }]}>
+                  <Text style={[styles.sectionErrorTitle, { color: theme.text }]}>No se pudo cargar la vista previa</Text>
+                  <Text style={[styles.sectionErrorText, { color: theme.muted }]}>
+                    Usando configuración básica.
+                  </Text>
+                </View>
+              }
+            >
+              <PrintPreview
+                title="Vista previa editable"
+                format={activeFormat}
+                product={previewProduct}
+                selectedElementKey={selectedElementKey}
+                onSelectElement={setSelectedElementKey}
+                onMoveElement={moveElement}
+                editable
+                theme={theme}
+              />
+            </PrintSectionErrorBoundary>
           )}
         </View>
 
         <View style={[styles.card, { backgroundColor: theme.surface }, Shadow.sm]}>
           <SectionTitle theme={theme}>Editor de elementos</SectionTitle>
-          <PrintPropertiesPanel
-            element={selectedElement}
-            onChange={updateElementField}
-            onQuickAction={handleQuickAction}
-            onToggleVisible={(value) => updateElementField("visible", value)}
+          <PrintSectionErrorBoundary
             theme={theme}
-            darkMode={darkMode}
-          />
+            fallback={
+              <View style={[styles.sectionErrorBox, { backgroundColor: theme.surfaceAlt, borderColor: theme.border }]}>
+                <Text style={[styles.sectionErrorTitle, { color: theme.text }]}>No se pudo cargar el editor</Text>
+                <Text style={[styles.sectionErrorText, { color: theme.muted }]}>
+                  Se mantiene la configuración guardada.
+                </Text>
+              </View>
+            }
+          >
+            <PrintPropertiesPanel
+              element={selectedElement}
+              onChange={updateElementField}
+              onQuickAction={handleQuickAction}
+              onToggleVisible={(value) => updateElementField("visible", value)}
+              theme={theme}
+              darkMode={darkMode}
+            />
+          </PrintSectionErrorBoundary>
         </View>
 
         <View style={[styles.card, { backgroundColor: theme.surface }, Shadow.sm]}>
@@ -690,6 +769,21 @@ const styles = StyleSheet.create({
   loadingText: {
     marginTop: 10,
     fontSize: 13,
+    fontFamily: Fonts.body,
+  },
+  sectionErrorBox: {
+    borderWidth: 1,
+    borderRadius: Radii.xl,
+    padding: 16,
+  },
+  sectionErrorTitle: {
+    fontSize: 16,
+    fontFamily: Fonts.display,
+    marginBottom: 4,
+  },
+  sectionErrorText: {
+    fontSize: 13,
+    lineHeight: 18,
     fontFamily: Fonts.body,
   },
   statusCard: {
