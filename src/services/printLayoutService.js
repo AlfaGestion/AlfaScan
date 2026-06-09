@@ -1,4 +1,10 @@
 import Configuration from "@db/Configuration";
+import {
+  loadPrintFormatsFromSql,
+  savePrintFormatsToSql,
+  syncPrintFormatsFromSql,
+} from "@services/printSqlService";
+import { loadPrintFormatsFromSql } from "@services/printSqlService";
 
 export const PRINT_FORMAT_KEYS = ["gondola", "product", "small", "custom"];
 
@@ -480,6 +486,11 @@ export const normalizePrintFormats = (value) => {
 
 export const loadPrintFormats = async () => {
   await Configuration.createTable();
+  const sqlFormats = await loadPrintFormatsFromSql().catch(() => null);
+  if (sqlFormats) {
+    return normalizePrintConfig(sqlFormats);
+  }
+
   const raw = await Configuration.getConfigValue("PRINT_FORMATS_JSON");
   return normalizePrintConfig(raw);
 };
@@ -496,6 +507,12 @@ export const getDefaultPrintFormat = (key = "product") => {
 };
 
 export const getDefaultPrintFormats = () => clone(DEFAULT_PRINT_FORMATS);
+
+export {
+  loadPrintFormatsFromSql,
+  savePrintFormatsToSql,
+  syncPrintFormatsFromSql,
+};
 
 const formatCurrencyValue = (value, element = {}) => {
   const amount = Number(value ?? 0);

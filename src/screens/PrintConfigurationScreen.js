@@ -7,7 +7,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import ConfigItem from "@components/ConfigItem";
 import PrintPreview from "@components/print/PrintPreview";
 import PrintPropertiesPanel from "@components/print/PrintPropertiesPanel";
-import Configuration from "@db/Configuration";
 import Colors from "@styles/Colors";
 import { Fonts, Radii, Shadow } from "@styles/Theme";
 import { useThemeConfig } from "@context/ThemeContext";
@@ -16,9 +15,12 @@ import {
   DEFAULT_PRINT_FORMATS,
   PRINT_FORMAT_KEYS,
   getDefaultPrintFormat,
+  loadPrintFormats,
   normalizePrintConfig,
   renderPrintLayout,
   savePrintFormats,
+  savePrintFormatsToSql,
+  syncPrintFormatsFromSql,
 } from "@services/printLayoutService";
 import { printArticle } from "@services/printerService";
 
@@ -161,6 +163,7 @@ export default function PrintConfigurationScreen() {
   const [activeIndex, setActiveIndex] = useState(0);
   const [selectedElementKey, setSelectedElementKey] = useState(DEFAULT_SELECTED_ELEMENT_KEY);
   const [saving, setSaving] = useState(false);
+  const [sqlBusy, setSqlBusy] = useState(false);
   const [testing, setTesting] = useState(false);
   const [status, setStatus] = useState("");
   const [loading, setLoading] = useState(true);
@@ -191,15 +194,10 @@ export default function PrintConfigurationScreen() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      await Configuration.createTable();
-      const raw = await Configuration.getConfigValue("PRINT_FORMATS_JSON");
-      const normalized = safeNormalizePrintConfig(raw);
+      const normalized = safeNormalizePrintConfig(await loadPrintFormats());
       setFormats((current) => (arePrintConfigsEqual(current, normalized) ? current : normalized));
       if (__DEV__) {
-        console.log("[PRINT_CONFIG] loaded and normalized");
-      }
-      if (!raw || String(raw).trim() !== JSON.stringify(normalized)) {
-        await savePrintFormats(normalized);
+        console.log("[PRINT_CONFIG] loaded print formats");
       }
     } finally {
       setLoading(false);
@@ -343,6 +341,36 @@ export default function PrintConfigurationScreen() {
     }
   };
 
+  const saveToSql = async () => {
+    setSqlBusy(true);
+    setStatus("");
+    try {
+      await savePrintFormatsToSql(safeFormats);
+      setStatus("Diseño guardado en SQL.");
+    } catch (e) {
+      setStatus(e?.message || "No se pudo guardar el diseño en SQL.");
+    } finally {
+      setSqlBusy(false);
+    }
+  };
+
+  const loadFromSql = async () => {
+    setSqlBusy(true);
+    setStatus("");
+    try {
+      const sqlFormats = await syncPrintFormatsFromSql();
+      if (!sqlFormats) {
+        throw new Error("No se encontró diseño de impresión en SQL.");
+      }
+      setFormats(safeNormalizePrintConfig(sqlFormats));
+      setStatus("Diseño cargado desde SQL y guardado localmente.");
+    } catch (e) {
+      setStatus(e?.message || "No se pudo cargar el diseño desde SQL.");
+    } finally {
+      setSqlBusy(false);
+    }
+  };
+
   const restoreDesign = () => {
     Alert.alert(
       "Restaurar diseño",
@@ -405,7 +433,7 @@ export default function PrintConfigurationScreen() {
       )} px`
     : "";
 
-  const formatActionsDisabled = saving || testing || loading;
+  const formatActionsDisabled = saving || testing || loading || sqlBusy;
 
   return (
     <View style={[styles.root, { backgroundColor: theme.background }]}>
@@ -431,7 +459,23 @@ export default function PrintConfigurationScreen() {
               disabled={formatActionsDisabled}
             >
               {saving ? <ActivityIndicator color={Colors.WHITE} /> : <Ionicons name="save-outline" size={18} color={Colors.WHITE} />}
-              <Text style={styles.actionButtonText}>Guardar</Text>
+              <Text style={styles.actionButtonText}>Guardar local</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.actionButton, { backgroundColor: "#1F8B4C" }]}
+              onPress={saveToSql}
+              disabled={formatActionsDisabled}
+            >
+              {sqlBusy ? <ActivityIndicator color={Colors.WHITE} /> : <Ionicons name="cloud-upload-outline" size={18} color={Colors.WHITE} />}
+              <Text style={styles.actionButtonText}>Guardar en SQL</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.actionButton, { backgroundColor: "#6B5AED" }]}
+              onPress={loadFromSql}
+              disabled={formatActionsDisabled}
+            >
+              {sqlBusy ? <ActivityIndicator color={Colors.WHITE} /> : <Ionicons name="cloud-download-outline" size={18} color={Colors.WHITE} />}
+              <Text style={styles.actionButtonText}>Cargar desde SQL</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.actionButton, { backgroundColor: "#D64545" }]}
