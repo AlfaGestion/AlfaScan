@@ -21,7 +21,7 @@ import { listProductsStyles } from "@styles/ProductStyle";
 import Colors from "@styles/Colors";
 import Configuration from "@db/Configuration";
 import { useThemeConfig } from "@context/ThemeContext";
-import CatalogService from "@services/catalogService";
+import { scanSearchArticle } from "@services/articleService";
 import iconProduct from "@icons/articulos.png";
 import iconProductDark from "@icons/articulos_b.png";
 
@@ -299,24 +299,20 @@ export default function Products({ navigation }) {
       }
 
       try {
-        const searchStartedAt = Date.now();
-        console.log("[SEARCH] scan barcode start");
         setSearchText(code);
         setScannerVisible(false);
-        let rows = await Product.findByBarcodeExactLocal(code);
-        let source = "sqlite";
-        if (!Array.isArray(rows) || rows.length === 0) {
-          const config = await CatalogService.getCatalogConfig().catch(() => null);
-          if (String(config?.mode ?? "").trim().toUpperCase() === "ONLINE") {
-            rows = await Product.findByBarcodeExact(code);
-            source = "sql";
-          }
-        }
-        console.log(`[SEARCH] scan source ${source}`);
-        console.log(`[SEARCH] scan barcode finished in ${Date.now() - searchStartedAt} ms`);
-        if (Array.isArray(rows) && rows.length > 0) {
+        const article = await scanSearchArticle(code);
+        if (article) {
+          const scannedProduct = {
+            id: article.codigoInterno || article.codigoBarra || code,
+            code: article.codigoInterno || article.codigoBarra || code,
+            name: article.descripcion || "",
+            price: article.precio ?? 0,
+            codigoBarra: article.codigoBarra || "",
+            codigoInterno: article.codigoInterno || "",
+          };
           setEmpty(false);
-          setProducts(rows);
+          setProducts([scannedProduct]);
           setHasMoreProducts(false);
           setProductsLimit(1);
         } else {
