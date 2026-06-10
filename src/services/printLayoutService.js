@@ -706,6 +706,60 @@ const normalizeElement = (element = {}, fallback = {}) => {
   return next;
 };
 
+const normalizeSqlElement = (element = {}) => {
+  return {
+    ...createElement({}),
+    ...element,
+    key: String(
+      element.key ?? element.valueKey ?? element.campo ?? element.Campo ?? "",
+    ).trim(),
+    valueKey: String(element.valueKey ?? element.key ?? "").trim(),
+    campo: element.campo ?? element.Campo ?? "",
+    Campo: element.Campo ?? element.campo ?? "",
+    type: element.type || "text",
+    visible: element.visible !== false,
+    x: Number(element.x ?? 0),
+    y: Number(element.y ?? 0),
+    width: Number(element.width ?? 120),
+    height: Number(element.height ?? 30),
+    fontSize: Number(element.fontSize ?? 16),
+    fontWeight: String(element.fontWeight ?? "400"),
+    italic: Boolean(element.italic ?? element.italica),
+    fontStyle: element.italic || element.italica ? "italic" : "normal",
+    tipoFuente: String(element.tipoFuente ?? element.TipoFuente ?? "Default"),
+    TipoFuente: String(element.TipoFuente ?? element.tipoFuente ?? "Default"),
+    fontFamily: String(
+      element.fontFamily ||
+        resolvePreviewFontFamily(element.tipoFuente ?? element.TipoFuente ?? "Default"),
+    ).trim(),
+    align: ["left", "center", "right"].includes(
+      String(element.align ?? "").toLowerCase(),
+    )
+      ? String(element.align).toLowerCase()
+      : "left",
+    uppercase: Boolean(element.uppercase),
+    maxLines: Number(element.maxLines ?? 1),
+    zIndex: Number(element.zIndex ?? 1),
+    sampleText: String(element.sampleText ?? ""),
+    formatAsPrice:
+      String(element.key ?? "").trim() === "price" ||
+      normalizeContractText(element.campo ?? element.Campo ?? "") === "precio",
+    showSymbol:
+      String(element.key ?? "").trim() === "price" ||
+      normalizeContractText(element.campo ?? element.Campo ?? "") === "precio",
+    showNumber: String(element.key ?? "").trim() === "barcode"
+      ? element.showNumber !== false
+      : true,
+    barcodeType: String(element.barcodeType ?? element.BarcodeType ?? "EAN13")
+      .trim()
+      .toUpperCase(),
+    separatorThickness: Math.max(
+      1,
+      Number(element.separatorThickness ?? element.SeparatorThickness ?? 2) || 2,
+    ),
+  };
+};
+
 const migrateLegacyFormat = (
   raw = {},
   fallbackTemplate = DEFAULT_PRINT_FORMATS[0],
@@ -822,116 +876,17 @@ const migrateLegacyFormat = (
   return result;
 };
 
-const normalizeSqlElement = (element = {}, index = 0) => {
-  const rawTipoElemento = String(
-    element.TipoElemento ?? element.tipoElemento ?? element.type ?? "texto",
-  ).trim();
-  const tipoElemento = String(normalizeSqlContractType(rawTipoElemento)).trim();
-  const rawCampo = String(
-    element.Campo ?? element.campo ?? element.valueKey ?? element.key ?? "",
-  ).trim();
-  const campo = normalizeSqlContractCampo(tipoElemento, rawCampo);
-  const rawTextoFijo = String(
-    element.TextoFijo ?? element.textoFijo ?? element.sampleText ?? "",
-  ).trim();
-  const rawTipoFuente = String(
-    element.TipoFuente ?? element.tipoFuente ?? element.fontFamily ?? "",
-  ).trim();
-  const isVisualLine = tipoElemento === "linea";
-  const key = isVisualLine
-    ? "separator"
-    : normalizeSqlContractValueKey(campo, tipoElemento) ||
-      `element_${index + 1}`;
-  const rawAlign = String(
-    element.Alineacion ?? element.alineacion ?? element.align ?? "left",
-  ).trim();
-  const align = rawAlign || "left";
-  const fontSize = Number.isFinite(
-    Number(element.TamanoFuente ?? element.tamanoFuente ?? element.fontSize),
-  )
-    ? Number(element.TamanoFuente ?? element.tamanoFuente ?? element.fontSize)
-    : 16;
-  const tipoFuente = rawTipoFuente || "Default";
-  const fontFamily = resolvePreviewFontFamily(tipoFuente);
-  const zIndex = Number.isFinite(
-    Number(element.Orden ?? element.orden ?? element.zIndex),
-  )
-    ? Number(element.Orden ?? element.orden ?? element.zIndex)
-    : index + 1;
-
-  return {
-    key,
-    valueKey: key,
-    campo,
-    Campo: campo,
-    tipoElemento,
-    TipoElemento: tipoElemento,
-    type: isVisualLine
-      ? "separator"
-      : key === "barcode"
-        ? "barcode"
-        : key === "logo"
-          ? "logo"
-          : "text",
-    label:
-      rawTextoFijo ||
-      String(element.Nombre ?? element.nombre ?? campo ?? key).trim() ||
-      (isVisualLine ? "Separador" : campo || key),
-    visible: normalizeBoolean(element.Visible ?? element.visible, true),
-    x: toInt(element.X ?? element.x, 0),
-    y: toInt(element.Y ?? element.y, 0),
-    width: toInt(element.Ancho ?? element.ancho ?? element.width, 0),
-    height: toInt(element.Alto ?? element.alto ?? element.height, 0),
-    fontSize,
-    fontWeight: toBool(element.Negrita ?? element.negrita, false)
-      ? "700"
-      : "400",
-    italic: toBool(element.Italica ?? element.italica ?? element.italic, false),
-    fontStyle: toBool(
-      element.Italica ?? element.italica ?? element.italic,
-      false,
-    )
-      ? "italic"
-      : "normal",
-    tipoFuente,
-    TipoFuente: tipoFuente,
-    fontFamily,
-    align,
-    uppercase: toBool(element.Mayuscula ?? element.mayuscula, false),
-    maxLines: Math.max(
-      1,
-      toInt(element.MaxLineas ?? element.maxLineas ?? element.maxLines, 1),
-    ),
-    zIndex,
-    sampleText: rawTextoFijo,
-    formatAsPrice: key === "price" || normalizeContractText(campo) === "precio",
-    showSymbol: key === "price" || normalizeContractText(campo) === "precio",
-    showNumber:
-      key === "barcode"
-        ? toBool(element.ShowNumber ?? element.showNumber, true)
-        : true,
-    barcodeType: String(element.barcodeType ?? element.BarcodeType ?? "EAN13")
-      .trim()
-      .toUpperCase(),
-    separatorThickness: Math.max(
-      1,
-      toInt(element.separatorThickness ?? element.SeparatorThickness ?? 2, 2),
-    ),
-  };
-};
-
 const normalizeSqlPrintFormat = (
   raw = {},
   fallbackTemplate = DEFAULT_PRINT_FORMATS[0],
 ) => {
   const rawElements = Array.isArray(raw.elements) ? raw.elements : [];
-  const elements = rawElements.map((element, index) =>
-    normalizeSqlElement(element, index),
-  );
+  const elements = rawElements.map((element) => normalizeSqlElement(element));
 
   return {
+    ...fallbackTemplate,
     ...raw,
-    __source: raw.__source ?? fallbackTemplate.__source ?? "SQL",
+    __source: "SQL",
     key: String(raw.key ?? fallbackTemplate.key ?? "").trim(),
     name: String(raw.name ?? fallbackTemplate.name ?? ""),
     paperWidth: String(raw.paperWidth ?? fallbackTemplate.paperWidth ?? "80"),
