@@ -193,6 +193,15 @@ const normalizeSqlContractValueKey = (campo = "", tipoElemento = "") => {
   return normalizeSqlFieldKey(campo, tipoElemento || "text", campo);
 };
 
+const isBarcodeFont = (value = "") => {
+  const normalized = normalizeContractText(value);
+  return (
+    normalized === "barcode" ||
+    normalized === "codigodebarra" ||
+    normalized === "codigobarra"
+  );
+};
+
 const normalizeSyncItemLabel = (item = {}) => {
   const rawLabel = String(
     item.campo ??
@@ -401,13 +410,14 @@ const mapSqlDetailToElement = (row = {}, index = 0) => {
   );
   const textoFijo = toStringValue(row.TextoFijo ?? row.textoFijo ?? "");
   const campo = normalizeSqlContractCampo(tipoElemento, rawField);
+  const rawTipoFuente = toStringValue(row.TipoFuente ?? row.tipoFuente ?? "");
   const isLine = tipoElemento === "linea";
-  const isBarcodeGraphic = tipoElemento === "codigobarra";
-  const isBarcodeText =
-    tipoElemento === "texto" &&
-    ["codigobarra", "codigobarras", "barcode"].includes(
-      normalizeContractText(rawField),
-    );
+  const isCodigoBarraCampo =
+    normalizeContractText(rawField) === "codigobarra" ||
+    normalizeContractText(campo) === "codigobarra" ||
+    normalizeContractText(campo) === "barcode";
+  const isBarcodeGraphic = isCodigoBarraCampo && isBarcodeFont(rawTipoFuente);
+  const isBarcodeText = isCodigoBarraCampo && !isBarcodeFont(rawTipoFuente);
   const type = isLine
     ? "separator"
     : isBarcodeGraphic
@@ -415,7 +425,9 @@ const mapSqlDetailToElement = (row = {}, index = 0) => {
       : "text";
   const valueKey = isLine
     ? "separator"
-    : normalizeSqlContractValueKey(campo, tipoElemento);
+    : isCodigoBarraCampo
+      ? "barcode"
+      : normalizeSqlContractValueKey(campo, tipoElemento);
   const key = isLine
     ? "separator"
     : isBarcodeGraphic
@@ -435,7 +447,6 @@ const mapSqlDetailToElement = (row = {}, index = 0) => {
     row.Italica ?? row.italica ?? row.Italic ?? row.italic,
     false,
   );
-  const rawTipoFuente = toStringValue(row.TipoFuente ?? row.tipoFuente ?? "");
   const tipoFuente = rawTipoFuente || "Default";
 
   return {
