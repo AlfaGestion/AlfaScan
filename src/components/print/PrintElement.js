@@ -35,7 +35,8 @@ function PrintElement({
       PanResponder.create({
         onStartShouldSetPanResponder: () => editable,
         onMoveShouldSetPanResponder: (_, gestureState) =>
-          editable && (Math.abs(gestureState.dx) > 2 || Math.abs(gestureState.dy) > 2),
+          editable &&
+          (Math.abs(gestureState.dx) > 2 || Math.abs(gestureState.dy) > 2),
         onPanResponderGrant: () => {
           startRef.current = { x: element.x, y: element.y };
           onSelect?.(element.key);
@@ -71,7 +72,10 @@ function PrintElement({
   if (element.type === "barcode") {
     const bars = buildBarcodeBars(element.value);
     return (
-      <View style={wrapperStyle} {...(editable ? panResponder.panHandlers : {})}>
+      <View
+        style={wrapperStyle}
+        {...(editable ? panResponder.panHandlers : {})}
+      >
         <View style={styles.barcodeContainer}>
           <View style={styles.barcodeBarsRow}>
             {bars.map((bar, index) => (
@@ -104,16 +108,25 @@ function PrintElement({
             </Text>
           ) : null}
         </View>
-        {selected ? <Text style={styles.selectionLabel}>{element.label}</Text> : null}
+        {selected ? (
+          <Text style={styles.selectionLabel}>{element.label}</Text>
+        ) : null}
       </View>
     );
   }
 
   if (element.type === "logo") {
     return (
-      <View style={wrapperStyle} {...(editable ? panResponder.panHandlers : {})}>
+      <View
+        style={wrapperStyle}
+        {...(editable ? panResponder.panHandlers : {})}
+      >
         <View style={styles.logoWrap}>
-          <Image source={alfaLogo} style={styles.logoImage} resizeMode="contain" />
+          <Image
+            source={alfaLogo}
+            style={styles.logoImage}
+            resizeMode="contain"
+          />
           <Text
             style={[
               styles.logoText,
@@ -128,13 +141,18 @@ function PrintElement({
             {element.value || "Alfa"}
           </Text>
         </View>
-        {selected ? <Text style={styles.selectionLabel}>{element.label}</Text> : null}
+        {selected ? (
+          <Text style={styles.selectionLabel}>{element.label}</Text>
+        ) : null}
       </View>
     );
   }
 
   if (element.type === "separator") {
-    const thickness = Math.max(2, Math.round(Number(element.separatorThickness ?? 2) || 2));
+    const thickness = Math.max(
+      2,
+      Math.round(Number(element.separatorThickness ?? 2) || 2),
+    );
     return (
       <View
         style={[
@@ -158,7 +176,11 @@ function PrintElement({
             },
           ]}
         />
-        {selected ? <Text style={styles.selectionLabel}>{element.label || "Separador"}</Text> : null}
+        {selected ? (
+          <Text style={styles.selectionLabel}>
+            {element.label || "Separador"}
+          </Text>
+        ) : null}
       </View>
     );
   }
@@ -172,7 +194,8 @@ function PrintElement({
             color: element.color || "#111827",
             fontSize: Math.max(10, element.fontSize),
             fontWeight: element.fontWeight === "700" ? "700" : "400",
-            fontStyle: element.italic ? "italic" : "normal",
+            fontStyle:
+              element.fontStyle || (element.italic ? "italic" : "normal"),
             textAlign: element.align || "left",
             textTransform: element.uppercase ? "uppercase" : "none",
             lineHeight: Math.max(12, element.fontSize * 1.18),
@@ -182,7 +205,9 @@ function PrintElement({
       >
         {element.value || element.sampleText || ""}
       </Text>
-      {selected ? <Text style={styles.selectionLabel}>{element.label}</Text> : null}
+      {selected ? (
+        <Text style={styles.selectionLabel}>{element.label}</Text>
+      ) : null}
     </View>
   );
 }

@@ -819,12 +819,7 @@ const normalizeSqlElement = (element = {}, index = 0) => {
   const rawTextoFijo = String(
     element.TextoFijo ?? element.textoFijo ?? element.sampleText ?? "",
   ).trim();
-  const isVisualLine =
-    tipoElemento === "linea" &&
-    (/^-+$/.test(rawTextoFijo.replace(/\s+/g, "")) ||
-      String(element.key ?? "")
-        .toLowerCase()
-        .startsWith("separator"));
+  const isVisualLine = tipoElemento === "linea";
   const key = isVisualLine
     ? "separator"
     : normalizeSqlContractValueKey(campo, tipoElemento) ||
@@ -1435,11 +1430,17 @@ export const renderPrintLayout = (
       );
     });
     mappedElements.forEach((item) => {
+      const campo = String(
+        item.Campo ?? item.campo ?? item.key ?? "Item",
+      ).trim();
+      const finalAlign = String(item.renderedAlign ?? item.align ?? "left");
       console.log(
-        "[APP_LAYOUT] final visible item",
-        item.key,
-        Boolean(item.visible),
-        `align ${String(item.renderedAlign ?? item.align ?? "left")}`,
+        "[APP_LAYOUT] final item",
+        `Campo ${campo}`,
+        `type ${String(item.type ?? "")}`,
+        `visible ${Boolean(item.visible)}`,
+        `align ${finalAlign}`,
+        `italic ${Boolean(item.italic)}`,
       );
     });
     console.log("[APP_LAYOUT] final items", mappedElements.length);

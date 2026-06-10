@@ -170,9 +170,9 @@ const normalizeSqlContractValueKey = (campo = "", tipoElemento = "") => {
   if (normalizedCampo === "stock") return "stock";
   if (normalizedCampo === "fecha" || normalizedCampo === "date") return "date";
   if (normalizedCampo === "logo") return "logo";
-  if (tipo === "linea") return "textofijo";
+  if (tipo === "linea") return "separator";
   if (normalizedCampo === "textofijo" || normalizedCampo === "fixedtext") {
-    return "textofijo";
+    return "separator";
   }
 
   return normalizeSqlFieldKey(campo, tipoElemento || "text", campo);
@@ -386,14 +386,13 @@ const mapSqlDetailToElement = (row = {}, index = 0) => {
   );
   const textoFijo = toStringValue(row.TextoFijo ?? row.textoFijo ?? "");
   const campo = normalizeSqlContractCampo(tipoElemento, rawField);
-  const isVisualLine =
-    tipoElemento === "linea" && /^-+$/.test(textoFijo.replace(/\s+/g, ""));
-  const type = isVisualLine
+  const isLine = tipoElemento === "linea";
+  const type = isLine
     ? "separator"
     : tipoElemento === "codigobarra"
       ? "barcode"
       : "text";
-  const valueKey = isVisualLine
+  const valueKey = isLine
     ? "separator"
     : normalizeSqlContractValueKey(campo, tipoElemento);
   const fontSize = toInt(
