@@ -753,18 +753,19 @@ export const printSimpleProductLabel = async (
       "[PRINT_LAYOUT] paperWidthMm",
       layout.paperWidthMm || formatConfig?.paperWidth || 80,
     );
+    console.log("[PRINT_LAYOUT] items to native", layout.items.length);
     layout.items.forEach((item) => {
-      if (!item || item.type === "barcode") {
+      if (!item) {
         return;
       }
+      const campo = String(
+        item.Campo ?? item.campo ?? item.valueKey ?? item.key ?? "Item",
+      ).trim();
       console.log(
-        "[PRINT_LAYOUT] item",
-        item.key || item.valueKey || item.type,
-        {
-          campo: item.key || item.valueKey || item.type,
-          editorFontSize: item.editorFontSize,
-          sunmiFontSize: item.sunmiFontSize,
-        },
+        "[PRINT_LAYOUT] native item",
+        `Campo ${campo}`,
+        `type ${String(item.type ?? "")}`,
+        `visible ${Boolean(item.visible)}`,
       );
     });
   }
@@ -786,6 +787,14 @@ export const printSimpleProductLabel = async (
   }
 
   console.log("[PRINT] calling native Sunmi print");
+  const itemsToNative = Array.isArray(layout?.items)
+    ? layout.items.map((item) => ({
+        ...item,
+        barcode: payload.barcode,
+        internalCode: payload.internalCode,
+        code: payload.internalCode || payload.barcode,
+      }))
+    : [];
   const result = await module.printSimpleProductLabel({
     formatKey: key,
     description: payload.description,
@@ -794,7 +803,7 @@ export const printSimpleProductLabel = async (
     internalCode: payload.internalCode,
     companyName,
     copies: Math.max(1, Number(input?.copies ?? 1) || 1),
-    items: Array.isArray(layout?.items) ? layout.items : [],
+    items: itemsToNative,
   });
   console.log("[PRINT] success");
 

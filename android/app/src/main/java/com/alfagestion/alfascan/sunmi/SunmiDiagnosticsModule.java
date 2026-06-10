@@ -536,7 +536,7 @@ public class SunmiDiagnosticsModule extends ReactContextBaseJavaModule {
 
   private void printLayoutItemsInternal(IWoyouService service, ReadableArray items, int copies) throws Exception {
     int totalCopies = Math.max(1, copies);
-    Log.i(TAG, "[SUNMI] print layout items count=" + items.size());
+    Log.i(TAG, "[SUNMI_LAYOUT] received items " + items.size());
     callPrinterCommand(callback -> service.printerInit(callback));
 
     for (int copy = 0; copy < totalCopies; copy++) {
@@ -554,50 +554,75 @@ public class SunmiDiagnosticsModule extends ReactContextBaseJavaModule {
         int targetTop = getIntSafe(item, "y", 0);
         int itemHeight = Math.max(1, getIntSafe(item, "height", 24));
         int gap = Math.max(0, Math.round((targetTop - lastBottom) / 18f));
-        if (gap > 0) {
-          callPrinterCommand(callback -> service.lineWrap(gap, callback));
-        }
-
         String type = getStringSafe(item, "type");
-        String value = getStringSafe(item, "value");
-        String align = getStringSafe(item, "align");
-        boolean italic = getBooleanSafe(item, "italic", false);
-        int editorFontSize = Math.max(10, getIntSafe(item, "fontSize", 16));
-        int sunmiFontSize = Math.max(10, getIntSafe(item, "sunmiFontSize", editorFontSize));
+        String campo = firstNonEmpty(
+          getStringSafe(item, "Campo"),
+          getStringSafe(item, "campo"),
+          getStringSafe(item, "key"),
+          getStringSafe(item, "valueKey")
+        );
+        Log.i(TAG, "[SUNMI_LAYOUT] item " + i + " Campo " + campo + " type " + type);
 
-        if ("barcode".equalsIgnoreCase(type)) {
-          String code = value.trim();
-          if (!code.isEmpty()) {
-            int symbology = getIntSafe(item, "barcodeSymbology", 2);
-            int height = Math.max(80, getIntSafe(item, "height", 120));
-            int width = Math.max(2, getIntSafe(item, "width", 2));
-            int textposition = getBooleanSafe(item, "showNumber", true) ? 2 : 0;
-            Log.i(TAG, "[SUNMI] print barcode");
-            callPrinterCommand(callback -> service.setAlignment(1, callback));
-            callPrinterCommand(callback -> service.printBarCode(code, symbology, height, width, textposition, callback));
+        try {
+          if (gap > 0) {
+            callPrinterCommand(callback -> service.lineWrap(gap, callback));
           }
-        } else if ("separator".equalsIgnoreCase(type)) {
-          int separatorWidth = Math.max(12, Math.min(48, Math.round(getIntSafe(item, "width", 240) / 8f)));
-          String separator = repeatChar('-', separatorWidth);
-          Log.i(TAG, "[SUNMI] print separator");
-          callPrinterCommand(callback -> service.setAlignment(1, callback));
-          callPrinterCommand(callback -> service.printText(separator + "\n", callback));
-        } else {
-          String text = value.trim();
-          if (!text.isEmpty()) {
-            Log.i(TAG, "[PRINT_LAYOUT] item=" + type + " campo=" + getStringSafe(item, "key") + " editorFontSize=" + editorFontSize + " sunmiFontSize=" + sunmiFontSize);
-            Log.i(TAG, "[SUNMI] print text type=" + type);
-            callPrinterCommand(callback -> service.setAlignment(resolveAlignmentValue(align), callback));
-            if (italic) {
-              callPrinterCommand(callback -> service.printTextWithFont(text + "\n", "serif", (float) sunmiFontSize, callback));
+
+          String value = getStringSafe(item, "value");
+          String barcodeValue = firstNonEmpty(
+            value,
+            getStringSafe(item, "barcode"),
+            getStringSafe(item, "internalCode"),
+            getStringSafe(item, "code")
+          );
+          String align = getStringSafe(item, "align");
+          boolean italic = getBooleanSafe(item, "italic", false);
+          int editorFontSize = Math.max(10, getIntSafe(item, "fontSize", 16));
+          int sunmiFontSize = Math.max(10, getIntSafe(item, "sunmiFontSize", editorFontSize));
+
+          if ("barcode".equalsIgnoreCase(type)) {
+            Log.i(TAG, "[SUNMI_LAYOUT] barcode value " + barcodeValue);
+            if (!barcodeValue.isEmpty()) {
+              int symbology = getIntSafe(item, "barcodeSymbology", 2);
+              int height = Math.max(80, getIntSafe(item, "height", 120));
+              int width = Math.max(2, getIntSafe(item, "width", 2));
+              int textposition = getBooleanSafe(item, "showNumber", true) ? 2 : 0;
+              try {
+                callPrinterCommand(callback -> service.setAlignment(1, callback));
+                callPrinterCommand(callback -> service.printBarCode(barcodeValue, symbology, height, width, textposition, callback));
+              } catch (Exception barcodeError) {
+                Log.e(TAG, "[SUNMI_LAYOUT] barcode failed, printing as text", barcodeError);
+                callPrinterCommand(callback -> service.setAlignment(resolveAlignmentValue("left"), callback));
+                callPrinterCommand(callback -> service.printText("Barra: " + barcodeValue + "\n", callback));
+              }
             } else {
-              callPrinterCommand(callback -> service.setFontSize((float) sunmiFontSize, callback));
-              callPrinterCommand(callback -> service.printText(text + "\n", callback));
+              Log.i(TAG, "[SUNMI_LAYOUT] barcode skipped empty value");
+            }
+          } else if ("separator".equalsIgnoreCase(type)) {
+            int separatorWidth = Math.max(12, Math.min(48, Math.round(getIntSafe(item, "width", 240) / 8f)));
+            String separator = repeatChar('-', separatorWidth);
+            Log.i(TAG, "[SUNMI] print separator");
+            callPrinterCommand(callback -> service.setAlignment(1, callback));
+            callPrinterCommand(callback -> service.printText(separator + "\n", callback));
+          } else {
+            String text = value.trim();
+            if (!text.isEmpty()) {
+              Log.i(TAG, "[PRINT_LAYOUT] item=" + type + " campo=" + getStringSafe(item, "key") + " editorFontSize=" + editorFontSize + " sunmiFontSize=" + sunmiFontSize);
+              Log.i(TAG, "[SUNMI] print text type=" + type);
+              callPrinterCommand(callback -> service.setAlignment(resolveAlignmentValue(align), callback));
+              if (italic) {
+                callPrinterCommand(callback -> service.printTextWithFont(text + "\n", "serif", (float) sunmiFontSize, callback));
+              } else {
+                callPrinterCommand(callback -> service.setFontSize((float) sunmiFontSize, callback));
+                callPrinterCommand(callback -> service.printText(text + "\n", callback));
+              }
             }
           }
+        } catch (Exception itemError) {
+          Log.e(TAG, "[SUNMI_LAYOUT] item " + i + " failed, continuing", itemError);
+        } finally {
+          lastBottom = targetTop + itemHeight;
         }
-
-        lastBottom = targetTop + itemHeight;
       }
 
       callPrinterCommand(callback -> service.lineWrap(1, callback));
@@ -717,6 +742,21 @@ public class SunmiDiagnosticsModule extends ReactContextBaseJavaModule {
         return "1".equals(value) || "true".equals(value) || "yes".equals(value);
       }
     }
+  }
+
+  private String firstNonEmpty(String... values) {
+    if (values == null) {
+      return "";
+    }
+
+    for (String value : values) {
+      String text = String.valueOf(value == null ? "" : value).trim();
+      if (!text.isEmpty()) {
+        return text;
+      }
+    }
+
+    return "";
   }
 
   private int resolveAlignmentValue(String alignment) {
