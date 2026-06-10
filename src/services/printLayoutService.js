@@ -807,6 +807,102 @@ const migrateLegacyFormat = (
   return result;
 };
 
+const normalizeSqlPrintFormat = (
+  raw = {},
+  fallbackTemplate = DEFAULT_PRINT_FORMATS[0],
+) => {
+  const rawElements = Array.isArray(raw.elements) ? raw.elements : [];
+  const elements = rawElements.map((element, index) => {
+    const normalized = normalizeElement(element, element);
+    const key = String(
+      element.key ??
+        element.valueKey ??
+        normalized.key ??
+        `element_${index + 1}`,
+    ).trim();
+    const valueKey = String(
+      element.valueKey ?? normalized.valueKey ?? key,
+    ).trim();
+
+    return {
+      ...normalized,
+      key,
+      valueKey,
+      label: String(
+        element.label ?? normalized.label ?? key ?? `element_${index + 1}`,
+      ).trim(),
+      visible: normalizeBoolean(element.visible, true),
+      type: String(element.type ?? normalized.type ?? "text").trim(),
+    };
+  });
+
+  return {
+    ...clone(fallbackTemplate),
+    ...raw,
+    __source: raw.__source ?? fallbackTemplate.__source ?? "SQL",
+    key: String(raw.key ?? fallbackTemplate.key ?? "").trim(),
+    name: String(raw.name ?? fallbackTemplate.name ?? ""),
+    paperWidth: String(raw.paperWidth ?? fallbackTemplate.paperWidth ?? "80"),
+    customPaperWidth: String(
+      raw.customPaperWidth ?? fallbackTemplate.customPaperWidth ?? "",
+    ),
+    customPaperHeight: String(
+      raw.customPaperHeight ?? fallbackTemplate.customPaperHeight ?? "",
+    ),
+    paperHeight: String(
+      raw.paperHeight ?? fallbackTemplate.paperHeight ?? "auto",
+    ),
+    copies: String(raw.copies ?? fallbackTemplate.copies ?? "1"),
+    marginTop: String(raw.marginTop ?? fallbackTemplate.marginTop ?? "0"),
+    marginBottom: String(
+      raw.marginBottom ?? fallbackTemplate.marginBottom ?? "0",
+    ),
+    alignment: String(raw.alignment ?? fallbackTemplate.alignment ?? "center"),
+    showDescription: elements.some(
+      (item) =>
+        item.visible && String(item.key ?? "").toLowerCase() === "description",
+    ),
+    showPrice: elements.some(
+      (item) =>
+        item.visible && String(item.key ?? "").toLowerCase() === "price",
+    ),
+    showBarcode: elements.some(
+      (item) =>
+        item.visible && String(item.key ?? "").toLowerCase() === "barcode",
+    ),
+    showStock: elements.some(
+      (item) =>
+        item.visible && String(item.key ?? "").toLowerCase() === "stock",
+    ),
+    showDate: elements.some(
+      (item) => item.visible && String(item.key ?? "").toLowerCase() === "date",
+    ),
+    showCompanyName: elements.some(
+      (item) =>
+        item.visible && String(item.key ?? "").toLowerCase() === "companyname",
+    ),
+    showInternalCode: elements.some(
+      (item) =>
+        item.visible &&
+        ["internalcode", "codigointerno", "codigoarticulo"].includes(
+          String(item.key ?? "").toLowerCase(),
+        ),
+    ),
+    showLogo: elements.some(
+      (item) => item.visible && String(item.key ?? "").toLowerCase() === "logo",
+    ),
+    boldPrice: Boolean(
+      elements.find((item) => String(item.key ?? "").toLowerCase() === "price")
+        ?.fontWeight === "700",
+    ),
+    previewBeforePrint: normalizeBoolean(
+      raw.previewBeforePrint,
+      fallbackTemplate.previewBeforePrint,
+    ),
+    elements,
+  };
+};
+
 const normalizeFormatKey = (key = "", index = 0) => {
   const normalized = String(key ?? "")
     .trim()
@@ -848,13 +944,13 @@ export const normalizePrintConfig = (savedConfig) => {
       sourceObject[normalizeFormatKey(template.name, index)] ||
       {};
 
-    const normalizedFormat = migrateLegacyFormat(
-      { ...candidate, key },
-      template,
-    );
     const sourceTag = String(
       candidate.__source ?? sourceObject.__source ?? "",
     ).trim();
+    const normalizedFormat =
+      sourceTag.toUpperCase() === "SQL"
+        ? normalizeSqlPrintFormat({ ...candidate, key }, template)
+        : migrateLegacyFormat({ ...candidate, key }, template);
     if (sourceTag) {
       normalizedFormat.__source = sourceTag;
     }
@@ -1161,7 +1257,8 @@ export const renderPrintLayout = (
   const paperWidthMm = getPaperWidthMm(format);
   const scale = paperWidthPx / BASE_DESIGN_WIDTH;
 
-  const elements = (format.elements || [])
+  const rawElements = Array.isArray(format.elements) ? format.elements : [];
+  const mappedElements = rawElements
     .map((element, index) => {
       const item = normalizeElement(element);
       const visible = isSqlSource
@@ -1202,7 +1299,9 @@ export const renderPrintLayout = (
           options.fallbackText || "",
         ),
         barcodeSymbology: resolveBarcodeType(item.barcodeType),
-        renderKey: `${String(item.key || item.valueKey || item.type || "item").trim()}-${index + 1}`,
+        renderKey: `${String(
+          item.key || item.valueKey || item.type || "item",
+        ).trim()}-${index + 1}`,
       };
     })
     .filter((item) => item.visible)
@@ -1214,13 +1313,42 @@ export const renderPrintLayout = (
         String(a.key || "").localeCompare(String(b.key || "")),
     );
 
+  if (__DEV__) {
+    console.log("[APP_LAYOUT] source", source || "LOCAL");
+    console.log("[APP_LAYOUT] raw elements", rawElements.length);
+    rawElements.forEach((element) => {
+      const campo = String(
+        element.Campo ??
+          element.campo ??
+          element.valueKey ??
+          element.key ??
+          "Item",
+      ).trim();
+      console.log(
+        "[APP_LAYOUT] raw item",
+        `Campo ${campo}`,
+        `key ${String(element.key ?? "")}`,
+        `visible ${Boolean(element.visible)}`,
+        `showBarcode ${String(format.showBarcode)}`,
+      );
+    });
+    mappedElements.forEach((item) => {
+      console.log(
+        "[APP_LAYOUT] final visible item",
+        item.key,
+        Boolean(item.visible),
+      );
+    });
+    console.log("[APP_LAYOUT] final items", mappedElements.length);
+  }
+
   return {
     format,
     paperWidthPx,
     paperHeightPx,
     paperWidthMm,
     scale,
-    items: elements,
+    items: mappedElements,
   };
 };
 
@@ -1235,12 +1363,7 @@ export const buildPrintableLayout = (
     const formatKey =
       String(layout?.format?.key ?? formatConfig?.key ?? "product").trim() ||
       "product";
-    const layoutSource =
-      String(
-        layout?.format?.__source ?? formatConfig?.__source ?? "LOCAL",
-      ).trim() || "LOCAL";
     const visibleItems = Array.isArray(layout?.items) ? layout.items : [];
-    console.log("[APP_LAYOUT] source", layoutSource);
     console.log(`[APP_LAYOUT] ${formatKey} items ${visibleItems.length}`);
     console.log(
       "[APP_LAYOUT] visible Empresa",
@@ -1256,12 +1379,7 @@ export const buildPrintableLayout = (
       ),
     );
     console.log("[PREVIEW] format", formatKey);
-    console.log(
-      "[PREVIEW] items",
-      Array.isArray(layout?.format?.elements)
-        ? layout.format.elements.length
-        : 0,
-    );
+    console.log("[PREVIEW] items", visibleItems.length);
   }
 
   return layout;
