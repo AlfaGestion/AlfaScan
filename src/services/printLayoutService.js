@@ -5,6 +5,7 @@ import {
   savePrintFormatsToSql,
   syncPrintFormatsFromSql,
 } from "@services/printSqlService";
+import { resolvePreviewFontFamily } from "@services/printFontService";
 
 export const PRINT_FORMAT_KEYS = ["gondola", "product", "small", "custom"];
 
@@ -39,6 +40,8 @@ const createElement = (element = {}) => ({
   color: "#111827",
   uppercase: false,
   italic: false,
+  tipoFuente: "Default",
+  fontFamily: "sans-serif",
   maxLines: 2,
   zIndex: 1,
   sampleText: "",
@@ -643,6 +646,18 @@ const normalizeElement = (element = {}, fallback = {}) => {
     element.italic ?? element.italica,
     fallback.italic ?? false,
   );
+  next.tipoFuente = String(
+    element.tipoFuente ||
+      element.TipoFuente ||
+      fallback.tipoFuente ||
+      base.tipoFuente ||
+      "Default",
+  ).trim();
+  next.fontFamily = String(
+    element.fontFamily ||
+      fallback.fontFamily ||
+      resolvePreviewFontFamily(next.tipoFuente),
+  ).trim();
   next.maxLines = Math.max(
     1,
     parseInt(String(element.maxLines ?? fallback.maxLines ?? 1), 10) || 1,
@@ -819,6 +834,9 @@ const normalizeSqlElement = (element = {}, index = 0) => {
   const rawTextoFijo = String(
     element.TextoFijo ?? element.textoFijo ?? element.sampleText ?? "",
   ).trim();
+  const rawTipoFuente = String(
+    element.TipoFuente ?? element.tipoFuente ?? element.fontFamily ?? "",
+  ).trim();
   const isVisualLine = tipoElemento === "linea";
   const key = isVisualLine
     ? "separator"
@@ -833,6 +851,8 @@ const normalizeSqlElement = (element = {}, index = 0) => {
   )
     ? Number(element.TamanoFuente ?? element.tamanoFuente ?? element.fontSize)
     : 16;
+  const tipoFuente = rawTipoFuente || "Default";
+  const fontFamily = resolvePreviewFontFamily(tipoFuente);
   const zIndex = Number.isFinite(
     Number(element.Orden ?? element.orden ?? element.zIndex),
   )
@@ -873,6 +893,9 @@ const normalizeSqlElement = (element = {}, index = 0) => {
     )
       ? "italic"
       : "normal",
+    tipoFuente,
+    TipoFuente: tipoFuente,
+    fontFamily,
     align,
     uppercase: toBool(element.Mayuscula ?? element.mayuscula, false),
     maxLines: Math.max(
@@ -1310,17 +1333,16 @@ export const renderPrintLayout = (
       options.companyName ?? product.companyName ?? "",
     ).trim(),
   };
-  const format = migrateLegacyFormat(
-    formatConfig,
-    DEFAULT_PRINT_FORMATS.find((item) => item.key === formatConfig.key) ||
-      DEFAULT_PRINT_FORMATS[0],
-  );
-  const source = String(
-    format.__source ?? formatConfig.__source ?? options.source ?? "",
-  )
+  const source = String(formatConfig.__source ?? options.source ?? "")
     .trim()
     .toUpperCase();
   const isSqlSource = source === "SQL";
+  const fallbackTemplate =
+    DEFAULT_PRINT_FORMATS.find((item) => item.key === formatConfig.key) ||
+    DEFAULT_PRINT_FORMATS[0];
+  const format = isSqlSource
+    ? normalizeSqlPrintFormat(formatConfig, fallbackTemplate)
+    : migrateLegacyFormat(formatConfig, fallbackTemplate);
   const paperWidthPx = getPaperWidthPx(format);
   const paperHeightPx = getPaperHeightPx(format, paperWidthPx);
   const paperWidthMm = getPaperWidthMm(format);
@@ -1335,11 +1357,27 @@ export const renderPrintLayout = (
         item.valueKey = String(item.valueKey ?? item.key ?? "").trim();
         item.align = String(item.align ?? element.align ?? "left").trim();
         item.type = String(item.type ?? "text").trim();
+        item.tipoFuente = String(
+          item.tipoFuente ||
+            element.TipoFuente ||
+            element.tipoFuente ||
+            element.fontFamily ||
+            "Default",
+        ).trim();
+        item.fontFamily = String(
+          item.fontFamily || resolvePreviewFontFamily(item.tipoFuente),
+        ).trim();
       }
       const rawAlign = String(
         element.Alineacion ?? element.alineacion ?? element.align ?? "",
       ).trim();
       const normalizedAlign = String(item.align ?? rawAlign ?? "left").trim();
+      const rawTipoFuente = String(
+        element.TipoFuente ?? element.tipoFuente ?? element.fontFamily ?? "",
+      ).trim();
+      const normalizedTipoFuente = String(
+        item.tipoFuente || rawTipoFuente || "Default",
+      ).trim();
       const visible = isSqlSource
         ? item.visible
         : item.visible &&
@@ -1366,6 +1404,10 @@ export const renderPrintLayout = (
         fontSize: Math.max(8, Math.round(item.fontSize * scale)),
         italic: Boolean(item.italic),
         fontStyle: item.italic ? "italic" : "normal",
+        tipoFuente: normalizedTipoFuente,
+        fontFamily: String(
+          item.fontFamily || resolvePreviewFontFamily(normalizedTipoFuente),
+        ).trim(),
         separatorThickness: Math.max(
           1,
           Math.round((Number(item.separatorThickness ?? 2) || 2) * scale),
@@ -1409,12 +1451,16 @@ export const renderPrintLayout = (
       const rawAlign = String(
         element.Alineacion ?? element.alineacion ?? element.align ?? "",
       ).trim();
+      const rawTipoFuente = String(
+        element.TipoFuente ?? element.tipoFuente ?? element.fontFamily ?? "",
+      ).trim();
       console.log(
         "[APP_LAYOUT] raw item",
         `Campo ${campo}`,
         `key ${String(element.key ?? "")}`,
         `visible ${Boolean(element.visible)}`,
         `align ${rawAlign || "left"}`,
+        `tipoFuente ${rawTipoFuente || "Default"}`,
       );
     });
     mappedElements.forEach((item) => {
@@ -1427,6 +1473,7 @@ export const renderPrintLayout = (
         `key ${String(item.key ?? "")}`,
         `visible ${Boolean(item.visible)}`,
         `align ${String(item.renderedAlign ?? item.align ?? "left")}`,
+        `tipoFuente ${String(item.tipoFuente ?? "Default")}`,
       );
     });
     mappedElements.forEach((item) => {
@@ -1440,7 +1487,10 @@ export const renderPrintLayout = (
         `type ${String(item.type ?? "")}`,
         `visible ${Boolean(item.visible)}`,
         `align ${finalAlign}`,
+        `tipoFuente ${String(item.tipoFuente ?? "Default")}`,
+        `fontFamily ${String(item.fontFamily ?? "sans-serif")}`,
         `italic ${Boolean(item.italic)}`,
+        `bold ${String(item.fontWeight ?? "400") === "700"}`,
       );
     });
     console.log("[APP_LAYOUT] final items", mappedElements.length);

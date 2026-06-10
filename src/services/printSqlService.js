@@ -1,5 +1,6 @@
 import Configuration from "@db/Configuration";
 import { getCatalogConfig } from "@services/catalogService";
+import { resolvePreviewFontFamily } from "@services/printFontService";
 import { closeSql, connectSql, executeSql } from "@services/sqlClient";
 
 const PRINT_CODES = ["gondola", "product", "small", "custom"];
@@ -407,6 +408,8 @@ const mapSqlDetailToElement = (row = {}, index = 0) => {
     row.Italica ?? row.italica ?? row.Italic ?? row.italic,
     false,
   );
+  const rawTipoFuente = toStringValue(row.TipoFuente ?? row.tipoFuente ?? "");
+  const tipoFuente = rawTipoFuente || "Default";
 
   return {
     key: valueKey || `element_${index + 1}`,
@@ -428,6 +431,9 @@ const mapSqlDetailToElement = (row = {}, index = 0) => {
     fontWeight: toBool(row.Negrita ?? row.negrita, false) ? "700" : "400",
     italic,
     fontStyle: italic ? "italic" : "normal",
+    tipoFuente,
+    TipoFuente: tipoFuente,
+    fontFamily: resolvePreviewFontFamily(rawTipoFuente || "Default"),
     align: toStringValue(
       row.Alineacion ?? row.alineacion,
       "left",
@@ -538,6 +544,7 @@ const ensurePrintSqlSchema = async () => {
         TamanoFuente INT NOT NULL CONSTRAINT DF_Scan_ReporteDetalle_TamanoFuente DEFAULT (18),
         Negrita BIT NOT NULL CONSTRAINT DF_Scan_ReporteDetalle_Negrita DEFAULT (0),
         Alineacion NVARCHAR(20) NOT NULL CONSTRAINT DF_Scan_ReporteDetalle_Alineacion DEFAULT ('center'),
+        TipoFuente NVARCHAR(100) NULL,
         Visible BIT NOT NULL CONSTRAINT DF_Scan_ReporteDetalle_Visible DEFAULT (1),
         Orden INT NOT NULL CONSTRAINT DF_Scan_ReporteDetalle_Orden DEFAULT (0),
         MaxLineas INT NOT NULL CONSTRAINT DF_Scan_ReporteDetalle_MaxLineas DEFAULT (1),
@@ -552,6 +559,12 @@ const ensurePrintSqlSchema = async () => {
     BEGIN
       ALTER TABLE dbo.Scan_ReporteDetalle
         ADD Italica BIT NOT NULL CONSTRAINT DF_Scan_ReporteDetalle_Italica DEFAULT (0) WITH VALUES;
+    END;
+
+    IF COL_LENGTH('dbo.Scan_ReporteDetalle', 'TipoFuente') IS NULL
+    BEGIN
+      ALTER TABLE dbo.Scan_ReporteDetalle
+        ADD TipoFuente NVARCHAR(100) NULL;
     END;
   `;
 
@@ -629,6 +642,22 @@ export const loadPrintFormatsFromSql = async () => {
         ? "d.Italica"
         : "CAST(0 AS BIT) AS Italica";
 
+      const hasTipoFuenteColumnRows = readSqlRows(
+        await executeSql(`SELECT CASE
+          WHEN COL_LENGTH('dbo.Scan_ReporteDetalle', 'TipoFuente') IS NULL THEN 0
+          ELSE 1
+        END AS HasTipoFuente`),
+      );
+      const hasTipoFuenteColumn = Boolean(
+        hasTipoFuenteColumnRows[0]?.HasTipoFuente ??
+        hasTipoFuenteColumnRows[0]?.hasTipoFuente ??
+        0,
+      );
+
+      const detailFontColumn = hasTipoFuenteColumn
+        ? "d.TipoFuente"
+        : "CAST(NULL AS NVARCHAR(100)) AS TipoFuente";
+
       const detailRows = await executeSql(`
         SELECT
           r.Codigo,
@@ -647,6 +676,7 @@ export const loadPrintFormatsFromSql = async () => {
           d.Orden,
           d.MaxLineas,
           d.Mayuscula,
+          ${detailFontColumn},
           ${detailItalicColumn}
         FROM dbo.Scan_ReporteDetalle d
         INNER JOIN dbo.Scan_Reporte r ON r.IdReporte = d.IdReporte
@@ -711,8 +741,12 @@ export const loadPrintFormatsFromSql = async () => {
             row.Campo ?? row.campo ?? row.ValueKey ?? row.Valuekey,
             "",
           );
+          const tipoFuente = toStringValue(
+            row.TipoFuente ?? row.tipoFuente ?? "",
+            "Default",
+          );
           console.log(
-            `[PRINT_SQL] item Campo ${fieldName || "Item"} Visible ${toBool(row.Visible ?? row.visible, true) ? 1 : 0}`,
+            `[PRINT_SQL] item Campo ${fieldName || "Item"} TipoFuente ${tipoFuente || "Default"} Visible ${toBool(row.Visible ?? row.visible, true) ? 1 : 0}`,
           );
         });
       }
@@ -839,9 +873,12 @@ export const savePrintFormatsToSql = async (formats = {}) => {
           String(element.fontWeight ?? "400").trim() === "700" ? 1 : 0;
         const uppercase = element.uppercase ? 1 : 0;
         const maxLines = Math.max(1, toInt(element.maxLines, 1));
+        const tipoFuente = String(
+          element.TipoFuente ?? element.tipoFuente ?? element.fontFamily ?? "",
+        ).trim();
         await executeSql(`
           INSERT INTO dbo.Scan_ReporteDetalle (
-            IdReporte, TipoElemento, Campo, TextoFijo, X, Y, Ancho, Alto, TamanoFuente, Negrita, Alineacion, Visible, Orden, MaxLineas, Mayuscula, Italica, FechaModificacion
+            IdReporte, TipoElemento, Campo, TextoFijo, X, Y, Ancho, Alto, TamanoFuente, Negrita, Alineacion, TipoFuente, Visible, Orden, MaxLineas, Mayuscula, Italica, FechaModificacion
           ) VALUES (
             ${insertedId},
             ${sqlLiteral(sqlTipoElemento)},
@@ -854,6 +891,7 @@ export const savePrintFormatsToSql = async (formats = {}) => {
             ${toInt(element.fontSize, 16)},
             ${fontWeight},
             ${sqlLiteral(String(element.align ?? "left"))},
+            ${sqlLiteral(tipoFuente)},
             ${visible},
             ${toInt(element.zIndex, elementIndex + 1)},
             ${maxLines},

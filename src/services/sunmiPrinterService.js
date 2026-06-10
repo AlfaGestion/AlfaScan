@@ -7,6 +7,7 @@ import {
   loadPrintFormats,
   mapEditorFontSizeToSunmi,
 } from "@services/printLayoutService";
+import { isMonospacePrintFont } from "@services/printFontService";
 import {
   getCatalogConfig,
   getCompanyNameFromSqlConfig,
@@ -395,10 +396,15 @@ export const printText = async (text, options = {}) => {
   }
 
   await setPrinterAlignment(options.align || "left");
-  if (options.italic && typeof module.printTextWithFont === "function") {
+  const wantsMonospace = isMonospacePrintFont(options.fontFamily);
+  if (
+    typeof module.printTextWithFont === "function" &&
+    (options.italic || wantsMonospace)
+  ) {
+    const nativeFont = wantsMonospace ? "monospace" : "serif";
     await module.printTextWithFont(
       `${body}\n`,
-      "serif",
+      nativeFont,
       Math.max(10, Number(options.fontSize) || 16),
     );
   } else {
@@ -557,6 +563,7 @@ export const printLabel = async (
         align: item.align,
         fontSize: sunmiFontSize,
         italic: item.italic,
+        fontFamily: item.fontFamily,
       });
     } else {
       const sunmiFontSize = Math.max(
@@ -574,6 +581,7 @@ export const printLabel = async (
         align: item.align,
         fontSize: sunmiFontSize,
         italic: item.italic,
+        fontFamily: item.fontFamily,
       });
     }
 

@@ -3,6 +3,7 @@ import { Image, PanResponder, StyleSheet, Text, View } from "react-native";
 
 import Colors from "@styles/Colors";
 import { Fonts } from "@styles/Theme";
+import { resolvePreviewFontFamily } from "@services/printFontService";
 
 import alfaLogo from "../../../assets/alfa_logo.png";
 
@@ -100,6 +101,9 @@ function PrintElement({
                   fontSize: Math.max(10, element.fontSize * 0.9),
                   textAlign: element.align || "center",
                   color: element.color || "#111827",
+                  fontFamily: resolvePreviewFontFamily(
+                    element.tipoFuente || element.fontFamily || "Monospace",
+                  ),
                 },
               ]}
               numberOfLines={1}
@@ -134,6 +138,9 @@ function PrintElement({
                 fontSize: Math.max(10, element.fontSize * 0.85),
                 textAlign: element.align || "center",
                 color: element.color || "#111827",
+                fontFamily: resolvePreviewFontFamily(
+                  element.tipoFuente || element.fontFamily || "Default",
+                ),
               },
             ]}
             numberOfLines={1}
@@ -196,6 +203,9 @@ function PrintElement({
             fontWeight: element.fontWeight === "700" ? "700" : "400",
             fontStyle:
               element.fontStyle || (element.italic ? "italic" : "normal"),
+            fontFamily: resolvePreviewFontFamily(
+              element.tipoFuente || element.fontFamily || "Default",
+            ),
             textAlign: element.align || "left",
             textTransform: element.uppercase ? "uppercase" : "none",
             lineHeight: Math.max(12, element.fontSize * 1.18),
