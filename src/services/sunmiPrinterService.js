@@ -788,12 +788,34 @@ export const printSimpleProductLabel = async (
 
   console.log("[PRINT] calling native Sunmi print");
   const itemsToNative = Array.isArray(layout?.items)
-    ? layout.items.map((item) => ({
-        ...item,
-        barcode: payload.barcode,
-        internalCode: payload.internalCode,
-        code: payload.internalCode || payload.barcode,
-      }))
+    ? layout.items.map((item) => {
+        const barcodeValue = String(
+          item?.barcode ??
+            item?.value ??
+            payload.barcode ??
+            payload.internalCode ??
+            "",
+        ).trim();
+
+        if (String(item?.type ?? "").trim() === "barcode") {
+          return {
+            ...item,
+            type: "text",
+            key: "barcodeText",
+            value: `Barra: ${barcodeValue}`,
+            barcode: barcodeValue,
+            internalCode: payload.internalCode,
+            code: payload.internalCode || payload.barcode,
+          };
+        }
+
+        return {
+          ...item,
+          barcode: payload.barcode,
+          internalCode: payload.internalCode,
+          code: payload.internalCode || payload.barcode,
+        };
+      })
     : [];
   const result = await module.printSimpleProductLabel({
     formatKey: key,
