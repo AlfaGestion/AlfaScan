@@ -206,7 +206,7 @@ public class SunmiDiagnosticsModule extends ReactContextBaseJavaModule {
       if (items != null && items.size() > 0) {
         printLayoutItemsInternal(printerService, items, copies);
       } else {
-        printSimpleProductLabelInternal(printerService, formatKey, description, price, barcode, internalCode, companyName, copies);
+        throw new Exception("El layout de impresión no contiene items.");
       }
       promise.resolve(Boolean.TRUE);
     } catch (Exception e) {
@@ -532,51 +532,6 @@ public class SunmiDiagnosticsModule extends ReactContextBaseJavaModule {
     }
 
     callPrinterCommand(callback -> service.lineWrap(2, callback));
-  }
-
-  private void printSimpleProductLabelInternal(IWoyouService service, String formatKey, String description, String price, String barcode, String internalCode, String companyName, int copies) throws Exception {
-    String desc = String.valueOf(description == null ? "" : description).trim();
-    String priceText = String.valueOf(price == null ? "" : price).trim();
-    String barcodeText = String.valueOf(barcode == null ? "" : barcode).trim();
-    String internalText = String.valueOf(internalCode == null ? "" : internalCode).trim();
-    String companyText = String.valueOf(companyName == null ? "" : companyName).trim();
-    int totalCopies = Math.max(1, copies);
-
-    Log.i(TAG, "[SUNMI] printSimpleProductLabel start");
-    callPrinterCommand(callback -> service.printerInit(callback));
-
-    for (int copy = 0; copy < totalCopies; copy++) {
-      if (copy > 0) {
-        callPrinterCommand(callback -> service.lineWrap(2, callback));
-      }
-
-      if (!companyText.isEmpty()) {
-        String companyWrapped = wrapText(companyText, 28).toUpperCase(Locale.ROOT);
-        Log.i(TAG, "[SUNMI] print company");
-        callPrinterCommand(callback -> service.setAlignment(1, callback));
-        callPrinterCommand(callback -> service.setFontSize(18f, callback));
-        callPrinterCommand(callback -> service.printText(companyWrapped + "\n", callback));
-      }
-
-      Log.i(TAG, "[SUNMI] print description");
-      callPrinterCommand(callback -> service.setAlignment(1, callback));
-      callPrinterCommand(callback -> service.setFontSize(22f, callback));
-      callPrinterCommand(callback -> service.printText(wrapText(desc.isEmpty() ? "Producto" : desc, 24) + "\n", callback));
-
-      Log.i(TAG, "[SUNMI] print price");
-      callPrinterCommand(callback -> service.setAlignment(1, callback));
-      callPrinterCommand(callback -> service.setFontSize(30f, callback));
-      callPrinterCommand(callback -> service.printText((priceText.isEmpty() ? "$ 0,00" : priceText) + "\n", callback));
-
-      Log.i(TAG, "[SUNMI] print code");
-      callPrinterCommand(callback -> service.setAlignment(0, callback));
-      callPrinterCommand(callback -> service.setFontSize(18f, callback));
-      String codeText = !internalText.isEmpty() ? internalText : !barcodeText.isEmpty() ? barcodeText : "-";
-      callPrinterCommand(callback -> service.printText("Cod: " + codeText + "\n", callback));
-
-      callPrinterCommand(callback -> service.lineWrap(1, callback));
-    }
-    Log.i(TAG, "[SUNMI] print done");
   }
 
   private void printLayoutItemsInternal(IWoyouService service, ReadableArray items, int copies) throws Exception {
