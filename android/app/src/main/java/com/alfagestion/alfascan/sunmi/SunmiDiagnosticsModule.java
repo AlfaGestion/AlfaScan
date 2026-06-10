@@ -636,11 +636,12 @@ public class SunmiDiagnosticsModule extends ReactContextBaseJavaModule {
               Log.i(TAG, "[SUNMI_LAYOUT] barcode skipped empty value");
             }
           } else if ("separator".equalsIgnoreCase(type)) {
-            int separatorWidth = Math.max(12, Math.min(48, Math.round(getIntSafe(item, "width", 240) / 8f)));
-            String separator = repeatChar('-', separatorWidth);
+            int alignment = resolveAlignmentValue(align);
             Log.i(TAG, "[SUNMI] print separator");
-            callPrinterCommand(callback -> service.setAlignment(1, callback));
-            callPrinterCommand(callback -> service.printText(separator + "\n", callback));
+            callPrinterCommand(callback -> service.lineWrap(1, callback));
+            callPrinterCommand(callback -> service.setAlignment(alignment, callback));
+            callPrinterCommand(callback -> service.printText("-\n", callback));
+            callPrinterCommand(callback -> service.lineWrap(1, callback));
           } else {
             String text = value.trim();
             if (!text.isEmpty()) {
@@ -822,15 +823,6 @@ public class SunmiDiagnosticsModule extends ReactContextBaseJavaModule {
       }
     }
     return bitmap;
-  }
-
-  private String repeatChar(char ch, int count) {
-    int safeCount = Math.max(0, count);
-    StringBuilder builder = new StringBuilder(safeCount);
-    for (int i = 0; i < safeCount; i++) {
-      builder.append(ch);
-    }
-    return builder.toString();
   }
 
   private String getStringSafe(ReadableMap map, String key) {
