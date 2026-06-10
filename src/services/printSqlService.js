@@ -93,10 +93,75 @@ const normalizeSqlElementType = (value) => {
   return "text";
 };
 
+const normalizeSqlFieldKey = (value, type = "text", fallback = "") => {
+  const raw = String(value ?? fallback ?? "").trim().toLowerCase();
+  const compact = raw.replace(/[\s_-]+/g, "");
+
+  if (!raw) {
+    if (type === "barcode") return "barcode";
+    if (type === "logo") return "logo";
+    return "";
+  }
+
+  if (
+    compact === "descripcion" ||
+    compact === "description" ||
+    compact === "desc" ||
+    compact === "detalle"
+  ) {
+    return "description";
+  }
+  if (compact === "precio" || compact === "price" || compact === "valor") {
+    return "price";
+  }
+  if (
+    compact === "empresa" ||
+    compact === "nombreempresa" ||
+    compact === "companyname" ||
+    compact === "razonsocial"
+  ) {
+    return "companyName";
+  }
+  if (
+    compact === "codigobarra" ||
+    compact === "codigobarras" ||
+    compact === "barcode" ||
+    compact === "barras" ||
+    compact === "barra"
+  ) {
+    return "barcode";
+  }
+  if (
+    compact === "codigointerno" ||
+    compact === "codigoarticulo" ||
+    compact === "codigoproducto" ||
+    compact === "interno" ||
+    compact === "code" ||
+    compact === "codigo"
+  ) {
+    return type === "barcode" ? "barcode" : "internalCode";
+  }
+  if (compact === "stock") {
+    return "stock";
+  }
+  if (compact === "fecha" || compact === "date") {
+    return "date";
+  }
+  if (compact === "logo") {
+    return "logo";
+  }
+
+  return raw;
+};
+
 const mapSqlDetailToElement = (row = {}, index = 0) => {
   const field = toStringValue(row.Campo ?? row.campo ?? row.ValueKey ?? row.Valuekey);
   const type = normalizeSqlElementType(row.TipoElemento ?? row.tipoElemento);
-  const key = field || (type === "barcode" ? "barcode" : type === "logo" ? "logo" : `element_${index + 1}`);
+  const key = normalizeSqlFieldKey(
+    field,
+    type,
+    type === "barcode" ? "barcode" : type === "logo" ? "logo" : `element_${index + 1}`,
+  );
   const fontSize = toInt(row.TamanoFuente ?? row.tamanoFuente ?? row.FontSize, 16);
   const maxLines = Math.max(1, toInt(row.MaxLineas ?? row.maxLineas ?? row.MaxLines, 1));
   const italic = toBool(row.Italica ?? row.italica ?? row.Italic ?? row.italic, false);
@@ -119,7 +184,7 @@ const mapSqlDetailToElement = (row = {}, index = 0) => {
     maxLines,
     zIndex: toInt(row.Orden ?? row.orden, index + 1),
     sampleText: toStringValue(row.TextoFijo ?? row.textoFijo ?? ""),
-    valueKey: field || key,
+    valueKey: normalizeSqlFieldKey(field, type, key) || key,
     formatAsPrice: key === "price",
     showSymbol: key === "price",
     showNumber: type !== "barcode" ? true : toBool(row.ShowNumber ?? row.showNumber, true),
@@ -134,7 +199,9 @@ const mapSqlHeaderToFormat = (row = {}, index = 0, elements = []) => {
   const displayName = toStringValue(row.Nombre ?? row.nombre, DISPLAY_NAMES[code] || code);
 
   const visibleKeys = new Set(
-    elements.filter((item) => item.visible).map((item) => String(item.valueKey ?? item.key ?? "").trim()),
+    elements
+      .filter((item) => item.visible)
+      .map((item) => normalizeSqlFieldKey(item.valueKey ?? item.key ?? "", item.type ?? "text")),
   );
 
   return {
