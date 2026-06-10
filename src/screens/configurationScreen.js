@@ -40,7 +40,7 @@ const MODE_OPTIONS = [
 
 const TAB_OPTIONS = [
   { label: "General", value: "GENERAL" },
-  { label: "ConexiÃ³n", value: "CONNECTION" },
+  { label: "Conexión", value: "CONNECTION" },
 ];
 
 const FREQUENCY_OPTIONS = [
@@ -205,7 +205,7 @@ const PasswordField = ({ title, value, onChange, placeholder, darkMode }) => {
           hitSlop={10}
           accessibilityRole="button"
           accessibilityLabel={
-            secure ? "Mostrar contraseÃ±a" : "Ocultar contraseÃ±a"
+            secure ? "Mostrar contraseña" : "Ocultar contraseña"
           }
         >
           <Ionicons
@@ -438,11 +438,11 @@ export default function ConfigurationScreen({ navigation }) {
         if (!String(config.API_URI).trim())
           throw new Error("Complete la ruta web service.");
         if (!String(config.API_ACCOUNT_CODE).trim())
-          throw new Error("Complete el cÃ³digo de cuenta AlfaNet.");
+          throw new Error("Complete el código de cuenta AlfaNet.");
         if (!String(config.API_USER).trim())
           throw new Error("Complete el usuario.");
         if (!String(config.API_PASSWORD).trim())
-          throw new Error("Complete la contraseÃ±a.");
+          throw new Error("Complete la contraseña.");
         if (!String(config.API_BASE_ID).trim())
           throw new Error("Complete el ID base.");
       }
@@ -455,9 +455,9 @@ export default function ConfigurationScreen({ navigation }) {
         if (!String(config.SQL_USER).trim())
           throw new Error("Complete el usuario SQL.");
         if (!String(config.SQL_PASSWORD).trim())
-          throw new Error("Complete la contraseÃ±a SQL.");
+          throw new Error("Complete la contraseña SQL.");
         if (!String(config.SQL_ARTICLES_TABLE).trim())
-          throw new Error("Complete la tabla o vista de artÃ­culos.");
+          throw new Error("Complete la tabla o vista de artículos.");
       }
 
       const payload = [
@@ -508,10 +508,10 @@ export default function ConfigurationScreen({ navigation }) {
       }
 
       await loadConfiguration();
-      setStatus("ConfiguraciÃ³n guardada correctamente.");
+      setStatus("Configuración guardada correctamente.");
       await refreshTheme();
     } catch (e) {
-      setStatus(e?.message || "No se pudo guardar la configuraciÃ³n.");
+      setStatus(e?.message || "No se pudo guardar la configuración.");
     } finally {
       setSaving(false);
     }
@@ -527,7 +527,7 @@ export default function ConfigurationScreen({ navigation }) {
         setConnectionResult({
           status: "error",
           title: "No se pudo conectar",
-          subtitle: "CompletÃ¡ la ruta web service antes de probar.",
+          subtitle: "Completá la ruta web service antes de probar.",
         });
         return;
       }
@@ -536,7 +536,7 @@ export default function ConfigurationScreen({ navigation }) {
       setConnectionResult({
         status: "loading",
         title: "Conectando...",
-        subtitle: "Estamos verificando la conexiÃ³n con el servidor SQL.",
+        subtitle: "Estamos verificando la conexión con el servidor SQL.",
       });
 
       try {
@@ -548,12 +548,12 @@ export default function ConfigurationScreen({ navigation }) {
         }
         setConnectionResult({
           status: "success",
-          title: "ConexiÃ³n exitosa",
+          title: "Conexión exitosa",
           subtitle: "La app pudo conectarse correctamente al servidor.",
         });
       } catch (e) {
         const rawMessage = String(
-          e?.message || "No se pudo probar la conexiÃ³n.",
+          e?.message || "No se pudo probar la conexión.",
         ).trim();
         const detail =
           rawMessage.length > 140
@@ -562,7 +562,7 @@ export default function ConfigurationScreen({ navigation }) {
         setConnectionResult({
           status: "error",
           title: "No se pudo conectar",
-          subtitle: "RevisÃ¡ los datos y volvÃ© a intentar.",
+          subtitle: "Revisá los datos y volvé a intentar.",
           detail,
         });
       } finally {
@@ -582,7 +582,7 @@ export default function ConfigurationScreen({ navigation }) {
         status: "error",
         title: "No se pudo conectar",
         subtitle:
-          "CompletÃ¡ servidor, base, usuario, contraseÃ±a y tabla/vista antes de probar.",
+          "Completá servidor, base, usuario, contraseña y tabla/vista antes de probar.",
       });
       return;
     }
@@ -600,7 +600,7 @@ export default function ConfigurationScreen({ navigation }) {
     setConnectionResult({
       status: "loading",
       title: "Conectando...",
-      subtitle: "Estamos verificando la conexiÃ³n con el servidor SQL.",
+      subtitle: "Estamos verificando la conexión con el servidor SQL.",
     });
 
     try {
@@ -620,7 +620,7 @@ export default function ConfigurationScreen({ navigation }) {
       await closeSql();
       setConnectionResult({
         status: "success",
-        title: "ConexiÃ³n exitosa",
+        title: "Conexión exitosa",
         subtitle: "La app pudo conectarse correctamente al servidor.",
       });
     } catch (e) {
@@ -642,7 +642,7 @@ export default function ConfigurationScreen({ navigation }) {
       setConnectionResult({
         status: "error",
         title: "No se pudo conectar",
-        subtitle: "RevisÃ¡ los datos y volvÃ© a intentar.",
+        subtitle: "Revisá los datos y volvé a intentar.",
         detail,
       });
       await closeSql();
@@ -655,7 +655,7 @@ export default function ConfigurationScreen({ navigation }) {
     if (activeMode !== "LOCAL") {
       Alert.alert(
         "AlfaScan",
-        "La sincronizaciÃ³n manual aplica solo para SQL Local.",
+        "La sincronización manual aplica solo para SQL Local.",
       );
       return;
     }
@@ -666,23 +666,23 @@ export default function ConfigurationScreen({ navigation }) {
       const result = await syncCatalogToLocal({
         onProgress: ({ inserted, page }) => {
           setStatus(
-            `Sincronizando catÃ¡logo... ${inserted} registros importados (lote ${page}).`,
+            `Sincronizando catálogo... ${inserted} registros importados (lote ${page}).`,
           );
         },
       });
       const now = new Date().toISOString();
       await Configuration.setConfigValue("LAST_SYNC_AT", now);
       setStatus(
-        `SincronizaciÃ³n completada. Registros importados: ${result.inserted}.`,
+        `Sincronización completada. Registros importados: ${result.inserted}.`,
       );
     } catch (e) {
-      setStatus(e?.message || "No se pudo sincronizar el catÃ¡logo.");
+      setStatus(e?.message || "No se pudo sincronizar el catálogo.");
     } finally {
       setSyncing(false);
     }
   };
 
-  const testButtonLabel = testing ? "Probando..." : "Probar conexiÃ³n";
+  const testButtonLabel = testing ? "Probando..." : "Probar conexión";
 
   return (
     <View style={[styles.root, { backgroundColor: theme.background }]}>
@@ -696,10 +696,10 @@ export default function ConfigurationScreen({ navigation }) {
           style={[styles.card, { backgroundColor: theme.surface }, Shadow.sm]}
         >
           <Text style={[styles.title, { color: theme.text }]}>
-            ConfiguraciÃ³n AlfaScan
+            Configuración AlfaScan
           </Text>
           <Text style={[styles.subtitle, { color: theme.muted }]}>
-            Defina el modo de conexiÃ³n principal y los datos esenciales de
+            Defina el modo de conexión principal y los datos esenciales de
             acceso.
           </Text>
 
@@ -755,7 +755,7 @@ export default function ConfigurationScreen({ navigation }) {
                 value={config.COMPANY_NAME}
                 handleChange={handleChange}
                 darkMode={darkMode}
-                helperText="Se usarÃ¡ como encabezado de impresiÃ³n si estÃ¡ cargado."
+                helperText="Se usará como encabezado de impresión si está cargado."
               />
 
               <ConfigItem
@@ -767,20 +767,8 @@ export default function ConfigurationScreen({ navigation }) {
                 keyboardType="numeric"
                 handleChange={handleChange}
                 darkMode={darkMode}
-                helperText="Cantidad de lÃ­neas al final de cada impresiÃ³n. Recomendado: 3."
+                helperText="Cantidad de líneas al final de cada impresión. Recomendado: 3."
               />
-
-              <View style={styles.modeRow}>
-                {MODE_OPTIONS.map((item) => (
-                  <ModeChip
-                    key={item.value}
-                    label={item.label}
-                    active={activeMode === item.value}
-                    onPress={() => handleModeChange(item.value)}
-                    darkMode={darkMode}
-                  />
-                ))}
-              </View>
 
               <Text style={[styles.sectionTitle, { color: theme.text }]}>
                 Modo oscuro
@@ -809,10 +797,19 @@ export default function ConfigurationScreen({ navigation }) {
                     : "API AlfaNet"}
               </SectionTitle>
               <Text style={[styles.sectionHint, { color: theme.muted }]}>
-                {activeMode === "API"
-                  ? "Alternativa disponible, pero no es el camino principal para precios ni catalogo."
-                  : "SQL directo requiere APK propia / development build. No funciona en Expo Go."}
+                Elegí el tipo de conexión.
               </Text>
+              <View style={styles.modeRow}>
+                {MODE_OPTIONS.map((item) => (
+                  <ModeChip
+                    key={item.value}
+                    label={item.label}
+                    active={activeMode === item.value}
+                    onPress={() => handleModeChange(item.value)}
+                    darkMode={darkMode}
+                  />
+                ))}
+              </View>
               {activeMode === "API" ? (
                 <>
                   <ConfigItem
@@ -922,7 +919,7 @@ export default function ConfigurationScreen({ navigation }) {
                     value={config.SQL_ARTICLES_TABLE}
                     handleChange={handleChange}
                     darkMode={darkMode}
-                    helperText="Vista o tabla del cliente. Por defecto: Productos."
+                    helperText="Vista o tabla del cliente."
                   />
                 </>
               )}
@@ -996,23 +993,21 @@ export default function ConfigurationScreen({ navigation }) {
             onPress={() => navigation.navigate("ConfigurationAdditionalScreen")}
           >
             <Ionicons name="options-outline" size={18} color={Colors.WHITE} />
-            <Text style={styles.actionButtonText}>
-              ConfiguraciÃ³n adicional
-            </Text>
+            <Text style={styles.actionButtonText}>Configuración adicional</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.actionButton, { backgroundColor: theme.accent }]}
             onPress={() => navigation.navigate("PrintConfigurationScreen")}
           >
             <Ionicons name="print-outline" size={18} color={Colors.WHITE} />
-            <Text style={styles.actionButtonText}>Configurar impresiÃ³n</Text>
+            <Text style={styles.actionButtonText}>Configurar impresión</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.actionButton, { backgroundColor: theme.success }]}
             onPress={() => navigation.navigate("SunmiDiagnosticsScreen")}
           >
             <Ionicons name="medkit-outline" size={18} color={Colors.WHITE} />
-            <Text style={styles.actionButtonText}>DiagnÃ³stico Sunmi</Text>
+            <Text style={styles.actionButtonText}>Diagnóstico Sunmi</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.actionButton, { backgroundColor: theme.accent }]}
@@ -1024,7 +1019,7 @@ export default function ConfigurationScreen({ navigation }) {
             ) : (
               <Ionicons name="save-outline" size={18} color={Colors.WHITE} />
             )}
-            <Text style={styles.actionButtonText}>Guardar configuraciÃ³n</Text>
+            <Text style={styles.actionButtonText}>Guardar configuración</Text>
           </TouchableOpacity>
         </View>
 
