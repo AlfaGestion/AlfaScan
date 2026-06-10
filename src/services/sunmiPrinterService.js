@@ -802,6 +802,19 @@ export const printSunmiDiagnosticTest = async () => {
   return { printed: true };
 };
 
+export const printFontScaleTest = async () => {
+  const module = getDiagnosticsModule();
+  if (!module || typeof module.printFontScaleTest !== "function") {
+    throw new Error("SunmiDiagnostics existe pero no expone printFontScaleTest. RecompilÃ¡ la app con npx expo run:android.");
+  }
+
+  console.log("[PRINT_LAYOUT] build db88bf8 active");
+  console.log("[PRINT] calling printFontScaleTest");
+  const result = await module.printFontScaleTest();
+  console.log("[PRINT] font scale test success");
+  return result;
+};
+
 export default {
   isSunmiDevice,
   isPrinterAvailable,
@@ -815,5 +828,6 @@ export default {
   getPrinterInfo,
   getSunmiDiagnostics,
   printSunmiDiagnosticTest,
+  printFontScaleTest,
   printQrCode,
 };

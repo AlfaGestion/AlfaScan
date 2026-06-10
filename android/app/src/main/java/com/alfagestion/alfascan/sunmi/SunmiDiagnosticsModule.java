@@ -279,6 +279,43 @@ public class SunmiDiagnosticsModule extends ReactContextBaseJavaModule {
       promise.reject("SUNMI_PLAIN_TEXT_ERROR", e.getMessage(), e);
     }
   }
+
+  @ReactMethod
+  public void printFontScaleTest(Promise promise) {
+    if (printerService == null || !bound) {
+      promise.reject("SERVICE_NOT_CONNECTED", "Servicio no conectado.");
+      return;
+    }
+
+    try {
+      Log.i(TAG, "[SUNMI_SCALE_TEST] build db88bf8 active");
+      Log.i(TAG, "[SUNMI_SCALE_TEST] start");
+      callPrinterCommand(callback -> printerService.printerInit(callback));
+      callPrinterCommand(callback -> printerService.setAlignment(0, callback));
+
+      float[] sizes = new float[] {18f, 24f, 32f, 40f, 48f};
+      String[] lines = new String[] {"FONT 18", "FONT 24", "FONT 32", "FONT 40", "FONT 48"};
+
+      for (int i = 0; i < sizes.length; i++) {
+        float size = sizes[i];
+        String line = lines[i];
+        Log.i(TAG, "[SUNMI_SCALE_TEST] size=" + size + " text=" + line);
+        callPrinterCommand(callback -> printerService.setFontSize(size, callback));
+        callPrinterCommand(callback -> printerService.printText(line + "\n", callback));
+        if (i < sizes.length - 1) {
+          callPrinterCommand(callback -> printerService.lineWrap(1, callback));
+        }
+      }
+
+      callPrinterCommand(callback -> printerService.lineWrap(2, callback));
+      Log.i(TAG, "[SUNMI_SCALE_TEST] done");
+      promise.resolve(Boolean.TRUE);
+    } catch (Exception e) {
+      lastError = e.getMessage();
+      Log.e(TAG, "[SUNMI_SCALE_TEST] error", e);
+      promise.reject("SUNMI_SCALE_TEST_ERROR", e.getMessage(), e);
+    }
+  }
   private WritableMap buildDeviceInfo() {
     WritableMap map = Arguments.createMap();
     map.putString("manufacturer", String.valueOf(Build.MANUFACTURER));

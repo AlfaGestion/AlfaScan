@@ -7,7 +7,11 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Colors from "@styles/Colors";
 import { Fonts, Radii, Shadow } from "@styles/Theme";
 import { useThemeConfig } from "@context/ThemeContext";
-import { getSunmiDiagnostics, printSunmiDiagnosticTest } from "@services/sunmiPrinterService";
+import {
+  getSunmiDiagnostics,
+  printFontScaleTest,
+  printSunmiDiagnosticTest,
+} from "@services/sunmiPrinterService";
 
 const InfoRow = ({ label, value, theme }) => (
   <View style={[styles.infoRow, { borderColor: theme.border }]}>
@@ -104,6 +108,26 @@ export default function SunmiDiagnosticsScreen() {
     }
   }, [loadDiagnostics, testing]);
 
+  const handleFontScaleTest = useCallback(async () => {
+    if (testing) {
+      return;
+    }
+
+    setTesting(true);
+    setResult("");
+    try {
+      const output = await printFontScaleTest();
+      setResult(`Prueba de fuente exitosa. L\u00edneas impresas: ${output?.printed?.length || 0}.`);
+      await loadDiagnostics();
+    } catch (error) {
+      const message = String(error?.message || error || "");
+      setResult(message || "Error desconocido al probar tamaños.");
+      await loadDiagnostics();
+    } finally {
+      setTesting(false);
+    }
+  }, [loadDiagnostics, testing]);
+
   const printerLabel = diagnostics?.printerStatus?.mode || "Desconocido";
   const paperPresent = Boolean(diagnostics?.paperPresent);
 
@@ -123,6 +147,22 @@ export default function SunmiDiagnosticsScreen() {
           >
             {testing ? <ActivityIndicator color={Colors.WHITE} /> : <Ionicons name="print-outline" size={18} color={Colors.WHITE} />}
             <Text style={styles.printButtonText}>Probar impresión</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              styles.printButtonSecondary,
+              { borderColor: theme.border, backgroundColor: theme.surfaceAlt },
+            ]}
+            onPress={handleFontScaleTest}
+            disabled={testing}
+          >
+            {testing ? (
+              <ActivityIndicator color={theme.accent} />
+            ) : (
+              <Ionicons name="text-outline" size={18} color={theme.accent} />
+            )}
+            <Text style={[styles.printButtonSecondaryText, { color: theme.text }]}>Probar tamaños de fuente</Text>
           </TouchableOpacity>
         </View>
 
@@ -205,9 +245,24 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 8,
     paddingHorizontal: 14,
+    marginBottom: 10,
   },
   printButtonText: {
     color: Colors.WHITE,
+    fontFamily: Fonts.display,
+    fontSize: 14,
+  },
+  printButtonSecondary: {
+    minHeight: 48,
+    borderWidth: 1,
+    borderRadius: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingHorizontal: 14,
+  },
+  printButtonSecondaryText: {
     fontFamily: Fonts.display,
     fontSize: 14,
   },
