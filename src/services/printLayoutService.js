@@ -699,6 +699,7 @@ const migrateLegacyFormat = (
   const result = {
     ...base,
     ...raw,
+    __source: raw.__source ?? fallbackTemplate.__source ?? "",
     key: fallbackTemplate.key,
     name: String(raw.name ?? fallbackTemplate.name),
     paperWidth: String(raw.paperWidth ?? fallbackTemplate.paperWidth ?? "80"),
@@ -847,7 +848,17 @@ export const normalizePrintConfig = (savedConfig) => {
       sourceObject[normalizeFormatKey(template.name, index)] ||
       {};
 
-    acc[key] = migrateLegacyFormat({ ...candidate, key }, template);
+    const normalizedFormat = migrateLegacyFormat(
+      { ...candidate, key },
+      template,
+    );
+    const sourceTag = String(
+      candidate.__source ?? sourceObject.__source ?? "",
+    ).trim();
+    if (sourceTag) {
+      normalizedFormat.__source = sourceTag;
+    }
+    acc[key] = normalizedFormat;
     return acc;
   }, {});
 
@@ -1108,6 +1119,12 @@ export const renderPrintLayout = (
     DEFAULT_PRINT_FORMATS.find((item) => item.key === formatConfig.key) ||
       DEFAULT_PRINT_FORMATS[0],
   );
+  const source = String(
+    format.__source ?? formatConfig.__source ?? options.source ?? "",
+  )
+    .trim()
+    .toUpperCase();
+  const isSqlSource = source === "SQL";
   const paperWidthPx = getPaperWidthPx(format);
   const paperHeightPx = getPaperHeightPx(format, paperWidthPx);
   const paperWidthMm = getPaperWidthMm(format);
@@ -1116,16 +1133,17 @@ export const renderPrintLayout = (
   const elements = (format.elements || [])
     .map((element) => {
       const item = normalizeElement(element);
-      const visible =
-        item.visible &&
-        !(item.key === "description" && format.showDescription === false) &&
-        !(item.key === "price" && format.showPrice === false) &&
-        !(item.key === "barcode" && format.showBarcode === false) &&
-        !(item.key === "stock" && format.showStock === false) &&
-        !(item.key === "date" && format.showDate === false) &&
-        !(item.key === "companyName" && format.showCompanyName === false) &&
-        !(item.key === "internalCode" && format.showInternalCode === false) &&
-        !(item.key === "logo" && format.showLogo === false);
+      const visible = isSqlSource
+        ? item.visible
+        : item.visible &&
+          !(item.key === "description" && format.showDescription === false) &&
+          !(item.key === "price" && format.showPrice === false) &&
+          !(item.key === "barcode" && format.showBarcode === false) &&
+          !(item.key === "stock" && format.showStock === false) &&
+          !(item.key === "date" && format.showDate === false) &&
+          !(item.key === "companyName" && format.showCompanyName === false) &&
+          !(item.key === "internalCode" && format.showInternalCode === false) &&
+          !(item.key === "logo" && format.showLogo === false);
 
       return {
         ...item,
@@ -1181,6 +1199,26 @@ export const buildPrintableLayout = (
     const formatKey =
       String(layout?.format?.key ?? formatConfig?.key ?? "product").trim() ||
       "product";
+    const layoutSource =
+      String(
+        layout?.format?.__source ?? formatConfig?.__source ?? "LOCAL",
+      ).trim() || "LOCAL";
+    const visibleItems = Array.isArray(layout?.items) ? layout.items : [];
+    console.log("[APP_LAYOUT] source", layoutSource);
+    console.log("[APP_LAYOUT] items", visibleItems.length);
+    console.log(
+      "[APP_LAYOUT] visible Empresa",
+      Boolean(
+        visibleItems.find((item) => item.key === "companyName")?.visible ??
+        false,
+      ),
+    );
+    console.log(
+      "[APP_LAYOUT] visible CodigoBarra",
+      Boolean(
+        visibleItems.find((item) => item.key === "barcode")?.visible ?? false,
+      ),
+    );
     console.log("[PREVIEW] format", formatKey);
     console.log(
       "[PREVIEW] items",
@@ -1188,10 +1226,7 @@ export const buildPrintableLayout = (
         ? layout.format.elements.length
         : 0,
     );
-    console.log(
-      "[PREVIEW] visible items",
-      Array.isArray(layout?.items) ? layout.items.length : 0,
-    );
+    console.log("[PREVIEW] visible items", visibleItems.length);
   }
 
   return layout;

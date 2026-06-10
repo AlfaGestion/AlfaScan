@@ -26,7 +26,8 @@ const toBool = (value, fallback = false) => {
   return ["1", "true", "t", "yes", "y", "si", "sí"].includes(normalized);
 };
 
-const toStringValue = (value, fallback = "") => String(value ?? fallback).trim();
+const toStringValue = (value, fallback = "") =>
+  String(value ?? fallback).trim();
 
 const readSqlRows = (result) => {
   if (Array.isArray(result)) {
@@ -37,7 +38,9 @@ const readSqlRows = (result) => {
 };
 
 const normalizeCode = (value, index = 0) => {
-  const normalized = String(value ?? "").trim().toLowerCase();
+  const normalized = String(value ?? "")
+    .trim()
+    .toLowerCase();
   if (PRINT_CODES.includes(normalized)) {
     return normalized;
   }
@@ -46,7 +49,12 @@ const normalizeCode = (value, index = 0) => {
 
 const buildSqlConfig = async () => {
   const config = await getCatalogConfig().catch(() => null);
-  if (!config || String(config.mode ?? "").trim().toUpperCase() !== "ONLINE") {
+  if (
+    !config ||
+    String(config.mode ?? "")
+      .trim()
+      .toUpperCase() !== "ONLINE"
+  ) {
     return null;
   }
 
@@ -83,8 +91,14 @@ const closePrintSql = async () => {
 };
 
 const normalizeSqlElementType = (value) => {
-  const normalized = String(value ?? "").trim().toLowerCase();
-  if (normalized === "barcode" || normalized === "codigo_barra" || normalized === "codigo de barra") {
+  const normalized = String(value ?? "")
+    .trim()
+    .toLowerCase();
+  if (
+    normalized === "barcode" ||
+    normalized === "codigo_barra" ||
+    normalized === "codigo de barra"
+  ) {
     return "barcode";
   }
   if (
@@ -105,7 +119,9 @@ const normalizeSqlElementType = (value) => {
 };
 
 const normalizeSqlFieldKey = (value, type = "text", fallback = "") => {
-  const raw = String(value ?? fallback ?? "").trim().toLowerCase();
+  const raw = String(value ?? fallback ?? "")
+    .trim()
+    .toLowerCase();
   const compact = raw.replace(/[\s_-]+/g, "");
 
   if (!raw) {
@@ -162,7 +178,12 @@ const normalizeSqlFieldKey = (value, type = "text", fallback = "") => {
   if (compact === "logo") {
     return "logo";
   }
-  if (compact === "separador" || compact === "separator" || compact === "linea" || compact === "line") {
+  if (
+    compact === "separador" ||
+    compact === "separator" ||
+    compact === "linea" ||
+    compact === "line"
+  ) {
     return "separator";
   }
 
@@ -170,23 +191,42 @@ const normalizeSqlFieldKey = (value, type = "text", fallback = "") => {
 };
 
 const mapSqlDetailToElement = (row = {}, index = 0) => {
-  const field = toStringValue(row.Campo ?? row.campo ?? row.ValueKey ?? row.Valuekey);
+  const field = toStringValue(
+    row.Campo ?? row.campo ?? row.ValueKey ?? row.Valuekey,
+  );
   const type = normalizeSqlElementType(row.TipoElemento ?? row.tipoElemento);
   const key = normalizeSqlFieldKey(
     field,
     type,
-    type === "barcode" ? "barcode" : type === "logo" ? "logo" : type === "separator" ? `separator_${index + 1}` : `element_${index + 1}`,
+    type === "barcode"
+      ? "barcode"
+      : type === "logo"
+        ? "logo"
+        : type === "separator"
+          ? `separator_${index + 1}`
+          : `element_${index + 1}`,
   );
-  const fontSize = toInt(row.TamanoFuente ?? row.tamanoFuente ?? row.FontSize, 16);
-  const maxLines = Math.max(1, toInt(row.MaxLineas ?? row.maxLineas ?? row.MaxLines, 1));
-  const italic = toBool(row.Italica ?? row.italica ?? row.Italic ?? row.italic, false);
+  const fontSize = toInt(
+    row.TamanoFuente ?? row.tamanoFuente ?? row.FontSize,
+    16,
+  );
+  const maxLines = Math.max(
+    1,
+    toInt(row.MaxLineas ?? row.maxLineas ?? row.MaxLines, 1),
+  );
+  const italic = toBool(
+    row.Italica ?? row.italica ?? row.Italic ?? row.italic,
+    false,
+  );
 
   return {
     key,
     type,
     label:
-      toStringValue(row.TextoFijo ?? row.textoFijo ?? row.Nombre ?? row.nombre, key) ||
-      (type === "separator" ? "Separador" : key),
+      toStringValue(
+        row.TextoFijo ?? row.textoFijo ?? row.Nombre ?? row.nombre,
+        key,
+      ) || (type === "separator" ? "Separador" : key),
     visible: toBool(row.Visible ?? row.visible, true),
     x: toInt(row.X ?? row.x, 0),
     y: toInt(row.Y ?? row.y, 0),
@@ -196,7 +236,10 @@ const mapSqlDetailToElement = (row = {}, index = 0) => {
     fontWeight: toBool(row.Negrita ?? row.negrita, false) ? "700" : "400",
     italic,
     fontStyle: italic ? "italic" : "normal",
-    align: toStringValue(row.Alineacion ?? row.alineacion, "left").toLowerCase(),
+    align: toStringValue(
+      row.Alineacion ?? row.alineacion,
+      "left",
+    ).toLowerCase(),
     uppercase: toBool(row.Mayuscula ?? row.mayuscula, false),
     maxLines,
     zIndex: toInt(row.Orden ?? row.orden, index + 1),
@@ -204,28 +247,44 @@ const mapSqlDetailToElement = (row = {}, index = 0) => {
     valueKey: normalizeSqlFieldKey(field, type, key) || key,
     formatAsPrice: key === "price",
     showSymbol: key === "price",
-    showNumber: type === "barcode" ? toBool(row.ShowNumber ?? row.showNumber, true) : true,
+    showNumber:
+      type === "barcode"
+        ? toBool(row.ShowNumber ?? row.showNumber, true)
+        : true,
     barcodeType: "EAN13",
   };
 };
 
 const mapSqlHeaderToFormat = (row = {}, index = 0, elements = []) => {
   const code = normalizeCode(row.Codigo ?? row.codigo, index);
-  const widthMm = toInt(row.AnchoPapelMm ?? row.anchoPapelMm, code === "product" || code === "small" ? 58 : 80);
+  const widthMm = toInt(
+    row.AnchoPapelMm ?? row.anchoPapelMm,
+    code === "product" || code === "small" ? 58 : 80,
+  );
   const heightMm = toInt(row.AltoMm ?? row.altoMm, 0);
-  const displayName = toStringValue(row.Nombre ?? row.nombre, DISPLAY_NAMES[code] || code);
+  const displayName = toStringValue(
+    row.Nombre ?? row.nombre,
+    DISPLAY_NAMES[code] || code,
+  );
 
   const visibleKeys = new Set(
     elements
       .filter((item) => item.visible)
-      .map((item) => normalizeSqlFieldKey(item.valueKey ?? item.key ?? "", item.type ?? "text")),
+      .map((item) =>
+        normalizeSqlFieldKey(
+          item.valueKey ?? item.key ?? "",
+          item.type ?? "text",
+        ),
+      ),
   );
 
   return {
+    __source: "SQL",
     key: code,
     name: displayName,
     paperWidth: widthMm === 58 || widthMm === 80 ? String(widthMm) : "custom",
-    customPaperWidth: widthMm === 58 || widthMm === 80 ? "" : String(widthMm || ""),
+    customPaperWidth:
+      widthMm === 58 || widthMm === 80 ? "" : String(widthMm || ""),
     customPaperHeight: heightMm > 0 ? String(heightMm) : "",
     paperHeight: heightMm > 0 ? "custom" : "auto",
     copies: "1",
@@ -240,7 +299,9 @@ const mapSqlHeaderToFormat = (row = {}, index = 0, elements = []) => {
     showCompanyName: visibleKeys.has("companyName"),
     showInternalCode: visibleKeys.has("internalCode"),
     showLogo: visibleKeys.has("logo"),
-    boldPrice: Boolean(elements.find((item) => item.key === "price")?.fontWeight === "700"),
+    boldPrice: Boolean(
+      elements.find((item) => item.key === "price")?.fontWeight === "700",
+    ),
     previewBeforePrint: true,
     elements,
   };
@@ -322,11 +383,13 @@ const rowsToSqlFormat = (rows = []) => {
     const detailRows = byCode.get(code) || [];
     const elements = detailRows
       .slice()
-      .sort((a, b) =>
-        toInt(a.Orden ?? a.orden, 0) - toInt(b.Orden ?? b.orden, 0) ||
-        toInt(a.Y ?? a.y, 0) - toInt(b.Y ?? b.y, 0) ||
-        toInt(a.X ?? a.x, 0) - toInt(b.X ?? b.x, 0) ||
-        toInt(a.IdDetalle ?? a.idDetalle, 0) - toInt(b.IdDetalle ?? b.idDetalle, 0),
+      .sort(
+        (a, b) =>
+          toInt(a.Orden ?? a.orden, 0) - toInt(b.Orden ?? b.orden, 0) ||
+          toInt(a.Y ?? a.y, 0) - toInt(b.Y ?? b.y, 0) ||
+          toInt(a.X ?? a.x, 0) - toInt(b.X ?? b.x, 0) ||
+          toInt(a.IdDetalle ?? a.idDetalle, 0) -
+            toInt(b.IdDetalle ?? b.idDetalle, 0),
       )
       .map((row, index) => mapSqlDetailToElement(row, index));
     const header = detailRows[0] || {};
@@ -351,7 +414,11 @@ export const loadPrintFormatsFromSql = async () => {
         END AS HasItalica
       `),
     );
-    const hasItalicColumn = Boolean(italicColumnRows[0]?.HasItalica ?? italicColumnRows[0]?.hasItalicColumn ?? 0);
+    const hasItalicColumn = Boolean(
+      italicColumnRows[0]?.HasItalica ??
+      italicColumnRows[0]?.hasItalicColumn ??
+      0,
+    );
 
     const loadRows = async (activeOnly = true) => {
       const activeClause = activeOnly ? "AND ISNULL(r.Activo, 1) = 1" : "";
@@ -401,7 +468,9 @@ export const loadPrintFormatsFromSql = async () => {
     let { headers, details } = await loadRows(true);
     if (!headers.length && !details.length) {
       if (__DEV__) {
-        console.log("[PRINT_SQL] no active rows, retrying without active filter");
+        console.log(
+          "[PRINT_SQL] no active rows, retrying without active filter",
+        );
       }
       ({ headers, details } = await loadRows(false));
     }
@@ -420,21 +489,39 @@ export const loadPrintFormatsFromSql = async () => {
     const loaded = {};
     for (let i = 0; i < PRINT_CODES.length; i += 1) {
       const code = PRINT_CODES[i];
-      const header = headers.find((row) => normalizeCode(row.Codigo ?? row.codigo, i) === code);
+      const header = headers.find(
+        (row) => normalizeCode(row.Codigo ?? row.codigo, i) === code,
+      );
       if (!header) {
         continue;
       }
 
-      const elements = details
+      const detailRows = details
         .filter((row) => normalizeCode(row.Codigo ?? row.codigo, i) === code)
-        .sort((a, b) =>
-          toInt(a.Orden ?? a.orden, 0) - toInt(b.Orden ?? b.orden, 0) ||
-          toInt(a.Y ?? a.y, 0) - toInt(b.Y ?? b.y, 0) ||
-          toInt(a.X ?? a.x, 0) - toInt(b.X ?? b.x, 0) ||
-          toInt(a.IdDetalle ?? a.idDetalle, 0) - toInt(b.IdDetalle ?? b.idDetalle, 0),
+        .sort(
+          (a, b) =>
+            toInt(a.Orden ?? a.orden, 0) - toInt(b.Orden ?? b.orden, 0) ||
+            toInt(a.Y ?? a.y, 0) - toInt(b.Y ?? b.y, 0) ||
+            toInt(a.X ?? a.x, 0) - toInt(b.X ?? b.x, 0) ||
+            toInt(a.IdDetalle ?? a.idDetalle, 0) -
+              toInt(b.IdDetalle ?? b.idDetalle, 0),
         )
         .map((row, index) => mapSqlDetailToElement(row, index));
-      loaded[code] = mapSqlHeaderToFormat(header, i, elements);
+
+      if (__DEV__) {
+        console.log(`[PRINT_SQL] codigo ${code} detalles ${detailRows.length}`);
+        detailRows.forEach((row) => {
+          const fieldName = toStringValue(
+            row.Campo ?? row.campo ?? row.ValueKey ?? row.Valuekey,
+            "",
+          );
+          console.log(
+            `[PRINT_SQL] item Campo ${fieldName || "Item"} Visible ${toBool(row.Visible ?? row.visible, true) ? 1 : 0}`,
+          );
+        });
+      }
+
+      loaded[code] = mapSqlHeaderToFormat(header, i, detailRows);
     }
 
     if (__DEV__) {
@@ -461,28 +548,35 @@ export const savePrintFormatsToSql = async (formats = {}) => {
     connected = true;
     await ensurePrintSqlSchema();
 
-    const codesToSave = PRINT_CODES.map((code, index) => normalizeCode(code, index));
+    const codesToSave = PRINT_CODES.map((code, index) =>
+      normalizeCode(code, index),
+    );
     const reportIds = await executeSql(`
       SELECT IdReporte, Codigo
       FROM dbo.Scan_Reporte
       WHERE Codigo IN (${codesToSave.map(sqlLiteral).join(", ")})
     `);
     const existingReports = readSqlRows(reportIds);
-    const existingCodes = existingReports.map((row) => normalizeCode(row.Codigo ?? row.codigo)).filter(Boolean);
+    const existingCodes = existingReports
+      .map((row) => normalizeCode(row.Codigo ?? row.codigo))
+      .filter(Boolean);
     if (existingCodes.length > 0) {
       await executeSql(`DELETE FROM dbo.Scan_ReporteDetalle WHERE IdReporte IN (
         SELECT IdReporte FROM dbo.Scan_Reporte WHERE Codigo IN (${existingCodes.map(sqlLiteral).join(", ")})
       )`);
-      await executeSql(`DELETE FROM dbo.Scan_Reporte WHERE Codigo IN (${existingCodes.map(sqlLiteral).join(", ")})`);
+      await executeSql(
+        `DELETE FROM dbo.Scan_Reporte WHERE Codigo IN (${existingCodes.map(sqlLiteral).join(", ")})`,
+      );
     }
 
     for (let index = 0; index < PRINT_CODES.length; index += 1) {
       const code = PRINT_CODES[index];
       const format = formats?.[code] || {};
       const elements = Array.isArray(format.elements) ? format.elements : [];
-      const widthMm = format.paperWidth === "custom"
-        ? toInt(format.customPaperWidth, index === 0 || index === 3 ? 80 : 58)
-        : toInt(format.paperWidth, index === 0 || index === 3 ? 80 : 58);
+      const widthMm =
+        format.paperWidth === "custom"
+          ? toInt(format.customPaperWidth, index === 0 || index === 3 ? 80 : 58)
+          : toInt(format.paperWidth, index === 0 || index === 3 ? 80 : 58);
       const heightMm = toInt(format.customPaperHeight, 0);
 
       await executeSql(`
@@ -508,15 +602,23 @@ export const savePrintFormatsToSql = async (formats = {}) => {
       const insertedRows = Array.isArray(insertedLookup)
         ? insertedLookup
         : insertedLookup?.rows || insertedLookup?.recordset || [];
-      const insertedId = toInt(insertedRows[0]?.IdReporte ?? insertedRows[0]?.idReporte, 0);
+      const insertedId = toInt(
+        insertedRows[0]?.IdReporte ?? insertedRows[0]?.idReporte,
+        0,
+      );
       if (!insertedId) {
         throw new Error(`No se pudo obtener IdReporte para ${code}.`);
       }
 
-      for (let elementIndex = 0; elementIndex < elements.length; elementIndex += 1) {
+      for (
+        let elementIndex = 0;
+        elementIndex < elements.length;
+        elementIndex += 1
+      ) {
         const element = elements[elementIndex] || {};
         const visible = element.visible === false ? 0 : 1;
-        const fontWeight = String(element.fontWeight ?? "400").trim() === "700" ? 1 : 0;
+        const fontWeight =
+          String(element.fontWeight ?? "400").trim() === "700" ? 1 : 0;
         const uppercase = element.uppercase ? 1 : 0;
         const maxLines = Math.max(1, toInt(element.maxLines, 1));
         await executeSql(`
@@ -565,6 +667,9 @@ export const syncPrintFormatsFromSql = async () => {
   }
 
   await Configuration.createTable();
-  await Configuration.setConfigValue("PRINT_FORMATS_JSON", JSON.stringify(formats));
+  await Configuration.setConfigValue(
+    "PRINT_FORMATS_JSON",
+    JSON.stringify(formats),
+  );
   return formats;
 };
