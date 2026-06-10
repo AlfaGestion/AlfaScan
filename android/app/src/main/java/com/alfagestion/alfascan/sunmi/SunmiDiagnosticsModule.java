@@ -1,5 +1,7 @@
 package com.alfagestion.alfascan.sunmi;
 
+import android.graphics.Bitmap;
+import android.graphics.Color;
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.Context;
@@ -23,10 +25,18 @@ import com.facebook.react.bridge.WritableMap;
 
 import java.util.List;
 import java.util.Locale;
+import java.util.EnumMap;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
+import com.google.zxing.BarcodeFormat;
+import com.google.zxing.EncodeHintType;
+import com.google.zxing.MultiFormatWriter;
+import com.google.zxing.WriterException;
+import com.google.zxing.common.BitMatrix;
 import woyou.aidlservice.jiuiv5.ICallback;
 import woyou.aidlservice.jiuiv5.IWoyouService;
 
@@ -35,7 +45,7 @@ public class SunmiDiagnosticsModule extends ReactContextBaseJavaModule {
   private static final String MODULE_NAME = "SunmiDiagnostics";
   private static final String SUNMI_PACKAGE = "woyou.aidlservice.jiuiv5";
   private static final String SUNMI_ACTION = "woyou.aidlservice.jiuiv5.IWoyouService";
-  private static final boolean PRINT_BARCODE_AS_TEXT = true;
+  private static final boolean PRINT_BARCODE_AS_BITMAP = true;
 
   private static final String OUT_OF_PAPER_ACTION = "woyou.aidlservice.jiuv5.OUT_OF_PAPER_ACTION";
   private static final String ERROR_ACTION = "woyou.aidlservice.jiuv5.ERROR_ACTION";
@@ -538,7 +548,7 @@ public class SunmiDiagnosticsModule extends ReactContextBaseJavaModule {
   private void printLayoutItemsInternal(IWoyouService service, ReadableArray items, int copies) throws Exception {
     int totalCopies = Math.max(1, copies);
     Log.i(TAG, "[SUNMI_LAYOUT] received items " + items.size());
-    Log.i(TAG, "[SUNMI_LAYOUT] PRINT_BARCODE_AS_TEXT=" + PRINT_BARCODE_AS_TEXT);
+    Log.i(TAG, "[SUNMI_LAYOUT] PRINT_BARCODE_AS_BITMAP=" + PRINT_BARCODE_AS_BITMAP);
     callPrinterCommand(callback -> service.printerInit(callback));
 
     for (int copy = 0; copy < totalCopies; copy++) {
@@ -595,12 +605,32 @@ public class SunmiDiagnosticsModule extends ReactContextBaseJavaModule {
           ).toLowerCase(Locale.ROOT);
 
           if ("barcode".equalsIgnoreCase(type)) {
-            Log.i(TAG, "[SUNMI_LAYOUT] barcode mode TEXT_ONLY");
+            Log.i(TAG, "[SUNMI_LAYOUT] barcode bitmap mode");
             if (!barcodeValue.isEmpty()) {
-              Log.i(TAG, "[SUNMI_LAYOUT] barcode printed as plain text value=" + barcodeValue);
-              callPrinterCommand(callback -> service.setAlignment(resolveAlignmentValue(align), callback));
-              callPrinterCommand(callback -> service.setFontSize((float) Math.max(18, sunmiFontSize), callback));
-              callPrinterCommand(callback -> service.printText(barcodeValue + "\n", callback));
+              boolean showNumber = getBooleanSafe(item, "showNumber", true);
+              try {
+                Bitmap barcodeBitmap = createBarcodeBitmap(
+                  barcodeValue,
+                  getStringSafe(item, "barcodeType"),
+                  360,
+                  100
+                );
+                Log.i(TAG, "[SUNMI_LAYOUT] barcode bitmap generated value=" + barcodeValue);
+                callPrinterCommand(callback -> service.setAlignment(resolveAlignmentValue(align), callback));
+                callPrinterCommand(callback -> service.printBitmap(barcodeBitmap, callback));
+                Log.i(TAG, "[SUNMI_LAYOUT] barcode bitmap printed");
+                if (showNumber) {
+                  callPrinterCommand(callback -> service.lineWrap(1, callback));
+                  callPrinterCommand(callback -> service.setAlignment(resolveAlignmentValue(align), callback));
+                  callPrinterCommand(callback -> service.setFontSize((float) Math.max(18, sunmiFontSize), callback));
+                  callPrinterCommand(callback -> service.printText(barcodeValue + "\n", callback));
+                }
+              } catch (Exception barcodeError) {
+                Log.e(TAG, "[SUNMI_LAYOUT] barcode bitmap failed fallback text", barcodeError);
+                callPrinterCommand(callback -> service.setAlignment(resolveAlignmentValue(align), callback));
+                callPrinterCommand(callback -> service.setFontSize((float) Math.max(18, sunmiFontSize), callback));
+                callPrinterCommand(callback -> service.printText("Barra: " + barcodeValue + "\n", callback));
+              }
               continue;
             } else {
               Log.i(TAG, "[SUNMI_LAYOUT] barcode skipped empty value");
@@ -741,6 +771,57 @@ public class SunmiDiagnosticsModule extends ReactContextBaseJavaModule {
 
   private String limitLines(String text, int maxChars, int maxLines) {
     return limitWrappedText(text, maxChars, maxLines);
+  }
+
+  private Bitmap createBarcodeBitmap(String value, String barcodeType, int width, int height) throws WriterException {
+    String normalizedValue = String.valueOf(value == null ? "" : value).trim();
+    if (normalizedValue.isEmpty()) {
+      throw new WriterException("Barcode vacío.");
+    }
+
+    int safeWidth = Math.max(240, width);
+    int safeHeight = Math.max(80, height);
+    Bitmap bitmap;
+    BarcodeFormat format = shouldTryEan13(barcodeType, normalizedValue)
+      ? BarcodeFormat.EAN_13
+      : BarcodeFormat.CODE_128;
+
+    try {
+      bitmap = encodeBarcode(normalizedValue, format, safeWidth, safeHeight);
+    } catch (WriterException e) {
+      if (format != BarcodeFormat.CODE_128) {
+        bitmap = encodeBarcode(normalizedValue, BarcodeFormat.CODE_128, safeWidth, safeHeight);
+      } else {
+        throw e;
+      }
+    }
+
+    return bitmap;
+  }
+
+  private boolean shouldTryEan13(String barcodeType, String value) {
+    String normalizedType = String.valueOf(barcodeType == null ? "" : barcodeType)
+      .trim()
+      .toLowerCase(Locale.ROOT);
+    String digitsOnly = String.valueOf(value == null ? "" : value).replaceAll("\\D", "");
+    return digitsOnly.matches("\\d{13}")
+      && (normalizedType.isEmpty()
+        || normalizedType.contains("ean13")
+        || normalizedType.contains("ean")
+        || normalizedType.contains("jan"));
+  }
+
+  private Bitmap encodeBarcode(String value, BarcodeFormat format, int width, int height) throws WriterException {
+    Map<EncodeHintType, Object> hints = new EnumMap<>(EncodeHintType.class);
+    hints.put(EncodeHintType.MARGIN, 0);
+    BitMatrix matrix = new MultiFormatWriter().encode(value, format, width, height, hints);
+    Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+    for (int x = 0; x < width; x++) {
+      for (int y = 0; y < height; y++) {
+        bitmap.setPixel(x, y, matrix.get(x, y) ? Color.BLACK : Color.WHITE);
+      }
+    }
+    return bitmap;
   }
 
   private String repeatChar(char ch, int count) {
