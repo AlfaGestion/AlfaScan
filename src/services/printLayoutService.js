@@ -807,37 +807,111 @@ const migrateLegacyFormat = (
   return result;
 };
 
+const normalizeSqlElement = (element = {}, index = 0) => {
+  const rawTipoElemento = String(
+    element.TipoElemento ?? element.tipoElemento ?? element.type ?? "texto",
+  ).trim();
+  const tipoElemento = String(normalizeSqlContractType(rawTipoElemento)).trim();
+  const rawCampo = String(
+    element.Campo ?? element.campo ?? element.valueKey ?? element.key ?? "",
+  ).trim();
+  const campo = normalizeSqlContractCampo(tipoElemento, rawCampo);
+  const rawTextoFijo = String(
+    element.TextoFijo ?? element.textoFijo ?? element.sampleText ?? "",
+  ).trim();
+  const isVisualLine =
+    tipoElemento === "linea" &&
+    (/^-+$/.test(rawTextoFijo.replace(/\s+/g, "")) ||
+      String(element.key ?? "")
+        .toLowerCase()
+        .startsWith("separator"));
+  const key = isVisualLine
+    ? "separator"
+    : normalizeSqlContractValueKey(campo, tipoElemento) ||
+      `element_${index + 1}`;
+  const rawAlign = String(
+    element.Alineacion ?? element.alineacion ?? element.align ?? "left",
+  ).trim();
+  const align = rawAlign || "left";
+  const fontSize = Number.isFinite(
+    Number(element.TamanoFuente ?? element.tamanoFuente ?? element.fontSize),
+  )
+    ? Number(element.TamanoFuente ?? element.tamanoFuente ?? element.fontSize)
+    : 16;
+  const zIndex = Number.isFinite(
+    Number(element.Orden ?? element.orden ?? element.zIndex),
+  )
+    ? Number(element.Orden ?? element.orden ?? element.zIndex)
+    : index + 1;
+
+  return {
+    key,
+    valueKey: key,
+    campo,
+    Campo: campo,
+    tipoElemento,
+    TipoElemento: tipoElemento,
+    type: isVisualLine
+      ? "separator"
+      : key === "barcode"
+        ? "barcode"
+        : key === "logo"
+          ? "logo"
+          : "text",
+    label:
+      rawTextoFijo ||
+      String(element.Nombre ?? element.nombre ?? campo ?? key).trim() ||
+      (isVisualLine ? "Separador" : campo || key),
+    visible: normalizeBoolean(element.Visible ?? element.visible, true),
+    x: toInt(element.X ?? element.x, 0),
+    y: toInt(element.Y ?? element.y, 0),
+    width: toInt(element.Ancho ?? element.ancho ?? element.width, 0),
+    height: toInt(element.Alto ?? element.alto ?? element.height, 0),
+    fontSize,
+    fontWeight: toBool(element.Negrita ?? element.negrita, false)
+      ? "700"
+      : "400",
+    italic: toBool(element.Italica ?? element.italica ?? element.italic, false),
+    fontStyle: toBool(
+      element.Italica ?? element.italica ?? element.italic,
+      false,
+    )
+      ? "italic"
+      : "normal",
+    align,
+    uppercase: toBool(element.Mayuscula ?? element.mayuscula, false),
+    maxLines: Math.max(
+      1,
+      toInt(element.MaxLineas ?? element.maxLineas ?? element.maxLines, 1),
+    ),
+    zIndex,
+    sampleText: rawTextoFijo,
+    formatAsPrice: key === "price" || normalizeContractText(campo) === "precio",
+    showSymbol: key === "price" || normalizeContractText(campo) === "precio",
+    showNumber:
+      key === "barcode"
+        ? toBool(element.ShowNumber ?? element.showNumber, true)
+        : true,
+    barcodeType: String(element.barcodeType ?? element.BarcodeType ?? "EAN13")
+      .trim()
+      .toUpperCase(),
+    separatorThickness: Math.max(
+      1,
+      toInt(element.separatorThickness ?? element.SeparatorThickness ?? 2, 2),
+    ),
+  };
+};
+
 const normalizeSqlPrintFormat = (
   raw = {},
   fallbackTemplate = DEFAULT_PRINT_FORMATS[0],
 ) => {
   const rawElements = Array.isArray(raw.elements) ? raw.elements : [];
-  const elements = rawElements.map((element, index) => {
-    const normalized = normalizeElement(element, element);
-    const key = String(
-      element.key ??
-        element.valueKey ??
-        normalized.key ??
-        `element_${index + 1}`,
-    ).trim();
-    const valueKey = String(
-      element.valueKey ?? normalized.valueKey ?? key,
-    ).trim();
-
-    return {
-      ...normalized,
-      key,
-      valueKey,
-      label: String(
-        element.label ?? normalized.label ?? key ?? `element_${index + 1}`,
-      ).trim(),
-      visible: normalizeBoolean(element.visible, true),
-      type: String(element.type ?? normalized.type ?? "text").trim(),
-    };
-  });
+  const elements = rawElements.map((element, index) =>
+    normalizeSqlElement(element, index),
+  );
 
   return {
-    ...clone(fallbackTemplate),
     ...raw,
     __source: raw.__source ?? fallbackTemplate.__source ?? "SQL",
     key: String(raw.key ?? fallbackTemplate.key ?? "").trim(),
@@ -1260,7 +1334,17 @@ export const renderPrintLayout = (
   const rawElements = Array.isArray(format.elements) ? format.elements : [];
   const mappedElements = rawElements
     .map((element, index) => {
-      const item = normalizeElement(element);
+      const item = isSqlSource ? { ...element } : normalizeElement(element);
+      if (isSqlSource) {
+        item.key = String(item.key ?? item.valueKey ?? "").trim();
+        item.valueKey = String(item.valueKey ?? item.key ?? "").trim();
+        item.align = String(item.align ?? element.align ?? "left").trim();
+        item.type = String(item.type ?? "text").trim();
+      }
+      const rawAlign = String(
+        element.Alineacion ?? element.alineacion ?? element.align ?? "",
+      ).trim();
+      const normalizedAlign = String(item.align ?? rawAlign ?? "left").trim();
       const visible = isSqlSource
         ? item.visible
         : item.visible &&
@@ -1277,10 +1361,13 @@ export const renderPrintLayout = (
         ...item,
         editorFontSize: item.fontSize,
         visible,
-        x: Math.round(item.x * scale),
-        y: Math.round(item.y * scale),
-        width: Math.round(item.width * scale),
-        height: Math.round(item.height * scale),
+        rawAlign,
+        normalizedAlign,
+        renderedAlign: normalizedAlign,
+        x: Math.round(Number(item.x ?? 0) * scale),
+        y: Math.round(Number(item.y ?? 0) * scale),
+        width: Math.round(Number(item.width ?? 0) * scale),
+        height: Math.round(Number(item.height ?? 0) * scale),
         fontSize: Math.max(8, Math.round(item.fontSize * scale)),
         italic: Boolean(item.italic),
         fontStyle: item.italic ? "italic" : "normal",
@@ -1324,12 +1411,27 @@ export const renderPrintLayout = (
           element.key ??
           "Item",
       ).trim();
+      const rawAlign = String(
+        element.Alineacion ?? element.alineacion ?? element.align ?? "",
+      ).trim();
       console.log(
         "[APP_LAYOUT] raw item",
         `Campo ${campo}`,
         `key ${String(element.key ?? "")}`,
         `visible ${Boolean(element.visible)}`,
-        `showBarcode ${String(format.showBarcode)}`,
+        `align ${rawAlign || "left"}`,
+      );
+    });
+    mappedElements.forEach((item) => {
+      const campo = String(
+        item.Campo ?? item.campo ?? item.key ?? "Item",
+      ).trim();
+      console.log(
+        "[APP_LAYOUT] normalized item",
+        `Campo ${campo}`,
+        `key ${String(item.key ?? "")}`,
+        `visible ${Boolean(item.visible)}`,
+        `align ${String(item.renderedAlign ?? item.align ?? "left")}`,
       );
     });
     mappedElements.forEach((item) => {
@@ -1337,6 +1439,7 @@ export const renderPrintLayout = (
         "[APP_LAYOUT] final visible item",
         item.key,
         Boolean(item.visible),
+        `align ${String(item.renderedAlign ?? item.align ?? "left")}`,
       );
     });
     console.log("[APP_LAYOUT] final items", mappedElements.length);
