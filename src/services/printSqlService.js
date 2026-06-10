@@ -741,12 +741,16 @@ export const loadPrintFormatsFromSql = async () => {
             row.Campo ?? row.campo ?? row.ValueKey ?? row.Valuekey,
             "",
           );
+          const tipoElemento = toStringValue(
+            row.TipoElemento ?? row.tipoElemento ?? "",
+            "texto",
+          );
           const tipoFuente = toStringValue(
             row.TipoFuente ?? row.tipoFuente ?? "",
             "Default",
           );
           console.log(
-            `[PRINT_SQL] item Campo ${fieldName || "Item"} TipoFuente ${tipoFuente || "Default"} Visible ${toBool(row.Visible ?? row.visible, true) ? 1 : 0}`,
+            `[PRINT_SQL] item Campo ${fieldName || "Item"} TipoElemento ${tipoElemento || "texto"} TipoFuente ${tipoFuente || "Default"} Visible ${toBool(row.Visible ?? row.visible, true) ? 1 : 0}`,
           );
         });
       }

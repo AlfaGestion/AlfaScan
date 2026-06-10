@@ -2,9 +2,7 @@ import { memo, useMemo, useRef } from "react";
 import { Image, PanResponder, StyleSheet, Text, View } from "react-native";
 
 import { Fonts } from "@styles/Theme";
-import {
-  resolveEffectivePreviewFontFamily,
-} from "@services/printFontService";
+import { resolvePreviewFontFamily } from "@services/printFontService";
 
 import alfaLogo from "../../../assets/alfa_logo.png";
 
@@ -222,10 +220,9 @@ function PrintElement({
                 fontSize: Math.max(10, element.fontSize * 0.85),
                 textAlign: element.align || "center",
                 color: element.color || "#111827",
-                fontFamily: resolveEffectivePreviewFontFamily({
-                  fontFamily: element.fontFamily,
-                  tipoFuente: element.tipoFuente,
-                }),
+                fontFamily: resolvePreviewFontFamily(
+                  element.tipoFuente || element.fontFamily || "Default",
+                ),
               },
             ]}
             numberOfLines={1}
@@ -288,10 +285,9 @@ function PrintElement({
             fontWeight: element.fontWeight === "700" ? "700" : "400",
             fontStyle:
               element.fontStyle || (element.italic ? "italic" : "normal"),
-            fontFamily: resolveEffectivePreviewFontFamily({
-              fontFamily: element.fontFamily,
-              tipoFuente: element.tipoFuente,
-            }),
+            fontFamily: resolvePreviewFontFamily(
+              element.tipoFuente || element.fontFamily || "Default",
+            ),
             textAlign: element.align || "left",
             textTransform: element.uppercase ? "uppercase" : "none",
             lineHeight: Math.max(12, element.fontSize * 1.18),

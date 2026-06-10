@@ -6,7 +6,7 @@ import {
   syncPrintFormatsFromSql,
 } from "@services/printSqlService";
 import {
-  resolveEffectivePreviewFontFamily,
+  resolvePreviewFontFamily,
 } from "@services/printFontService";
 
 export const PRINT_FORMAT_KEYS = ["gondola", "product", "small", "custom"];
@@ -666,11 +666,19 @@ const normalizeElement = (element = {}, fallback = {}) => {
       base.tipoFuente ||
       "Default",
   ).trim();
+  next.tipoElemento = String(
+    element.tipoElemento || element.TipoElemento || element.type || base.type,
+  ).trim();
+  next.TipoElemento = next.tipoElemento;
   next.fontFamily = String(
-    resolveEffectivePreviewFontFamily({
-      fontFamily: element.fontFamily || fallback.fontFamily || base.fontFamily,
-      tipoFuente: next.tipoFuente,
-    }),
+    resolvePreviewFontFamily(
+      element.tipoFuente ||
+        element.TipoFuente ||
+        element.fontFamily ||
+        fallback.fontFamily ||
+        base.fontFamily ||
+        "Default",
+    ),
   ).trim();
   next.maxLines = Math.max(
     1,
@@ -740,13 +748,21 @@ const normalizeSqlElement = (element = {}) => {
     fontWeight: String(element.fontWeight ?? "400"),
     italic: Boolean(element.italic ?? element.italica),
     fontStyle: element.italic || element.italica ? "italic" : "normal",
+    tipoElemento: String(
+      element.tipoElemento ?? element.TipoElemento ?? element.type ?? "text",
+    ).trim(),
+    TipoElemento: String(
+      element.TipoElemento ?? element.tipoElemento ?? element.type ?? "text",
+    ).trim(),
     tipoFuente: String(element.tipoFuente ?? element.TipoFuente ?? "Default"),
     TipoFuente: String(element.TipoFuente ?? element.tipoFuente ?? "Default"),
     fontFamily: String(
-      resolveEffectivePreviewFontFamily({
-        fontFamily: element.fontFamily,
-        tipoFuente: element.tipoFuente ?? element.TipoFuente ?? "Default",
-      }),
+      resolvePreviewFontFamily(
+        element.tipoFuente ??
+          element.TipoFuente ??
+          element.fontFamily ??
+          "Default",
+      ),
     ).trim(),
     align: ["left", "center", "right"].includes(
       String(element.align ?? "").toLowerCase(),
@@ -1337,10 +1353,9 @@ export const renderPrintLayout = (
             "Default",
         ).trim();
         item.fontFamily = String(
-          resolveEffectivePreviewFontFamily({
-            fontFamily: item.fontFamily,
-            tipoFuente: item.tipoFuente,
-          }),
+          resolvePreviewFontFamily(
+            item.tipoFuente || item.fontFamily || "Default",
+          ),
         ).trim();
       }
       const rawAlign = String(
@@ -1381,10 +1396,9 @@ export const renderPrintLayout = (
         fontStyle: item.italic ? "italic" : "normal",
         tipoFuente: normalizedTipoFuente,
         fontFamily: String(
-          resolveEffectivePreviewFontFamily({
-            fontFamily: item.fontFamily,
-            tipoFuente: normalizedTipoFuente,
-          }),
+          resolvePreviewFontFamily(
+            normalizedTipoFuente || item.fontFamily || "Default",
+          ),
         ).trim(),
         separatorThickness: Math.max(
           1,
@@ -1435,10 +1449,12 @@ export const renderPrintLayout = (
       console.log(
         "[APP_LAYOUT] raw item",
         `Campo ${campo}`,
+        `TipoElemento ${String(element.TipoElemento ?? element.tipoElemento ?? element.type ?? "text")}`,
         `key ${String(element.key ?? "")}`,
         `visible ${Boolean(element.visible)}`,
         `align ${rawAlign || "left"}`,
         `tipoFuente ${rawTipoFuente || "Default"}`,
+        `type ${String(element.type ?? "text")}`,
       );
     });
     mappedElements.forEach((item) => {
@@ -1448,10 +1464,12 @@ export const renderPrintLayout = (
       console.log(
         "[APP_LAYOUT] normalized item",
         `Campo ${campo}`,
+        `TipoElemento ${String(item.TipoElemento ?? item.tipoElemento ?? item.type ?? "text")}`,
         `key ${String(item.key ?? "")}`,
         `visible ${Boolean(item.visible)}`,
         `align ${String(item.renderedAlign ?? item.align ?? "left")}`,
         `tipoFuente ${String(item.tipoFuente ?? "Default")}`,
+        `type ${String(item.type ?? "")}`,
       );
     });
     mappedElements.forEach((item) => {
@@ -1462,6 +1480,7 @@ export const renderPrintLayout = (
       console.log(
         "[APP_LAYOUT] final item",
         `Campo ${campo}`,
+        `TipoElemento ${String(item.TipoElemento ?? item.tipoElemento ?? item.type ?? "text")}`,
         `type ${String(item.type ?? "")}`,
         `visible ${Boolean(item.visible)}`,
         `align ${finalAlign}`,

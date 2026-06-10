@@ -72,22 +72,6 @@ export const resolvePreviewFontFamily = (value = "") => {
   return FONT_FAMILY_MAP[normalized] || String(value ?? "").trim() || Fonts.body;
 };
 
-export const resolveEffectivePreviewFontFamily = ({
-  fontFamily = "",
-  tipoFuente = "",
-} = {}) => {
-  if (isBarcodeFontKey(tipoFuente) || isBarcodeFontKey(fontFamily)) {
-    return Fonts.mono;
-  }
-
-  const configuredFont = String(fontFamily ?? "").trim();
-  if (configuredFont && normalizePrintFontName(configuredFont) !== "default") {
-    return configuredFont;
-  }
-
-  return resolvePreviewFontFamily(tipoFuente);
-};
-
 export const isMonospacePrintFont = (value = "") => {
   if (isBarcodeFontKey(value)) {
     return true;
