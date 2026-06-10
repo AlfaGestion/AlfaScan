@@ -641,7 +641,7 @@ public class SunmiDiagnosticsModule extends ReactContextBaseJavaModule {
             callPrinterCommand(callback -> service.lineWrap(1, callback));
             callPrinterCommand(callback -> service.setAlignment(alignment, callback));
             callPrinterCommand(callback -> service.printText("-\n", callback));
-            callPrinterCommand(callback -> service.lineWrap(1, callback));
+            callPrinterCommand(callback -> service.lineWrap(2, callback));
           } else {
             String text = value.trim();
             if (!text.isEmpty()) {
