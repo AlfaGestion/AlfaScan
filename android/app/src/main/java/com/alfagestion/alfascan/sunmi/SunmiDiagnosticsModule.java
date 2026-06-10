@@ -607,13 +607,15 @@ public class SunmiDiagnosticsModule extends ReactContextBaseJavaModule {
                 getStringSafe(item, "barcodeType"),
                 barcodeValue
               );
+              String barcodeData = normalizeBarcodeDataForSymbology(barcodeValue, symbology);
               int height = 120;
               int width = 2;
               int textposition = 2;
               Log.i(TAG, "[SUNMI_LAYOUT] barcode symbology=" + symbology + " height=" + height + " width=" + width + " textposition=" + textposition);
+              Log.i(TAG, "[SUNMI_LAYOUT] barcode data=" + barcodeData + " length=" + barcodeData.length());
               try {
                 callPrinterCommand(callback -> service.setAlignment(1, callback));
-                callPrinterCommand(callback -> service.printBarCode(barcodeValue, symbology, height, width, textposition, callback));
+                callPrinterCommand(callback -> service.printBarCode(barcodeData, symbology, height, width, textposition, callback));
                 Log.i(TAG, "[SUNMI_LAYOUT] barcode printed");
               } catch (Exception barcodeError) {
                 Log.e(TAG, "[SUNMI_LAYOUT] barcode failed fallback text", barcodeError);
@@ -862,19 +864,40 @@ public class SunmiDiagnosticsModule extends ReactContextBaseJavaModule {
   private int resolveBarcodeSymbology(String barcodeType, String code) {
     String normalizedType = String.valueOf(barcodeType == null ? "" : barcodeType)
       .trim()
-      .toUpperCase(Locale.ROOT);
-    String normalizedCode = String.valueOf(code == null ? "" : code).trim();
-
-    if ("EAN8".equals(normalizedType) || normalizedCode.matches("\\d{8}")) {
-      return 3;
-    }
-    if ("EAN13".equals(normalizedType) || normalizedCode.matches("\\d{13}")) {
+      .toLowerCase(Locale.ROOT);
+    String digitsOnly = String.valueOf(code == null ? "" : code).replaceAll("\\D", "");
+    if (normalizedType.contains("ean13") || normalizedType.contains("jan13") || digitsOnly.matches("\\d{13}")) {
       return 2;
     }
-    if ("CODE39".equals(normalizedType)) {
+    if (normalizedType.contains("ean8") || normalizedType.contains("jan8") || digitsOnly.matches("\\d{8}")) {
+      return 3;
+    }
+    if (normalizedType.contains("code39")) {
       return 4;
     }
+    if (normalizedType.contains("itf")) {
+      return 5;
+    }
+    if (normalizedType.contains("codabar")) {
+      return 6;
+    }
+    if (normalizedType.contains("code93")) {
+      return 7;
+    }
     return 8;
+  }
+
+  private String normalizeBarcodeDataForSymbology(String barcodeValue, int symbology) {
+    String value = String.valueOf(barcodeValue == null ? "" : barcodeValue).trim();
+    if (value.isEmpty()) {
+      return value;
+    }
+
+    if (symbology == 2 || symbology == 3) {
+      return value.replaceAll("\\D", "");
+    }
+
+    return value;
   }
 
   private int resolveAlignmentValue(String alignment) {
