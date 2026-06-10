@@ -19,7 +19,10 @@ import CheckBox from "expo-checkbox";
 import { useFocusEffect } from "@react-navigation/native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
 
 import BrandMark from "@components/BrandMark";
 import ProductImage from "@components/ProductImage";
@@ -30,7 +33,12 @@ import { Fonts, Radii, Shadow } from "@styles/Theme";
 import Configuration from "@db/Configuration";
 import { appendPrintHistory } from "@services/printHistory";
 import { searchArticle, scanSearchArticle } from "@services/articleService";
-import { buildPrintableLayout, getDefaultPrintFormat, loadPrintFormats } from "@services/printLayoutService";
+import {
+  buildPrintableLayout,
+  getDefaultPrintFormat,
+  loadPrintFormats,
+} from "@services/printLayoutService";
+import { syncPrintFormatsFromSql } from "@services/printSqlService";
 import { getPrinterStatus, initPrinter } from "@services/sunmiPrinterService";
 import { printArticle } from "@services/printerService";
 import { useThemeConfig } from "@context/ThemeContext";
@@ -38,12 +46,42 @@ import { useThemeConfig } from "@context/ThemeContext";
 import alfaLogo from "../../assets/alfa_logo.png";
 
 const MENU_ITEMS = [
-  { key: "print-config", label: "Config. impresión", screen: "PrintConfigurationScreen", icon: "receipt-outline" },
-  { key: "config", label: "Configuración", screen: "ConfigurationScreen", icon: "settings-outline" },
-  { key: "sync", label: "Sincronización", screen: "SyncScreen", icon: "cloud-upload-outline" },
-  { key: "products", label: "Productos", screen: "ProductsScreen", icon: "search-outline" },
-  { key: "history", label: "Historial de impresiones", screen: "PrintHistoryScreen", icon: "receipt-outline" },
-  { key: "about", label: "Acerca de / versión", screen: "AboutScreen", icon: "information-circle-outline" },
+  {
+    key: "print-config",
+    label: "Config. impresión",
+    screen: "PrintConfigurationScreen",
+    icon: "receipt-outline",
+  },
+  {
+    key: "config",
+    label: "Configuración",
+    screen: "ConfigurationScreen",
+    icon: "settings-outline",
+  },
+  {
+    key: "sync",
+    label: "Sincronización",
+    screen: "SyncScreen",
+    icon: "cloud-upload-outline",
+  },
+  {
+    key: "products",
+    label: "Productos",
+    screen: "ProductsScreen",
+    icon: "search-outline",
+  },
+  {
+    key: "history",
+    label: "Historial de impresiones",
+    screen: "PrintHistoryScreen",
+    icon: "receipt-outline",
+  },
+  {
+    key: "about",
+    label: "Acerca de / versión",
+    screen: "AboutScreen",
+    icon: "information-circle-outline",
+  },
 ];
 
 const PRINT_BUTTONS = [
@@ -111,7 +149,10 @@ const formatRelativeSync = (value) => {
     return "Sin sincronizar";
   }
 
-  const diffMinutes = Math.max(0, Math.round((Date.now() - date.getTime()) / 60000));
+  const diffMinutes = Math.max(
+    0,
+    Math.round((Date.now() - date.getTime()) / 60000),
+  );
   if (diffMinutes < 1) {
     return "Sincronizado hace instantes";
   }
@@ -135,11 +176,14 @@ export default function HomeScreen({ navigation }) {
   const [loading, setLoading] = useState(false);
   const [menuVisible, setMenuVisible] = useState(false);
   const [scannerVisible, setScannerVisible] = useState(false);
-  const [previewEnabled, setPreviewEnabled] = useState(DEFAULT_PRINT_PREVIEW_ENABLED);
+  const [previewEnabled, setPreviewEnabled] = useState(
+    DEFAULT_PRINT_PREVIEW_ENABLED,
+  );
   const [previewModalVisible, setPreviewModalVisible] = useState(false);
   const [previewFormatKey, setPreviewFormatKey] = useState("product");
   const [previewFormat, setPreviewFormat] = useState(null);
   const [previewProduct, setPreviewProduct] = useState(null);
+  const [refreshingDesign, setRefreshingDesign] = useState(false);
   const [cameraMounted, setCameraMounted] = useState(false);
   const [cameraSlow, setCameraSlow] = useState(false);
   const [lastSyncAt, setLastSyncAt] = useState("");
@@ -169,10 +213,14 @@ export default function HomeScreen({ navigation }) {
       const rows = await Configuration.query();
       const map = loadConfigMap(rows);
 
-      const connectionType = String(map.CONNECTION_TYPE ?? map.SQL_MODE ?? "LOCAL")
+      const connectionType = String(
+        map.CONNECTION_TYPE ?? map.SQL_MODE ?? "LOCAL",
+      )
         .trim()
         .toUpperCase();
-      const sqlMode = String(map.SQL_MODE ?? "LOCAL").trim().toUpperCase();
+      const sqlMode = String(map.SQL_MODE ?? "LOCAL")
+        .trim()
+        .toUpperCase();
       const useStockColumn = Configuration.isTruthyConfigValue(
         map.SQL_USE_STOCK_COLUMN ?? map.SQL_USE_STOCK,
       );
@@ -209,7 +257,11 @@ export default function HomeScreen({ navigation }) {
   const loadPreviewPreference = useCallback(async () => {
     try {
       const storedValue = await AsyncStorage.getItem(PRINT_PREVIEW_STORAGE_KEY);
-      if (storedValue === null || storedValue === undefined || storedValue === "") {
+      if (
+        storedValue === null ||
+        storedValue === undefined ||
+        storedValue === ""
+      ) {
         setPreviewEnabled(DEFAULT_PRINT_PREVIEW_ENABLED);
         await AsyncStorage.setItem(
           PRINT_PREVIEW_STORAGE_KEY,
@@ -221,10 +273,15 @@ export default function HomeScreen({ navigation }) {
       try {
         setPreviewEnabled(JSON.parse(storedValue));
       } catch (parseError) {
-        setPreviewEnabled(storedValue === "1" || String(storedValue).toLowerCase() === "true");
+        setPreviewEnabled(
+          storedValue === "1" || String(storedValue).toLowerCase() === "true",
+        );
       }
     } catch (error) {
-      console.log("[PRINT_PREVIEW] preference load failed", error?.message || error);
+      console.log(
+        "[PRINT_PREVIEW] preference load failed",
+        error?.message || error,
+      );
       setPreviewEnabled(DEFAULT_PRINT_PREVIEW_ENABLED);
     }
   }, []);
@@ -278,87 +335,87 @@ export default function HomeScreen({ navigation }) {
   const showSyncInfo =
     screenConfig.connectionType === "API" || screenConfig.sqlMode === "LOCAL";
 
-  const showStock = screenConfig.useStockColumn && article?.stock !== null && article?.stock !== undefined;
-  const showProductImage = screenConfig.useProductImage && Boolean(article?.codigoInterno || article?.codigoBarra);
-  const productImageSize = IMAGE_SIZE_MAP[screenConfig.productImageHomeSize] || IMAGE_SIZE_MAP.MEDIUM;
+  const showStock =
+    screenConfig.useStockColumn &&
+    article?.stock !== null &&
+    article?.stock !== undefined;
+  const showProductImage =
+    screenConfig.useProductImage &&
+    Boolean(article?.codigoInterno || article?.codigoBarra);
+  const productImageSize =
+    IMAGE_SIZE_MAP[screenConfig.productImageHomeSize] || IMAGE_SIZE_MAP.MEDIUM;
   const syncLabel = useMemo(() => formatRelativeSync(lastSyncAt), [lastSyncAt]);
 
-  const handleSearch = useCallback(
-    async (rawValue, source = "manual") => {
-      if (searchInProgressRef.current) {
+  const handleSearch = useCallback(async (rawValue, source = "manual") => {
+    if (searchInProgressRef.current) {
+      return;
+    }
+
+    const value = String(rawValue ?? "").trim();
+    if (!value) {
+      setQuery("");
+      setArticle(null);
+      setMessage("IngresÃ¡ o escaneÃ¡ un cÃ³digo para buscar.");
+      return;
+    }
+
+    searchInProgressRef.current = true;
+    setQuery(value);
+    setMessage("");
+    setLoading(true);
+
+    try {
+      if (source === "keyboard") {
+        console.log("[SEARCH] submit search from keyboard");
+      }
+      console.log("[SEARCH] query", value);
+
+      const result = await searchArticle(value);
+      if (!result) {
+        setArticle(null);
+        setMessage("No se encontrÃ³ el artÃ­culo.");
         return;
       }
 
-      const value = String(rawValue ?? "").trim();
+      setArticle(result);
+      latestArticleRef.current = result;
+    } catch (e) {
+      setArticle(null);
+      setMessage(e?.message || "No se pudo buscar el artÃ­culo.");
+    } finally {
+      setLoading(false);
+      searchInProgressRef.current = false;
+    }
+  }, []);
+
+  const executeSearch = useCallback(async (rawValue) => {
+    const value = String(rawValue ?? "").trim();
+    setQuery(value);
+    setMessage("");
+    setLoading(true);
+
+    try {
       if (!value) {
-        setQuery("");
         setArticle(null);
-        setMessage("IngresÃ¡ o escaneÃ¡ un cÃ³digo para buscar.");
+        setMessage("Ingresá o escaneá un código para buscar.");
         return;
       }
 
-      searchInProgressRef.current = true;
-      setQuery(value);
-      setMessage("");
-      setLoading(true);
-
-      try {
-        if (source === "keyboard") {
-          console.log("[SEARCH] submit search from keyboard");
-        }
-        console.log("[SEARCH] query", value);
-
-        const result = await searchArticle(value);
-        if (!result) {
-          setArticle(null);
-          setMessage("No se encontrÃ³ el artÃ­culo.");
-          return;
-        }
-
-        setArticle(result);
-        latestArticleRef.current = result;
-      } catch (e) {
+      const result = await searchArticle(value);
+      if (!result) {
         setArticle(null);
-        setMessage(e?.message || "No se pudo buscar el artÃ­culo.");
-      } finally {
-        setLoading(false);
-        searchInProgressRef.current = false;
+        setMessage("No se encontró el artículo.");
+        return;
       }
-    },
-    [],
-  );
 
-  const executeSearch = useCallback(
-    async (rawValue) => {
-      const value = String(rawValue ?? "").trim();
-      setQuery(value);
-      setMessage("");
-      setLoading(true);
-
-      try {
-        if (!value) {
-          setArticle(null);
-          setMessage("Ingresá o escaneá un código para buscar.");
-          return;
-        }
-
-        const result = await searchArticle(value);
-        if (!result) {
-          setArticle(null);
-          setMessage("No se encontró el artículo.");
-          return;
-        }
-
-        setArticle(result);
-      } catch (e) {
-        setArticle(null);
-        setMessage(e?.message || "No se pudo buscar el artículo.");
-      } finally {
-        setLoading(false);
-      }
-    },
-    [],
-  );
+      setArticle(result);
+    } catch (e) {
+      setArticle(null);
+      setMessage(e?.message || "No se pudo buscar el artículo.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   const executeScanSearch = useCallback(async (rawValue) => {
     const value = String(rawValue ?? "").trim();
@@ -391,7 +448,9 @@ export default function HomeScreen({ navigation }) {
   }, []);
 
   const loadPreviewFormat = useCallback(async (formatKey) => {
-    const key = String(formatKey ?? "product").trim().toLowerCase();
+    const key = String(formatKey ?? "product")
+      .trim()
+      .toLowerCase();
     const formats = await loadPrintFormats().catch(() => null);
     return (
       formats?.[key] ||
@@ -408,7 +467,9 @@ export default function HomeScreen({ navigation }) {
         return;
       }
 
-      const key = String(formatKey ?? "product").trim().toLowerCase();
+      const key = String(formatKey ?? "product")
+        .trim()
+        .toLowerCase();
       setPreviewFormatKey(key);
       setPreviewProduct(printableArticle);
       try {
@@ -418,7 +479,10 @@ export default function HomeScreen({ navigation }) {
         console.log("[PRINT_PREVIEW] enabled", true);
         console.log("[PRINT_PREVIEW] format", key);
         console.log("[PRINT_PREVIEW] paperWidthMm", layout.paperWidthMm);
-        console.log("[PRINT_PREVIEW] items", Array.isArray(layout.items) ? layout.items.length : 0);
+        console.log(
+          "[PRINT_PREVIEW] items",
+          Array.isArray(layout.items) ? layout.items.length : 0,
+        );
       } catch (error) {
         console.log("[PRINT] preview format fallback", error?.message || error);
         const fallbackFormat = getDefaultPrintFormat(key);
@@ -427,12 +491,58 @@ export default function HomeScreen({ navigation }) {
         console.log("[PRINT_PREVIEW] enabled", true);
         console.log("[PRINT_PREVIEW] format", key);
         console.log("[PRINT_PREVIEW] paperWidthMm", layout.paperWidthMm);
-        console.log("[PRINT_PREVIEW] items", Array.isArray(layout.items) ? layout.items.length : 0);
+        console.log(
+          "[PRINT_PREVIEW] items",
+          Array.isArray(layout.items) ? layout.items.length : 0,
+        );
       }
       setPreviewModalVisible(true);
     },
     [article, loadPreviewFormat],
   );
+
+  const refreshPreviewDesign = useCallback(async () => {
+    if (refreshingDesign) {
+      return;
+    }
+
+    const printableArticle =
+      previewProduct || article || latestArticleRef.current;
+    if (!printableArticle) {
+      setMessage("Buscá un artículo antes de actualizar el diseño.");
+      return;
+    }
+
+    setRefreshingDesign(true);
+    try {
+      const sqlFormats = await syncPrintFormatsFromSql();
+      const key = String(previewFormatKey ?? "product")
+        .trim()
+        .toLowerCase();
+      const nextFormat =
+        sqlFormats?.[key] ||
+        (await loadPreviewFormat(key)) ||
+        getDefaultPrintFormat(key);
+
+      setPreviewFormat(nextFormat);
+      setPreviewProduct(printableArticle);
+      console.log("[PRINT_SYNC] preview refreshed");
+    } catch (error) {
+      console.log("[PRINT_SYNC] refresh failed", error?.message || error);
+      Alert.alert(
+        "Sincronización",
+        "No se pudieron sincronizar los diseños desde SQL.",
+      );
+    } finally {
+      setRefreshingDesign(false);
+    }
+  }, [
+    article,
+    loadPreviewFormat,
+    previewFormatKey,
+    previewProduct,
+    refreshingDesign,
+  ]);
 
   const ensureCameraPermission = useCallback(async () => {
     if (permission?.granted) {
@@ -486,7 +596,10 @@ export default function HomeScreen({ navigation }) {
     setCameraMounted(true);
     console.log("[Camera] mounted", Date.now());
     if (cameraOpenRequestedAtRef.current) {
-      console.log("[Camera] mount delay ms", Date.now() - cameraOpenRequestedAtRef.current);
+      console.log(
+        "[Camera] mount delay ms",
+        Date.now() - cameraOpenRequestedAtRef.current,
+      );
     }
 
     cameraWarningTimerRef.current = setTimeout(() => {
@@ -528,7 +641,10 @@ export default function HomeScreen({ navigation }) {
       lastScanRef.current = { code, at: now };
       console.log("[Camera] barcode scanned", now, code);
       if (cameraOpenRequestedAtRef.current) {
-        console.log("[Camera] read delay ms", now - cameraOpenRequestedAtRef.current);
+        console.log(
+          "[Camera] read delay ms",
+          now - cameraOpenRequestedAtRef.current,
+        );
       }
 
       try {
@@ -569,21 +685,27 @@ export default function HomeScreen({ navigation }) {
         await printArticle({ article: printableArticle, formatKey });
         await appendPrintHistory({
           formatKey,
-          formatLabel: PRINT_BUTTONS.find((item) => item.key === formatKey)?.label || formatKey,
+          formatLabel:
+            PRINT_BUTTONS.find((item) => item.key === formatKey)?.label ||
+            formatKey,
           article: printableArticle,
         });
         await refreshPrinterStatus();
         setPrinterStatus(getPrinterStatus());
       } catch (e) {
         console.log("[PRINT] error", e?.message || e);
-        Alert.alert("Impresora", "No se pudo imprimir. Revisá la impresora y volvé a intentar.");
+        Alert.alert(
+          "Impresora",
+          "No se pudo imprimir. Revisá la impresora y volvé a intentar.",
+        );
       }
     },
     [article, openPrintPreview, previewEnabled, refreshPrinterStatus],
   );
 
   const handlePreviewPrintNow = useCallback(async () => {
-    const printableArticle = previewProduct || article || latestArticleRef.current;
+    const printableArticle =
+      previewProduct || article || latestArticleRef.current;
     if (!printableArticle) {
       setPreviewModalVisible(false);
       setMessage("Buscá un artículo antes de imprimir.");
@@ -602,24 +724,41 @@ export default function HomeScreen({ navigation }) {
       });
       await appendPrintHistory({
         formatKey: previewFormatKey,
-        formatLabel: PRINT_BUTTONS.find((item) => item.key === previewFormatKey)?.label || previewFormatKey,
+        formatLabel:
+          PRINT_BUTTONS.find((item) => item.key === previewFormatKey)?.label ||
+          previewFormatKey,
         article: printableArticle,
       });
       await refreshPrinterStatus();
       setPrinterStatus(getPrinterStatus());
     } catch (e) {
       console.log("[PRINT] error", e?.message || e);
-      Alert.alert("Impresora", "No se pudo imprimir. Revisá la impresora y volvé a intentar.");
+      Alert.alert(
+        "Impresora",
+        "No se pudo imprimir. Revisá la impresora y volvé a intentar.",
+      );
     }
-  }, [article, previewFormat, previewFormatKey, previewProduct, refreshPrinterStatus]);
+  }, [
+    article,
+    previewFormat,
+    previewFormatKey,
+    previewProduct,
+    refreshPrinterStatus,
+  ]);
 
   const handlePreviewToggle = useCallback(async (nextValue) => {
     const next = Boolean(nextValue);
     setPreviewEnabled(next);
     try {
-      await AsyncStorage.setItem(PRINT_PREVIEW_STORAGE_KEY, JSON.stringify(next));
+      await AsyncStorage.setItem(
+        PRINT_PREVIEW_STORAGE_KEY,
+        JSON.stringify(next),
+      );
     } catch (error) {
-      console.log("[PRINT] preview preference save failed", error?.message || error);
+      console.log(
+        "[PRINT] preview preference save failed",
+        error?.message || error,
+      );
     }
   }, []);
 
@@ -632,8 +771,10 @@ export default function HomeScreen({ navigation }) {
 
   const articleImageKey = article?.codigoInterno || article?.codigoBarra || "";
   const articleImageVisible = showProductImage && Boolean(articleImageKey);
-  const previewFormatToShow = previewFormat || getDefaultPrintFormat(previewFormatKey);
-  const previewProductToShow = previewProduct || article || latestArticleRef.current;
+  const previewFormatToShow =
+    previewFormat || getDefaultPrintFormat(previewFormatKey);
+  const previewProductToShow =
+    previewProduct || article || latestArticleRef.current;
   const printerStatusLabel =
     printerStatus.mode === "SIMULATION"
       ? "Impresora no detectada. Modo simulación activo."
@@ -642,8 +783,14 @@ export default function HomeScreen({ navigation }) {
         : printerStatus.message || "Impresora no detectada.";
 
   return (
-    <SafeAreaView style={[styles.root, { backgroundColor: themeStyles.background }]}>
-      <Modal visible={scannerVisible} animationType="slide" onRequestClose={() => setScannerVisible(false)}>
+    <SafeAreaView
+      style={[styles.root, { backgroundColor: themeStyles.background }]}
+    >
+      <Modal
+        visible={scannerVisible}
+        animationType="slide"
+        onRequestClose={() => setScannerVisible(false)}
+      >
         <View style={styles.scannerContainer}>
           {cameraMounted ? (
             <CameraView
@@ -652,7 +799,9 @@ export default function HomeScreen({ navigation }) {
               zoom={0}
               autofocus="on"
               barcodeScannerSettings={barcodeScannerSettings}
-              onBarcodeScanned={scannerVisible ? handleBarcodeScanned : undefined}
+              onBarcodeScanned={
+                scannerVisible ? handleBarcodeScanned : undefined
+              }
             />
           ) : (
             <View style={styles.cameraLoadingScreen}>
@@ -675,8 +824,12 @@ export default function HomeScreen({ navigation }) {
             </TouchableOpacity>
 
             <View style={styles.scannerGuideWrap}>
-              <Text style={styles.scannerGuideTitle}>Apuntá al código de barras</Text>
-              <Text style={styles.scannerGuideText}>Se cerrará solo al leerlo.</Text>
+              <Text style={styles.scannerGuideTitle}>
+                Apuntá al código de barras
+              </Text>
+              <Text style={styles.scannerGuideText}>
+                Se cerrará solo al leerlo.
+              </Text>
             </View>
 
             <View style={styles.scannerFrame}>
@@ -690,7 +843,10 @@ export default function HomeScreen({ navigation }) {
               <Text style={styles.scannerBottomText}>
                 Apuntá al código de barras y mantenelo dentro del marco.
               </Text>
-              <TouchableOpacity style={styles.scannerCancelButton} onPress={() => setScannerVisible(false)}>
+              <TouchableOpacity
+                style={styles.scannerCancelButton}
+                onPress={() => setScannerVisible(false)}
+              >
                 <Text style={styles.scannerCancelText}>Cancelar</Text>
               </TouchableOpacity>
             </View>
@@ -698,24 +854,45 @@ export default function HomeScreen({ navigation }) {
         </View>
       </Modal>
 
-      <Modal visible={menuVisible} transparent animationType="fade" onRequestClose={() => setMenuVisible(false)}>
+      <Modal
+        visible={menuVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setMenuVisible(false)}
+      >
         <View style={styles.drawerBackdrop}>
-          <Pressable style={StyleSheet.absoluteFillObject} onPress={() => setMenuVisible(false)} />
-          <View style={[styles.drawer, { backgroundColor: themeStyles.surface }]}>
+          <Pressable
+            style={StyleSheet.absoluteFillObject}
+            onPress={() => setMenuVisible(false)}
+          />
+          <View
+            style={[styles.drawer, { backgroundColor: themeStyles.surface }]}
+          >
             <View style={styles.drawerHeader}>
               <BrandMark label="AlfaScan" size={56} darkMode={darkMode} />
             </View>
             {MENU_ITEMS.map((item) => (
               <TouchableOpacity
                 key={item.key}
-                style={[styles.drawerItem, { borderBottomColor: themeStyles.border }]}
+                style={[
+                  styles.drawerItem,
+                  { borderBottomColor: themeStyles.border },
+                ]}
                 onPress={() => {
                   setMenuVisible(false);
                   navigation.navigate(item.screen);
                 }}
               >
-                <Ionicons name={item.icon} size={20} color={themeStyles.accent} />
-                <Text style={[styles.drawerItemText, { color: themeStyles.text }]}>{item.label}</Text>
+                <Ionicons
+                  name={item.icon}
+                  size={20}
+                  color={themeStyles.accent}
+                />
+                <Text
+                  style={[styles.drawerItemText, { color: themeStyles.text }]}
+                >
+                  {item.label}
+                </Text>
               </TouchableOpacity>
             ))}
           </View>
@@ -729,33 +906,78 @@ export default function HomeScreen({ navigation }) {
         onRequestClose={() => setPreviewModalVisible(false)}
       >
         <View style={styles.previewBackdrop}>
-          <Pressable style={StyleSheet.absoluteFillObject} onPress={() => setPreviewModalVisible(false)} />
-          <View style={[styles.previewModalCard, { backgroundColor: themeStyles.surface }, Shadow.md]}>
+          <Pressable
+            style={StyleSheet.absoluteFillObject}
+            onPress={() => setPreviewModalVisible(false)}
+          />
+          <View
+            style={[
+              styles.previewModalCard,
+              { backgroundColor: themeStyles.surface },
+              Shadow.md,
+            ]}
+          >
             <View style={styles.previewModalHeader}>
               <View style={styles.previewModalHeaderText}>
-                <Text style={[styles.previewModalTitle, { color: themeStyles.text }]}>Vista previa de etiqueta</Text>
-                <Text style={[styles.previewModalSubtitle, { color: themeStyles.muted }]} numberOfLines={2}>
+                <Text
+                  style={[
+                    styles.previewModalTitle,
+                    { color: themeStyles.text },
+                  ]}
+                >
+                  Vista previa de etiqueta
+                </Text>
+                <Text
+                  style={[
+                    styles.previewModalSubtitle,
+                    { color: themeStyles.muted },
+                  ]}
+                  numberOfLines={2}
+                >
                   Compará el tamaño visual con el papel antes de enviar a Sunmi.
                 </Text>
               </View>
               <TouchableOpacity
                 onPress={() => setPreviewModalVisible(false)}
-                style={[styles.previewModalClose, { backgroundColor: themeStyles.surfaceAlt, borderColor: themeStyles.border }]}
+                style={[
+                  styles.previewModalClose,
+                  {
+                    backgroundColor: themeStyles.surfaceAlt,
+                    borderColor: themeStyles.border,
+                  },
+                ]}
               >
                 <Ionicons name="close" size={18} color={themeStyles.text} />
               </TouchableOpacity>
             </View>
 
-            <View style={[styles.previewBadgeRow, { backgroundColor: themeStyles.surfaceAlt, borderColor: themeStyles.border }]}>
-              <Text style={[styles.previewBadgeText, { color: themeStyles.text }]}>
-                Formato: {PRINT_BUTTONS.find((item) => item.key === previewFormatKey)?.label || previewFormatKey}
+            <View
+              style={[
+                styles.previewBadgeRow,
+                {
+                  backgroundColor: themeStyles.surfaceAlt,
+                  borderColor: themeStyles.border,
+                },
+              ]}
+            >
+              <Text
+                style={[styles.previewBadgeText, { color: themeStyles.text }]}
+              >
+                Formato:{" "}
+                {PRINT_BUTTONS.find((item) => item.key === previewFormatKey)
+                  ?.label || previewFormatKey}
               </Text>
-              <Text style={[styles.previewBadgeText, { color: themeStyles.text }]}>
+              <Text
+                style={[styles.previewBadgeText, { color: themeStyles.text }]}
+              >
                 Ancho: {String(previewFormatToShow?.paperWidthMm ?? 80)} mm
               </Text>
             </View>
 
-            <ScrollView contentContainerStyle={styles.previewScroll} showsVerticalScrollIndicator={false}>
+            <ScrollView
+              contentContainerStyle={styles.previewScroll}
+              showsVerticalScrollIndicator={false}
+            >
               <PrintPreview
                 title="Vista de etiqueta"
                 format={previewFormatToShow}
@@ -769,16 +991,66 @@ export default function HomeScreen({ navigation }) {
 
             <View style={styles.previewActions}>
               <TouchableOpacity
-                onPress={() => setPreviewModalVisible(false)}
-                style={[styles.previewActionButton, { backgroundColor: themeStyles.surfaceAlt, borderColor: themeStyles.border }]}
+                onPress={refreshPreviewDesign}
+                disabled={refreshingDesign}
+                style={[
+                  styles.previewActionButton,
+                  {
+                    backgroundColor: themeStyles.surfaceAlt,
+                    borderColor: themeStyles.border,
+                    opacity: refreshingDesign ? 0.7 : 1,
+                  },
+                ]}
               >
-                <Text style={[styles.previewActionText, { color: themeStyles.text }]}>Cerrar</Text>
+                {refreshingDesign ? (
+                  <ActivityIndicator size="small" color={themeStyles.text} />
+                ) : (
+                  <Ionicons
+                    name="refresh-outline"
+                    size={18}
+                    color={themeStyles.text}
+                  />
+                )}
+                <Text
+                  style={[
+                    styles.previewActionText,
+                    { color: themeStyles.text },
+                  ]}
+                >
+                  Actualizar diseño
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => setPreviewModalVisible(false)}
+                style={[
+                  styles.previewActionButton,
+                  {
+                    backgroundColor: themeStyles.surfaceAlt,
+                    borderColor: themeStyles.border,
+                  },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.previewActionText,
+                    { color: themeStyles.text },
+                  ]}
+                >
+                  Cerrar
+                </Text>
               </TouchableOpacity>
               <TouchableOpacity
                 onPress={handlePreviewPrintNow}
-                style={[styles.previewActionButton, { backgroundColor: themeStyles.accent }]}
+                style={[
+                  styles.previewActionButton,
+                  { backgroundColor: themeStyles.accent },
+                ]}
               >
-                <Text style={[styles.previewActionText, { color: Colors.WHITE }]}>Imprimir ahora</Text>
+                <Text
+                  style={[styles.previewActionText, { color: Colors.WHITE }]}
+                >
+                  Imprimir ahora
+                </Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -792,30 +1064,72 @@ export default function HomeScreen({ navigation }) {
         ]}
         keyboardShouldPersistTaps="handled"
       >
-        <View style={[styles.headerCard, { backgroundColor: themeStyles.surface }, Shadow.md]}>
-          <TouchableOpacity style={[styles.headerIconButton, { backgroundColor: themeStyles.surfaceAlt }]} onPress={() => setMenuVisible(true)}>
+        <View
+          style={[
+            styles.headerCard,
+            { backgroundColor: themeStyles.surface },
+            Shadow.md,
+          ]}
+        >
+          <TouchableOpacity
+            style={[
+              styles.headerIconButton,
+              { backgroundColor: themeStyles.surfaceAlt },
+            ]}
+            onPress={() => setMenuVisible(true)}
+          >
             <Ionicons name="menu" size={24} color={themeStyles.text} />
           </TouchableOpacity>
 
           <View style={styles.headerBrand}>
-            <Image source={alfaLogo} style={styles.headerLogo} resizeMode="contain" />
-            <Text style={[styles.headerBrandText, { color: themeStyles.text }]} numberOfLines={1}>
+            <Image
+              source={alfaLogo}
+              style={styles.headerLogo}
+              resizeMode="contain"
+            />
+            <Text
+              style={[styles.headerBrandText, { color: themeStyles.text }]}
+              numberOfLines={1}
+            >
               AlfaScan
             </Text>
           </View>
 
           <TouchableOpacity
-            style={[styles.headerIconButton, { backgroundColor: themeStyles.surfaceAlt }]}
+            style={[
+              styles.headerIconButton,
+              { backgroundColor: themeStyles.surfaceAlt },
+            ]}
             onPress={() => navigation.navigate("ConfigurationScreen")}
           >
-            <Ionicons name="settings-outline" size={22} color={themeStyles.text} />
+            <Ionicons
+              name="settings-outline"
+              size={22}
+              color={themeStyles.text}
+            />
           </TouchableOpacity>
         </View>
 
-        <View style={[styles.searchCard, { backgroundColor: themeStyles.surface }, Shadow.sm]}>
-          <Text style={[styles.sectionLabel, { color: themeStyles.text }]}>Buscar artículo</Text>
+        <View
+          style={[
+            styles.searchCard,
+            { backgroundColor: themeStyles.surface },
+            Shadow.sm,
+          ]}
+        >
+          <Text style={[styles.sectionLabel, { color: themeStyles.text }]}>
+            Buscar artículo
+          </Text>
 
-          <View style={[styles.searchRow, { borderColor: themeStyles.border, backgroundColor: themeStyles.inputBg }]}>
+          <View
+            style={[
+              styles.searchRow,
+              {
+                borderColor: themeStyles.border,
+                backgroundColor: themeStyles.inputBg,
+              },
+            ]}
+          >
             <TextInput
               value={query}
               onChangeText={setQuery}
@@ -829,11 +1143,21 @@ export default function HomeScreen({ navigation }) {
               autoCapitalize="none"
             />
             {!!query ? (
-              <TouchableOpacity style={styles.searchAction} onPress={clearSearch}>
-                <Ionicons name="close-circle" size={20} color={themeStyles.muted} />
+              <TouchableOpacity
+                style={styles.searchAction}
+                onPress={clearSearch}
+              >
+                <Ionicons
+                  name="close-circle"
+                  size={20}
+                  color={themeStyles.muted}
+                />
               </TouchableOpacity>
             ) : null}
-            <TouchableOpacity style={styles.searchAction} onPress={() => handleSearch(query, "manual")}>
+            <TouchableOpacity
+              style={styles.searchAction}
+              onPress={() => handleSearch(query, "manual")}
+            >
               <Ionicons name="search" size={22} color={themeStyles.accent} />
             </TouchableOpacity>
           </View>
@@ -847,32 +1171,76 @@ export default function HomeScreen({ navigation }) {
           </TouchableOpacity>
 
           {showSyncInfo ? (
-            <View style={[styles.syncInfo, { backgroundColor: themeStyles.surfaceAlt, borderColor: themeStyles.border }]}>
-              <Ionicons name="time-outline" size={17} color={themeStyles.accent} />
-              <Text style={[styles.syncInfoText, { color: themeStyles.text }]} numberOfLines={1}>
+            <View
+              style={[
+                styles.syncInfo,
+                {
+                  backgroundColor: themeStyles.surfaceAlt,
+                  borderColor: themeStyles.border,
+                },
+              ]}
+            >
+              <Ionicons
+                name="time-outline"
+                size={17}
+                color={themeStyles.accent}
+              />
+              <Text
+                style={[styles.syncInfoText, { color: themeStyles.text }]}
+                numberOfLines={1}
+              >
                 {syncLabel}
               </Text>
             </View>
           ) : null}
         </View>
 
-        <View style={[styles.resultCard, { backgroundColor: themeStyles.surface }, Shadow.sm]}>
+        <View
+          style={[
+            styles.resultCard,
+            { backgroundColor: themeStyles.surface },
+            Shadow.sm,
+          ]}
+        >
           <View style={styles.cardTitleRow}>
-            <Text style={[styles.sectionLabel, { color: themeStyles.text }]}>Resultado</Text>
-            {loading ? <ActivityIndicator size="small" color={themeStyles.accent} /> : null}
+            <Text style={[styles.sectionLabel, { color: themeStyles.text }]}>
+              Resultado
+            </Text>
+            {loading ? (
+              <ActivityIndicator size="small" color={themeStyles.accent} />
+            ) : null}
           </View>
 
           {article ? (
             <View>
-              <View style={[styles.resultHero, articleImageVisible && styles.resultHeroWithImage]}>
+              <View
+                style={[
+                  styles.resultHero,
+                  articleImageVisible && styles.resultHeroWithImage,
+                ]}
+              >
                 <View style={styles.resultMainColumn}>
-                  <Text style={[styles.articleDescription, { color: themeStyles.text }]}>
+                  <Text
+                    style={[
+                      styles.articleDescription,
+                      { color: themeStyles.text },
+                    ]}
+                  >
                     {article.descripcion}
                   </Text>
 
                   <View style={styles.priceBox}>
-                    <Text style={[styles.priceLabel, { color: themeStyles.muted }]}>Precio</Text>
-                    <Text style={[styles.priceValue, { color: themeStyles.accentDark }]}>
+                    <Text
+                      style={[styles.priceLabel, { color: themeStyles.muted }]}
+                    >
+                      Precio
+                    </Text>
+                    <Text
+                      style={[
+                        styles.priceValue,
+                        { color: themeStyles.accentDark },
+                      ]}
+                    >
                       {formatCurrency(article.precio)}
                     </Text>
                   </View>
@@ -900,23 +1268,44 @@ export default function HomeScreen({ navigation }) {
 
               <View style={styles.detailBlock}>
                 <View style={styles.articleRow}>
-                  <Text style={[styles.articleLabel, { color: themeStyles.muted }]}>Código interno</Text>
-                  <Text style={[styles.articleValue, { color: themeStyles.text }]}>
+                  <Text
+                    style={[styles.articleLabel, { color: themeStyles.muted }]}
+                  >
+                    Código interno
+                  </Text>
+                  <Text
+                    style={[styles.articleValue, { color: themeStyles.text }]}
+                  >
                     {article.codigoInterno || "-"}
                   </Text>
                 </View>
 
                 <View style={styles.articleRow}>
-                  <Text style={[styles.articleLabel, { color: themeStyles.muted }]}>Código de barra</Text>
-                  <Text style={[styles.articleValue, { color: themeStyles.text }]}>
+                  <Text
+                    style={[styles.articleLabel, { color: themeStyles.muted }]}
+                  >
+                    Código de barra
+                  </Text>
+                  <Text
+                    style={[styles.articleValue, { color: themeStyles.text }]}
+                  >
                     {article.codigoBarra || "-"}
                   </Text>
                 </View>
 
                 {showStock ? (
                   <View style={styles.articleRow}>
-                    <Text style={[styles.articleLabel, { color: themeStyles.muted }]}>Stock</Text>
-                    <Text style={[styles.articleValue, { color: themeStyles.text }]}>
+                    <Text
+                      style={[
+                        styles.articleLabel,
+                        { color: themeStyles.muted },
+                      ]}
+                    >
+                      Stock
+                    </Text>
+                    <Text
+                      style={[styles.articleValue, { color: themeStyles.text }]}
+                    >
                       {article.stock}
                     </Text>
                   </View>
@@ -924,8 +1313,17 @@ export default function HomeScreen({ navigation }) {
 
                 {article.fechaActualizacion ? (
                   <View style={styles.articleRow}>
-                    <Text style={[styles.articleLabel, { color: themeStyles.muted }]}>Actualizado</Text>
-                    <Text style={[styles.articleValue, { color: themeStyles.text }]}>
+                    <Text
+                      style={[
+                        styles.articleLabel,
+                        { color: themeStyles.muted },
+                      ]}
+                    >
+                      Actualizado
+                    </Text>
+                    <Text
+                      style={[styles.articleValue, { color: themeStyles.text }]}
+                    >
                       {formatDateTime(article.fechaActualizacion)}
                     </Text>
                   </View>
@@ -934,14 +1332,27 @@ export default function HomeScreen({ navigation }) {
             </View>
           ) : (
             <View style={styles.emptyState}>
-              <Ionicons name="barcode-outline" size={34} color={themeStyles.muted} />
-              <Text style={[styles.emptyStateText, { color: themeStyles.muted }]}>
-                Buscá o escaneá un artículo para ver su descripción, precio y stock.
+              <Ionicons
+                name="barcode-outline"
+                size={34}
+                color={themeStyles.muted}
+              />
+              <Text
+                style={[styles.emptyStateText, { color: themeStyles.muted }]}
+              >
+                Buscá o escaneá un artículo para ver su descripción, precio y
+                stock.
               </Text>
             </View>
           )}
 
-          {!!message ? <Text style={[styles.messageText, { color: themeStyles.accentDark }]}>{message}</Text> : null}
+          {!!message ? (
+            <Text
+              style={[styles.messageText, { color: themeStyles.accentDark }]}
+            >
+              {message}
+            </Text>
+          ) : null}
         </View>
       </ScrollView>
 
@@ -958,14 +1369,24 @@ export default function HomeScreen({ navigation }) {
       >
         <View style={styles.printStatusRow}>
           <Ionicons
-            name={printerStatus.available ? "print-outline" : "information-circle-outline"}
+            name={
+              printerStatus.available
+                ? "print-outline"
+                : "information-circle-outline"
+            }
             size={16}
-            color={printerStatus.available ? themeStyles.accent : themeStyles.muted}
+            color={
+              printerStatus.available ? themeStyles.accent : themeStyles.muted
+            }
           />
           <Text
             style={[
               styles.printStatusText,
-              { color: printerStatus.available ? themeStyles.text : themeStyles.muted },
+              {
+                color: printerStatus.available
+                  ? themeStyles.text
+                  : themeStyles.muted,
+              },
             ]}
             numberOfLines={1}
           >
@@ -1006,7 +1427,11 @@ export default function HomeScreen({ navigation }) {
         </View>
 
         <View style={styles.printPreviewToggleRow}>
-          <Text style={[styles.printPreviewToggleText, { color: themeStyles.text }]}>Vista previa</Text>
+          <Text
+            style={[styles.printPreviewToggleText, { color: themeStyles.text }]}
+          >
+            Vista previa
+          </Text>
           <CheckBox
             value={previewEnabled}
             onValueChange={handlePreviewToggle}

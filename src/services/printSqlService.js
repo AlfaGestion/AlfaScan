@@ -47,6 +47,54 @@ const normalizeCode = (value, index = 0) => {
   return PRINT_CODES[index] || PRINT_CODES[0];
 };
 
+const normalizeSyncItemLabel = (item = {}) => {
+  const rawLabel = String(
+    item.label ?? item.key ?? item.valueKey ?? "Item",
+  ).trim();
+  const normalized = rawLabel
+    .toLowerCase()
+    .replace(/[áäàâ]/g, "a")
+    .replace(/[éëèê]/g, "e")
+    .replace(/[íïìî]/g, "i")
+    .replace(/[óöòô]/g, "o")
+    .replace(/[úüùû]/g, "u")
+    .replace(/[\s_-]+/g, "");
+
+  if (normalized === "empresa" || normalized === "companyname") {
+    return "Empresa";
+  }
+  if (normalized === "descripcion" || normalized === "description") {
+    return "Descripcion";
+  }
+  if (normalized === "precio" || normalized === "price") {
+    return "Precio";
+  }
+  if (normalized === "codigobarra" || normalized === "barcode") {
+    return "CodigoBarra";
+  }
+  if (
+    normalized === "codigoarticulo" ||
+    normalized === "codigointerno" ||
+    normalized === "internalcode"
+  ) {
+    return "CodigoArticulo";
+  }
+  if (normalized === "stock") {
+    return "Stock";
+  }
+  if (normalized === "fecha" || normalized === "date") {
+    return "Fecha";
+  }
+  if (normalized === "linea" || normalized === "line") {
+    return "Linea";
+  }
+  if (normalized === "textofijo" || normalized === "fixedtext") {
+    return "TextoFijo";
+  }
+
+  return rawLabel || "Item";
+};
+
 const buildSqlConfig = async () => {
   const config = await getCatalogConfig().catch(() => null);
   if (
@@ -661,15 +709,51 @@ export const savePrintFormatsToSql = async (formats = {}) => {
 };
 
 export const syncPrintFormatsFromSql = async () => {
-  const formats = await loadPrintFormatsFromSql();
-  if (!formats) {
-    return null;
+  if (__DEV__) {
+    console.log("[PRINT_SYNC] start");
   }
 
-  await Configuration.createTable();
-  await Configuration.setConfigValue(
-    "PRINT_FORMATS_JSON",
-    JSON.stringify(formats),
-  );
-  return formats;
+  try {
+    const formats = await loadPrintFormatsFromSql();
+    const loaded = Boolean(formats);
+
+    if (__DEV__) {
+      console.log("[PRINT_SYNC] loaded from SQL", loaded);
+    }
+
+    if (!loaded) {
+      return null;
+    }
+
+    if (__DEV__) {
+      console.log("[PRINT_SYNC] codes", PRINT_CODES.join(","));
+      PRINT_CODES.forEach((code) => {
+        const format = formats?.[code] || {};
+        const elements = Array.isArray(format.elements) ? format.elements : [];
+        console.log(`[PRINT_SYNC] ${code} elements ${elements.length}`);
+        elements.forEach((item) => {
+          console.log(
+            `[PRINT_SYNC] item ${normalizeSyncItemLabel(item)} visible ${Boolean(item?.visible)}`,
+          );
+        });
+      });
+    }
+
+    await Configuration.createTable();
+    await Configuration.setConfigValue(
+      "PRINT_FORMATS_JSON",
+      JSON.stringify(formats),
+    );
+
+    if (__DEV__) {
+      console.log("[PRINT_SYNC] saved local PRINT_FORMATS_JSON");
+    }
+
+    return formats;
+  } catch (error) {
+    if (__DEV__) {
+      console.log("[PRINT_SYNC] error", error?.message || error);
+    }
+    return null;
+  }
 };

@@ -30,6 +30,7 @@ import {
   savePrintFormats,
   savePrintFormatsToSql,
 } from "@services/printLayoutService";
+import { syncPrintFormatsFromSql } from "@services/printSqlService";
 import { printArticle } from "@services/printerService";
 
 const SIZE_PRESETS = [
@@ -171,6 +172,7 @@ export default function PrintConfigurationScreen() {
   const [previewModalVisible, setPreviewModalVisible] = useState(false);
   const [loading, setLoading] = useState(true);
   const [testing, setTesting] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [status, setStatus] = useState("");
   const [saving, setSaving] = useState(false);
   const { darkMode } = useThemeConfig();
@@ -234,6 +236,50 @@ export default function PrintConfigurationScreen() {
       setSaving(false);
     }
   }, []);
+
+  const saveLocalFormats = useCallback(async () => {
+    const normalized = safeNormalizePrintConfig(formats);
+    setSaving(true);
+    try {
+      await savePrintFormats(normalized);
+      setStatus("Diseños guardados localmente.");
+    } catch (error) {
+      setStatus(
+        error?.message || "No se pudieron guardar los diseños localmente.",
+      );
+    } finally {
+      setSaving(false);
+    }
+  }, [formats]);
+
+  const syncDesignsFromSql = useCallback(async () => {
+    if (syncing) {
+      return;
+    }
+
+    setSyncing(true);
+    setStatus("");
+    try {
+      const sqlFormats = await syncPrintFormatsFromSql();
+      if (!sqlFormats) {
+        setStatus("No se pudieron sincronizar los diseños desde SQL.");
+        return;
+      }
+
+      const normalized = safeNormalizePrintConfig(sqlFormats);
+      baseFormatsRef.current = clone(normalized);
+      setFormats(normalized);
+      setStatus("Diseños sincronizados correctamente.");
+      console.log("[PRINT_SYNC] preview refreshed");
+    } catch (error) {
+      setStatus("No se pudieron sincronizar los diseños desde SQL.");
+      if (__DEV__) {
+        console.log("[PRINT_SYNC] sync failed", error?.message || error);
+      }
+    } finally {
+      setSyncing(false);
+    }
+  }, [syncing]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -462,7 +508,7 @@ export default function PrintConfigurationScreen() {
   );
 
   const previewPaperInfo = formatPreviewPaperInfo(activeFormat, previewLayout);
-  const formatActionsDisabled = loading || testing || saving;
+  const formatActionsDisabled = loading || testing || saving || syncing;
 
   return (
     <View style={[styles.root, { backgroundColor: theme.background }]}>
@@ -582,6 +628,33 @@ export default function PrintConfigurationScreen() {
           </Text>
 
           <View style={styles.headerActions}>
+            <TouchableOpacity
+              style={[
+                styles.actionButton,
+                { backgroundColor: theme.accentDark },
+              ]}
+              onPress={syncDesignsFromSql}
+              disabled={formatActionsDisabled}
+            >
+              {syncing ? (
+                <ActivityIndicator color={Colors.WHITE} />
+              ) : (
+                <Ionicons
+                  name="cloud-download-outline"
+                  size={18}
+                  color={Colors.WHITE}
+                />
+              )}
+              <Text style={styles.actionButtonText}>Sincronizar diseños</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.actionButton, { backgroundColor: "#4E7DB8" }]}
+              onPress={saveLocalFormats}
+              disabled={formatActionsDisabled}
+            >
+              <Ionicons name="save-outline" size={18} color={Colors.WHITE} />
+              <Text style={styles.actionButtonText}>Guardar local</Text>
+            </TouchableOpacity>
             <TouchableOpacity
               style={[styles.actionButton, { backgroundColor: theme.accent }]}
               onPress={printTest}
