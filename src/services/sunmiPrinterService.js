@@ -12,6 +12,7 @@ import {
   getCatalogConfig,
   getCompanyNameFromSqlConfig,
 } from "@services/catalogService";
+import Configuration from "@db/Configuration";
 
 const INTEGRATION_NOT_IMPLEMENTED_MESSAGE =
   "Integración Sunmi no disponible en esta build.";
@@ -94,8 +95,12 @@ const firstNonEmptyText = (...values) => {
   return "";
 };
 
-const getPostPrintFeedLines = () => {
+const getPostPrintFeedLines = async () => {
+  const storedValue = await Configuration.getConfigValue(
+    "PRINT_POST_FEED_LINES",
+  ).catch(() => "");
   const rawValue =
+    (String(storedValue ?? "").trim() !== "" ? storedValue : null) ??
     Constants?.expoConfig?.extra?.print?.postPrintFeedLines ??
     Constants?.expoConfig?.extra?.postPrintFeedLines ??
     DEFAULT_POST_PRINT_FEED_LINES;
@@ -603,7 +608,7 @@ export const printLabel = async (
   }
 
   if (typeof module.lineWrap === "function") {
-    await module.lineWrap(getPostPrintFeedLines());
+    await module.lineWrap(await getPostPrintFeedLines());
   }
 
   return { printed: true, layout };
@@ -840,7 +845,7 @@ export const printSimpleProductLabel = async (
     companyName,
     copies: Math.max(1, Number(input?.copies ?? 1) || 1),
     items: itemsToNative,
-    postPrintFeedLines: getPostPrintFeedLines(),
+    postPrintFeedLines: await getPostPrintFeedLines(),
   });
   console.log("[PRINT] success");
 
@@ -1012,7 +1017,7 @@ export const printSunmiDiagnosticTest = async () => {
   for (const line of lines) {
     await module.printString(`${line}\n`);
   }
-  await module.lineWrap(getPostPrintFeedLines());
+  await module.lineWrap(await getPostPrintFeedLines());
   return { printed: true };
 };
 

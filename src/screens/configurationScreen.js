@@ -18,7 +18,10 @@ import Configuration from "@db/Configuration";
 import Colors from "@styles/Colors";
 import { Fonts, Radii, Shadow } from "@styles/Theme";
 import { useThemeConfig } from "@context/ThemeContext";
-import { getCompanyNameFromSqlConfig, syncCatalogToLocal } from "@services/catalogService";
+import {
+  getCompanyNameFromSqlConfig,
+  syncCatalogToLocal,
+} from "@services/catalogService";
 import {
   closeSql,
   connectSql,
@@ -33,6 +36,11 @@ const MODE_OPTIONS = [
   { label: "SQL Local", value: "LOCAL" },
   { label: "SQL Online", value: "ONLINE" },
   { label: "API AlfaNet", value: "API" },
+];
+
+const TAB_OPTIONS = [
+  { label: "General", value: "GENERAL" },
+  { label: "ConexiÃ³n", value: "CONNECTION" },
 ];
 
 const FREQUENCY_OPTIONS = [
@@ -59,6 +67,7 @@ const defaultConfig = {
   API_TIMEOUT: "15",
   API_SSL: false,
   SYNC_FREQUENCY: "MANUAL",
+  PRINT_POST_FEED_LINES: "3",
   SQL_SERVER: "",
   SQL_DATABASE: "",
   SQL_USER: "",
@@ -94,6 +103,14 @@ const normalizeFrequency = (value) => {
   return FREQUENCY_OPTIONS.some((item) => item.value === freq)
     ? freq
     : "MANUAL";
+};
+
+const normalizeFeedLines = (value) => {
+  const parsed = Math.round(Number(value));
+  if (!Number.isFinite(parsed)) {
+    return "3";
+  }
+  return String(Math.max(0, Math.min(10, parsed)));
 };
 
 const SectionTitle = ({ children, color }) => (
@@ -188,7 +205,7 @@ const PasswordField = ({ title, value, onChange, placeholder, darkMode }) => {
           hitSlop={10}
           accessibilityRole="button"
           accessibilityLabel={
-            secure ? "Mostrar contraseña" : "Ocultar contraseña"
+            secure ? "Mostrar contraseÃ±a" : "Ocultar contraseÃ±a"
           }
         >
           <Ionicons
@@ -272,6 +289,7 @@ const ConnectionStatusCard = ({ result, theme, darkMode }) => {
 export default function ConfigurationScreen({ navigation }) {
   const [config, setConfig] = useState(defaultConfig);
   const [activeMode, setActiveMode] = useState("API");
+  const [activeTab, setActiveTab] = useState("GENERAL");
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -299,7 +317,9 @@ export default function ConfigurationScreen({ navigation }) {
     await Configuration.createTable();
     const rows = await Configuration.query();
     const map = loadConfigMap(rows);
-    const companyName = String(map.COMPANY_NAME ?? map.SQL_COMPANY_NAME ?? "").trim();
+    const companyName = String(
+      map.COMPANY_NAME ?? map.SQL_COMPANY_NAME ?? "",
+    ).trim();
 
     const nextConfig = {
       ...defaultConfig,
@@ -315,6 +335,9 @@ export default function ConfigurationScreen({ navigation }) {
       API_TIMEOUT: String(map.API_TIMEOUT ?? map.SQL_TIMEOUT ?? "15").trim(),
       API_SSL: Configuration.isTruthyConfigValue(map.API_SSL),
       SYNC_FREQUENCY: normalizeFrequency(map.SYNC_FREQUENCY),
+      PRINT_POST_FEED_LINES: normalizeFeedLines(
+        map.PRINT_POST_FEED_LINES ?? map.POST_PRINT_FEED_LINES ?? "3",
+      ),
       SQL_SERVER: String(map.SQL_SERVER ?? "").trim(),
       SQL_DATABASE: String(map.SQL_DATABASE ?? "").trim(),
       SQL_USER: String(map.SQL_USER ?? "").trim(),
@@ -346,7 +369,9 @@ export default function ConfigurationScreen({ navigation }) {
     }
 
     if (!nextConfig.COMPANY_NAME && nextConfig.CONNECTION_TYPE === "ONLINE") {
-      const sqlCompanyName = await getCompanyNameFromSqlConfig().catch(() => "");
+      const sqlCompanyName = await getCompanyNameFromSqlConfig().catch(
+        () => "",
+      );
       if (sqlCompanyName) {
         nextConfig.COMPANY_NAME = sqlCompanyName;
       }
@@ -374,6 +399,7 @@ export default function ConfigurationScreen({ navigation }) {
         "API_USER",
         "API_PASSWORD",
         "API_BASE_ID",
+        "PRINT_POST_FEED_LINES",
         "SQL_SERVER",
         "SQL_DATABASE",
         "SQL_USER",
@@ -412,11 +438,11 @@ export default function ConfigurationScreen({ navigation }) {
         if (!String(config.API_URI).trim())
           throw new Error("Complete la ruta web service.");
         if (!String(config.API_ACCOUNT_CODE).trim())
-          throw new Error("Complete el código de cuenta AlfaNet.");
+          throw new Error("Complete el cÃ³digo de cuenta AlfaNet.");
         if (!String(config.API_USER).trim())
           throw new Error("Complete el usuario.");
         if (!String(config.API_PASSWORD).trim())
-          throw new Error("Complete la contraseña.");
+          throw new Error("Complete la contraseÃ±a.");
         if (!String(config.API_BASE_ID).trim())
           throw new Error("Complete el ID base.");
       }
@@ -429,14 +455,18 @@ export default function ConfigurationScreen({ navigation }) {
         if (!String(config.SQL_USER).trim())
           throw new Error("Complete el usuario SQL.");
         if (!String(config.SQL_PASSWORD).trim())
-          throw new Error("Complete la contraseña SQL.");
+          throw new Error("Complete la contraseÃ±a SQL.");
         if (!String(config.SQL_ARTICLES_TABLE).trim())
-          throw new Error("Complete la tabla o vista de artículos.");
+          throw new Error("Complete la tabla o vista de artÃ­culos.");
       }
 
       const payload = [
         ["CONNECTION_TYPE", activeMode],
         ["COMPANY_NAME", config.COMPANY_NAME],
+        [
+          "PRINT_POST_FEED_LINES",
+          normalizeFeedLines(config.PRINT_POST_FEED_LINES),
+        ],
         [
           "SQL_MODE",
           activeMode === "ONLINE"
@@ -456,10 +486,7 @@ export default function ConfigurationScreen({ navigation }) {
         ["API_BASE_ID", config.API_BASE_ID],
         ["API_TIMEOUT", config.API_TIMEOUT],
         ["API_SSL", config.API_SSL ? "1" : "0"],
-        [
-          "SQL_SERVER",
-          config.SQL_SERVER,
-        ],
+        ["SQL_SERVER", config.SQL_SERVER],
         [
           "SQL_PORT",
           parsedServer.port !== null
@@ -467,10 +494,7 @@ export default function ConfigurationScreen({ navigation }) {
             : config.SQL_PORT,
         ],
         ["SQL_TIMEOUT", config.SQL_TIMEOUT],
-        [
-          "SQL_INSTANCE",
-          parsedServer.instance || config.SQL_INSTANCE,
-        ],
+        ["SQL_INSTANCE", parsedServer.instance || config.SQL_INSTANCE],
         ["SQL_DATABASE", config.SQL_DATABASE],
         ["SQL_USER", config.SQL_USER],
         ["SQL_PASSWORD", config.SQL_PASSWORD],
@@ -484,10 +508,10 @@ export default function ConfigurationScreen({ navigation }) {
       }
 
       await loadConfiguration();
-      setStatus("Configuración guardada correctamente.");
+      setStatus("ConfiguraciÃ³n guardada correctamente.");
       await refreshTheme();
     } catch (e) {
-      setStatus(e?.message || "No se pudo guardar la configuración.");
+      setStatus(e?.message || "No se pudo guardar la configuraciÃ³n.");
     } finally {
       setSaving(false);
     }
@@ -503,7 +527,7 @@ export default function ConfigurationScreen({ navigation }) {
         setConnectionResult({
           status: "error",
           title: "No se pudo conectar",
-          subtitle: "Completá la ruta web service antes de probar.",
+          subtitle: "CompletÃ¡ la ruta web service antes de probar.",
         });
         return;
       }
@@ -512,7 +536,7 @@ export default function ConfigurationScreen({ navigation }) {
       setConnectionResult({
         status: "loading",
         title: "Conectando...",
-        subtitle: "Estamos verificando la conexión con el servidor SQL.",
+        subtitle: "Estamos verificando la conexiÃ³n con el servidor SQL.",
       });
 
       try {
@@ -524,12 +548,12 @@ export default function ConfigurationScreen({ navigation }) {
         }
         setConnectionResult({
           status: "success",
-          title: "Conexión exitosa",
+          title: "ConexiÃ³n exitosa",
           subtitle: "La app pudo conectarse correctamente al servidor.",
         });
       } catch (e) {
         const rawMessage = String(
-          e?.message || "No se pudo probar la conexión.",
+          e?.message || "No se pudo probar la conexiÃ³n.",
         ).trim();
         const detail =
           rawMessage.length > 140
@@ -538,7 +562,7 @@ export default function ConfigurationScreen({ navigation }) {
         setConnectionResult({
           status: "error",
           title: "No se pudo conectar",
-          subtitle: "Revisá los datos y volvé a intentar.",
+          subtitle: "RevisÃ¡ los datos y volvÃ© a intentar.",
           detail,
         });
       } finally {
@@ -558,7 +582,7 @@ export default function ConfigurationScreen({ navigation }) {
         status: "error",
         title: "No se pudo conectar",
         subtitle:
-          "Completá servidor, base, usuario, contraseña y tabla/vista antes de probar.",
+          "CompletÃ¡ servidor, base, usuario, contraseÃ±a y tabla/vista antes de probar.",
       });
       return;
     }
@@ -576,7 +600,7 @@ export default function ConfigurationScreen({ navigation }) {
     setConnectionResult({
       status: "loading",
       title: "Conectando...",
-      subtitle: "Estamos verificando la conexión con el servidor SQL.",
+      subtitle: "Estamos verificando la conexiÃ³n con el servidor SQL.",
     });
 
     try {
@@ -596,7 +620,7 @@ export default function ConfigurationScreen({ navigation }) {
       await closeSql();
       setConnectionResult({
         status: "success",
-        title: "Conexión exitosa",
+        title: "ConexiÃ³n exitosa",
         subtitle: "La app pudo conectarse correctamente al servidor.",
       });
     } catch (e) {
@@ -618,7 +642,7 @@ export default function ConfigurationScreen({ navigation }) {
       setConnectionResult({
         status: "error",
         title: "No se pudo conectar",
-        subtitle: "Revisá los datos y volvé a intentar.",
+        subtitle: "RevisÃ¡ los datos y volvÃ© a intentar.",
         detail,
       });
       await closeSql();
@@ -631,7 +655,7 @@ export default function ConfigurationScreen({ navigation }) {
     if (activeMode !== "LOCAL") {
       Alert.alert(
         "AlfaScan",
-        "La sincronización manual aplica solo para SQL Local.",
+        "La sincronizaciÃ³n manual aplica solo para SQL Local.",
       );
       return;
     }
@@ -642,23 +666,23 @@ export default function ConfigurationScreen({ navigation }) {
       const result = await syncCatalogToLocal({
         onProgress: ({ inserted, page }) => {
           setStatus(
-            `Sincronizando catálogo... ${inserted} registros importados (lote ${page}).`,
+            `Sincronizando catÃ¡logo... ${inserted} registros importados (lote ${page}).`,
           );
         },
       });
       const now = new Date().toISOString();
       await Configuration.setConfigValue("LAST_SYNC_AT", now);
       setStatus(
-        `Sincronización completada. Registros importados: ${result.inserted}.`,
+        `SincronizaciÃ³n completada. Registros importados: ${result.inserted}.`,
       );
     } catch (e) {
-      setStatus(e?.message || "No se pudo sincronizar el catálogo.");
+      setStatus(e?.message || "No se pudo sincronizar el catÃ¡logo.");
     } finally {
       setSyncing(false);
     }
   };
 
-  const testButtonLabel = testing ? "Probando..." : "Probar conexión";
+  const testButtonLabel = testing ? "Probando..." : "Probar conexiÃ³n";
 
   return (
     <View style={[styles.root, { backgroundColor: theme.background }]}>
@@ -672,159 +696,236 @@ export default function ConfigurationScreen({ navigation }) {
           style={[styles.card, { backgroundColor: theme.surface }, Shadow.sm]}
         >
           <Text style={[styles.title, { color: theme.text }]}>
-            Configuración AlfaScan
+            ConfiguraciÃ³n AlfaScan
           </Text>
           <Text style={[styles.subtitle, { color: theme.muted }]}>
-            Defina el modo de conexión principal y los datos esenciales de
+            Defina el modo de conexiÃ³n principal y los datos esenciales de
             acceso.
           </Text>
 
-          <ConfigItem
-            type="input"
-            title="Nombre de empresa"
-            field="COMPANY_NAME"
-            placeholder="Nano Distribuciones"
-            value={config.COMPANY_NAME}
-            handleChange={handleChange}
-            darkMode={darkMode}
-            helperText="Se usarÃ¡ como encabezado de impresiÃ³n si estÃ¡ cargado."
-          />
-
-          <View style={styles.modeRow}>
-            {MODE_OPTIONS.map((item) => (
-              <ModeChip
-                key={item.value}
-                label={item.label}
-                active={activeMode === item.value}
-                onPress={() => handleModeChange(item.value)}
-                darkMode={darkMode}
-              />
-            ))}
+          <View style={styles.tabsRow}>
+            {TAB_OPTIONS.map((item) => {
+              const active = activeTab === item.value;
+              return (
+                <TouchableOpacity
+                  key={item.value}
+                  onPress={() => setActiveTab(item.value)}
+                  style={[
+                    styles.tabChip,
+                    {
+                      backgroundColor: active
+                        ? theme.accent
+                        : darkMode
+                          ? "#152332"
+                          : Colors.SURFACE,
+                      borderColor: active
+                        ? theme.accent
+                        : darkMode
+                          ? "#243241"
+                          : Colors.BORDER,
+                    },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.tabText,
+                      {
+                        color: active
+                          ? Colors.WHITE
+                          : darkMode
+                            ? "#E8F0F8"
+                            : Colors.DGREY,
+                      },
+                    ]}
+                  >
+                    {item.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
           </View>
 
-          {activeMode === "API" ? (
+          {activeTab === "GENERAL" ? (
             <>
-              <SectionTitle color={theme.text}>API AlfaNet</SectionTitle>
-              <Text style={[styles.sectionHint, { color: theme.muted }]}>
-                Alternativa disponible, pero no es el camino principal para
-                precios ni catalogo.
-              </Text>
               <ConfigItem
                 type="input"
-                title="Ruta web service"
-                field="API_URI"
-                placeholder="https://..."
-                value={config.API_URI}
+                title="Nombre de empresa"
+                field="COMPANY_NAME"
+                placeholder="Nano Distribuciones"
+                value={config.COMPANY_NAME}
                 handleChange={handleChange}
                 darkMode={darkMode}
+                helperText="Se usarÃ¡ como encabezado de impresiÃ³n si estÃ¡ cargado."
               />
+
               <ConfigItem
                 type="input"
-                title="Código cuenta AlfaNet"
-                field="API_ACCOUNT_CODE"
-                placeholder="112010001"
-                value={config.API_ACCOUNT_CODE}
-                handleChange={handleChange}
-                darkMode={darkMode}
-              />
-              <ConfigItem
-                type="input"
-                title="Usuario"
-                field="API_USER"
-                placeholder="usuario"
-                value={config.API_USER}
-                handleChange={handleChange}
-                darkMode={darkMode}
-              />
-              <PasswordField
-                title="Password"
-                placeholder="********"
-                value={config.API_PASSWORD}
-                onChange={(value) => handleChange("API_PASSWORD", value)}
-                darkMode={darkMode}
-              />
-              <ConfigItem
-                type="input"
-                title="ID Base"
-                field="API_BASE_ID"
-                placeholder="3239"
-                value={config.API_BASE_ID}
-                handleChange={handleChange}
-                darkMode={darkMode}
-              />
-              <ConfigItem
-                type="input"
-                title="Timeout"
-                field="API_TIMEOUT"
-                placeholder="15"
-                value={config.API_TIMEOUT}
+                title="Avance final de papel"
+                field="PRINT_POST_FEED_LINES"
+                placeholder="3"
+                value={config.PRINT_POST_FEED_LINES}
                 keyboardType="numeric"
                 handleChange={handleChange}
                 darkMode={darkMode}
+                helperText="Cantidad de lÃ­neas al final de cada impresiÃ³n. Recomendado: 3."
               />
-              <ConfigItem
-                type="checkbox"
-                title="Usar SSL"
-                field="API_SSL"
-                value={config.API_SSL}
-                handleChange={handleChange}
+
+              <View style={styles.modeRow}>
+                {MODE_OPTIONS.map((item) => (
+                  <ModeChip
+                    key={item.value}
+                    label={item.label}
+                    active={activeMode === item.value}
+                    onPress={() => handleModeChange(item.value)}
+                    darkMode={darkMode}
+                  />
+                ))}
+              </View>
+
+              <Text style={[styles.sectionTitle, { color: theme.text }]}>
+                Modo oscuro
+              </Text>
+              <ThemeSwitcher
+                value={config.TEMA_OSCURO}
+                onChange={async (value) => {
+                  handleChange("TEMA_OSCURO", value);
+                  setConfig((current) => ({ ...current, TEMA_OSCURO: value }));
+                  await Configuration.setConfigValue(
+                    "TEMA_OSCURO",
+                    value ? "1" : "0",
+                  );
+                  await refreshTheme();
+                }}
                 darkMode={darkMode}
               />
             </>
           ) : (
             <>
               <SectionTitle color={theme.text}>
-                {activeMode === "LOCAL" ? "SQL Local" : "SQL Online"}
+                {activeMode === "LOCAL"
+                  ? "SQL Local"
+                  : activeMode === "ONLINE"
+                    ? "SQL Online"
+                    : "API AlfaNet"}
               </SectionTitle>
               <Text style={[styles.sectionHint, { color: theme.muted }]}>
-                SQL directo requiere APK propia / development build. No
-                funciona en Expo Go.
+                {activeMode === "API"
+                  ? "Alternativa disponible, pero no es el camino principal para precios ni catalogo."
+                  : "SQL directo requiere APK propia / development build. No funciona en Expo Go."}
               </Text>
-              <ConfigItem
-                type="input"
-                title="Servidor"
-                field="SQL_SERVER"
-                placeholder="SERVIDOR, IP o SERVIDOR\\INSTANCIA"
-                value={config.SQL_SERVER}
-                handleChange={handleChange}
-                darkMode={darkMode}
-                helperText="Formatos permitidos: IP, SERVIDOR, IP,PUERTO, SERVIDOR,PUERTO, IP\\INSTANCIA. Recomendado: IP,PUERTO."
-              />
-              <ConfigItem
-                type="input"
-                title="Base"
-                field="SQL_DATABASE"
-                placeholder="MiBase"
-                value={config.SQL_DATABASE}
-                handleChange={handleChange}
-                darkMode={darkMode}
-              />
-              <ConfigItem
-                type="input"
-                title="Usuario"
-                field="SQL_USER"
-                placeholder="sa"
-                value={config.SQL_USER}
-                handleChange={handleChange}
-                darkMode={darkMode}
-              />
-              <PasswordField
-                title="Contraseña"
-                placeholder="********"
-                value={config.SQL_PASSWORD}
-                onChange={(value) => handleChange("SQL_PASSWORD", value)}
-                darkMode={darkMode}
-              />
-              <ConfigItem
-                type="input"
-                title="Tabla / Vista de artículos"
-                field="SQL_ARTICLES_TABLE"
-                placeholder="Productos"
-                value={config.SQL_ARTICLES_TABLE}
-                handleChange={handleChange}
-                darkMode={darkMode}
-                helperText="Vista o tabla del cliente. Por defecto: Productos."
-              />
+              {activeMode === "API" ? (
+                <>
+                  <ConfigItem
+                    type="input"
+                    title="Ruta web service"
+                    field="API_URI"
+                    placeholder="https://..."
+                    value={config.API_URI}
+                    handleChange={handleChange}
+                    darkMode={darkMode}
+                  />
+                  <ConfigItem
+                    type="input"
+                    title="Código cuenta AlfaNet"
+                    field="API_ACCOUNT_CODE"
+                    placeholder="112010001"
+                    value={config.API_ACCOUNT_CODE}
+                    handleChange={handleChange}
+                    darkMode={darkMode}
+                  />
+                  <ConfigItem
+                    type="input"
+                    title="Usuario"
+                    field="API_USER"
+                    placeholder="usuario"
+                    value={config.API_USER}
+                    handleChange={handleChange}
+                    darkMode={darkMode}
+                  />
+                  <PasswordField
+                    title="Password"
+                    placeholder="********"
+                    value={config.API_PASSWORD}
+                    onChange={(value) => handleChange("API_PASSWORD", value)}
+                    darkMode={darkMode}
+                  />
+                  <ConfigItem
+                    type="input"
+                    title="ID Base"
+                    field="API_BASE_ID"
+                    placeholder="3239"
+                    value={config.API_BASE_ID}
+                    handleChange={handleChange}
+                    darkMode={darkMode}
+                  />
+                  <ConfigItem
+                    type="input"
+                    title="Timeout"
+                    field="API_TIMEOUT"
+                    placeholder="15"
+                    value={config.API_TIMEOUT}
+                    keyboardType="numeric"
+                    handleChange={handleChange}
+                    darkMode={darkMode}
+                  />
+                  <ConfigItem
+                    type="checkbox"
+                    title="Usar SSL"
+                    field="API_SSL"
+                    value={config.API_SSL}
+                    handleChange={handleChange}
+                    darkMode={darkMode}
+                  />
+                </>
+              ) : (
+                <>
+                  <ConfigItem
+                    type="input"
+                    title="Servidor"
+                    field="SQL_SERVER"
+                    placeholder="SERVIDOR, IP o SERVIDOR\\INSTANCIA"
+                    value={config.SQL_SERVER}
+                    handleChange={handleChange}
+                    darkMode={darkMode}
+                    helperText="Formatos permitidos: IP, SERVIDOR, IP,PUERTO, SERVIDOR,PUERTO, IP\\INSTANCIA. Recomendado: IP,PUERTO."
+                  />
+                  <ConfigItem
+                    type="input"
+                    title="Base"
+                    field="SQL_DATABASE"
+                    placeholder="MiBase"
+                    value={config.SQL_DATABASE}
+                    handleChange={handleChange}
+                    darkMode={darkMode}
+                  />
+                  <ConfigItem
+                    type="input"
+                    title="Usuario"
+                    field="SQL_USER"
+                    placeholder="sa"
+                    value={config.SQL_USER}
+                    handleChange={handleChange}
+                    darkMode={darkMode}
+                  />
+                  <PasswordField
+                    title="Contraseña"
+                    placeholder="********"
+                    value={config.SQL_PASSWORD}
+                    onChange={(value) => handleChange("SQL_PASSWORD", value)}
+                    darkMode={darkMode}
+                  />
+                  <ConfigItem
+                    type="input"
+                    title="Tabla / Vista de artículos"
+                    field="SQL_ARTICLES_TABLE"
+                    placeholder="Productos"
+                    value={config.SQL_ARTICLES_TABLE}
+                    handleChange={handleChange}
+                    darkMode={darkMode}
+                    helperText="Vista o tabla del cliente. Por defecto: Productos."
+                  />
+                </>
+              )}
             </>
           )}
 
@@ -884,27 +985,6 @@ export default function ConfigurationScreen({ navigation }) {
         </View>
 
         <View
-          style={[styles.card, { backgroundColor: theme.surface }, Shadow.sm]}
-        >
-          <Text style={[styles.sectionTitle, { color: theme.text }]}>
-            Modo oscuro
-          </Text>
-          <ThemeSwitcher
-            value={config.TEMA_OSCURO}
-            onChange={async (value) => {
-              handleChange("TEMA_OSCURO", value);
-              setConfig((current) => ({ ...current, TEMA_OSCURO: value }));
-              await Configuration.setConfigValue(
-                "TEMA_OSCURO",
-                value ? "1" : "0",
-              );
-              await refreshTheme();
-            }}
-            darkMode={darkMode}
-          />
-        </View>
-
-        <View
           style={[
             styles.actionsCard,
             { backgroundColor: theme.surface },
@@ -916,21 +996,23 @@ export default function ConfigurationScreen({ navigation }) {
             onPress={() => navigation.navigate("ConfigurationAdditionalScreen")}
           >
             <Ionicons name="options-outline" size={18} color={Colors.WHITE} />
-            <Text style={styles.actionButtonText}>Configuración adicional</Text>
+            <Text style={styles.actionButtonText}>
+              ConfiguraciÃ³n adicional
+            </Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.actionButton, { backgroundColor: theme.accent }]}
             onPress={() => navigation.navigate("PrintConfigurationScreen")}
           >
             <Ionicons name="print-outline" size={18} color={Colors.WHITE} />
-            <Text style={styles.actionButtonText}>Configurar impresión</Text>
+            <Text style={styles.actionButtonText}>Configurar impresiÃ³n</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.actionButton, { backgroundColor: theme.success }]}
             onPress={() => navigation.navigate("SunmiDiagnosticsScreen")}
           >
             <Ionicons name="medkit-outline" size={18} color={Colors.WHITE} />
-            <Text style={styles.actionButtonText}>Diagnóstico Sunmi</Text>
+            <Text style={styles.actionButtonText}>DiagnÃ³stico Sunmi</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.actionButton, { backgroundColor: theme.accent }]}
@@ -942,7 +1024,7 @@ export default function ConfigurationScreen({ navigation }) {
             ) : (
               <Ionicons name="save-outline" size={18} color={Colors.WHITE} />
             )}
-            <Text style={styles.actionButtonText}>Guardar configuración</Text>
+            <Text style={styles.actionButtonText}>Guardar configuraciÃ³n</Text>
           </TouchableOpacity>
         </View>
 
@@ -989,6 +1071,24 @@ const styles = StyleSheet.create({
     lineHeight: 17,
     fontFamily: Fonts.body,
     marginBottom: 10,
+  },
+  tabsRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginBottom: 12,
+  },
+  tabChip: {
+    flex: 1,
+    minHeight: 44,
+    borderRadius: 14,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 12,
+  },
+  tabText: {
+    fontFamily: Fonts.display,
+    fontSize: 14,
   },
   modeRow: {
     flexDirection: "row",
