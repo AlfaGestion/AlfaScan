@@ -1,6 +1,7 @@
 import { Component, useCallback, useEffect, useMemo, useState } from "react";
-import { Alert, ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { Alert, ActivityIndicator, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
+import CheckBox from "expo-checkbox";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -9,6 +10,7 @@ import PrintPreview from "@components/print/PrintPreview";
 import PrintPropertiesPanel from "@components/print/PrintPropertiesPanel";
 import Colors from "@styles/Colors";
 import { Fonts, Radii, Shadow } from "@styles/Theme";
+import Configuration from "@db/Configuration";
 import { useThemeConfig } from "@context/ThemeContext";
 import {
   createSampleProduct,
@@ -162,6 +164,8 @@ export default function PrintConfigurationScreen() {
   const [formats, setFormats] = useState(() => safeNormalizePrintConfig(DEFAULT_PRINT_FORMATS));
   const [activeIndex, setActiveIndex] = useState(0);
   const [selectedElementKey, setSelectedElementKey] = useState(DEFAULT_SELECTED_ELEMENT_KEY);
+  const [previewEnabled, setPreviewEnabled] = useState(true);
+  const [previewModalVisible, setPreviewModalVisible] = useState(false);
   const [saving, setSaving] = useState(false);
   const [sqlBusy, setSqlBusy] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -190,6 +194,22 @@ export default function PrintConfigurationScreen() {
   const selectedElement = getSelectedElement(activeFormat, selectedElementKey);
   const previewProduct = useMemo(() => createSampleProduct(), []);
   const previewLayout = useMemo(() => buildPrintableLayout(activeFormat, previewProduct), [activeFormat, previewProduct]);
+
+  const loadPreviewPreference = useCallback(async () => {
+    await Configuration.createTable();
+    const raw = await Configuration.getConfigValue("PRINT_PREVIEW_ENABLED").catch(() => null);
+    const enabled =
+      raw === null || raw === undefined || raw === ""
+        ? true
+        : Configuration.isTruthyConfigValue(raw);
+    setPreviewEnabled(enabled);
+  }, []);
+
+  useEffect(() => {
+    loadPreviewPreference().catch(() => {
+      setPreviewEnabled(true);
+    });
+  }, [loadPreviewPreference]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -417,10 +437,46 @@ export default function PrintConfigurationScreen() {
     setTesting(true);
     setStatus("");
     try {
+      if (previewEnabled) {
+        setPreviewModalVisible(true);
+        setStatus("Mostrando vista previa.");
+      } else {
+        await printArticle({ article: previewProduct, formatKey: activeFormat.key, format: activeFormat });
+        setStatus("Prueba de impresión enviada.");
+      }
+    } catch (e) {
+      console.log("[PRINT] test error", e?.message || e);
+      setStatus("No se pudo imprimir. Revisá la impresora y volvé a intentar.");
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const handlePreviewToggle = useCallback(
+    async (value) => {
+      const next = Boolean(value);
+      setPreviewEnabled(next);
+      try {
+        await Configuration.createTable();
+        await Configuration.setConfigValue("PRINT_PREVIEW_ENABLED", next ? "1" : "0");
+      } catch (error) {
+        if (__DEV__) {
+          console.log("[PRINT_CONFIG] preview preference save failed", error?.message || error);
+        }
+      }
+    },
+    [],
+  );
+
+  const handlePreviewPrintNow = async () => {
+    setPreviewModalVisible(false);
+    setTesting(true);
+    setStatus("");
+    try {
       await printArticle({ article: previewProduct, formatKey: activeFormat.key, format: activeFormat });
       setStatus("Prueba de impresión enviada.");
     } catch (e) {
-      console.log("[PRINT] test error", e?.message || e);
+      console.log("[PRINT] preview print error", e?.message || e);
       setStatus("No se pudo imprimir. Revisá la impresora y volvé a intentar.");
     } finally {
       setTesting(false);
@@ -444,6 +500,66 @@ export default function PrintConfigurationScreen() {
 
   return (
     <View style={[styles.root, { backgroundColor: theme.background }]}>
+      <Modal
+        visible={previewModalVisible}
+        animationType="fade"
+        transparent
+        onRequestClose={() => setPreviewModalVisible(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.modalCard, { backgroundColor: theme.surface }, Shadow.md]}>
+            <View style={styles.modalHeader}>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.modalTitle, { color: theme.text }]}>Vista previa de impresión</Text>
+                <Text style={[styles.modalSubtitle, { color: theme.muted }]}>
+                  Revisá el diseño antes de mandar papel.
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => setPreviewModalVisible(false)}
+                style={[styles.modalCloseButton, { backgroundColor: theme.surfaceAlt, borderColor: theme.border }]}
+              >
+                <Ionicons name="close" size={18} color={theme.text} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView contentContainerStyle={styles.modalScroll}>
+              <View style={[styles.previewModeWrap, { backgroundColor: theme.surfaceAlt, borderColor: theme.border }]}>
+                <Text style={[styles.previewModeLabel, { color: theme.text }]}>
+                  {previewEnabled ? "Modo: Previsualizar" : "Modo: Imprimir"}
+                </Text>
+              </View>
+
+              <PrintPreview
+                title={`Formato ${activeFormat.name || activeFormat.key}`}
+                format={activeFormat}
+                product={previewProduct}
+                selectedElementKey={null}
+                onSelectElement={null}
+                onMoveElement={null}
+                editable={false}
+                theme={theme}
+              />
+            </ScrollView>
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={[styles.modalActionButton, { backgroundColor: theme.surfaceAlt, borderColor: theme.border }]}
+                onPress={() => setPreviewModalVisible(false)}
+              >
+                <Text style={[styles.modalActionText, { color: theme.text }]}>Cerrar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalActionButton, { backgroundColor: theme.accent }]}
+                onPress={handlePreviewPrintNow}
+              >
+                <Text style={[styles.modalActionText, { color: Colors.WHITE }]}>Imprimir ahora</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: 28 + insets.bottom }]}>
         <View style={[styles.headerCard, { backgroundColor: theme.surface }, Shadow.md]}>
           <Text style={[styles.title, { color: theme.text }]}>Configurar impresión</Text>
@@ -492,6 +608,15 @@ export default function PrintConfigurationScreen() {
               <Ionicons name="refresh-outline" size={18} color={Colors.WHITE} />
               <Text style={styles.actionButtonText}>Restaurar diseño</Text>
             </TouchableOpacity>
+          </View>
+
+          <View style={styles.previewToggleRow}>
+            <CheckBox
+              value={previewEnabled}
+              onValueChange={handlePreviewToggle}
+              color={darkMode ? "#8FC3FF" : Colors.DBLUE}
+            />
+            <Text style={[styles.previewToggleText, { color: theme.text }]}>Previsualizar</Text>
           </View>
 
           <FormatTabs formats={formatList} activeIndex={activeIndex} onChange={setActiveIndex} theme={theme} />
@@ -755,6 +880,17 @@ const styles = StyleSheet.create({
     gap: 8,
     marginBottom: 12,
   },
+  previewToggleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginBottom: 10,
+    marginTop: 2,
+  },
+  previewToggleText: {
+    fontSize: 13,
+    fontFamily: Fonts.body,
+  },
   actionButton: {
     minHeight: 42,
     borderRadius: 16,
@@ -835,5 +971,71 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
     fontFamily: Fonts.body,
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(8, 15, 24, 0.72)",
+    padding: 16,
+    justifyContent: "center",
+  },
+  modalCard: {
+    borderRadius: Radii.xl,
+    padding: 16,
+    maxHeight: "92%",
+  },
+  modalHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+    marginBottom: 12,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontFamily: Fonts.display,
+    marginBottom: 2,
+  },
+  modalSubtitle: {
+    fontSize: 13,
+    fontFamily: Fonts.body,
+    lineHeight: 18,
+  },
+  modalCloseButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 999,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  modalScroll: {
+    paddingBottom: 8,
+  },
+  previewModeWrap: {
+    borderWidth: 1,
+    borderRadius: Radii.md,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 12,
+  },
+  previewModeLabel: {
+    fontSize: 13,
+    fontFamily: Fonts.display,
+  },
+  modalActions: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 12,
+  },
+  modalActionButton: {
+    flex: 1,
+    minHeight: 44,
+    borderRadius: 16,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  modalActionText: {
+    fontSize: 14,
+    fontFamily: Fonts.display,
   },
 });

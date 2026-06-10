@@ -664,9 +664,9 @@ export const buildPrintableLayout = (formatConfig = {}, product = {}, options = 
 
   if (__DEV__) {
     const formatKey = String(layout?.format?.key ?? formatConfig?.key ?? "product").trim() || "product";
-    console.log("[PRINT_PREVIEW] active format", formatKey);
-    console.log("[PRINT_PREVIEW] elements count", Array.isArray(layout?.format?.elements) ? layout.format.elements.length : 0);
-    console.log("[PRINT_PREVIEW] visible items count", Array.isArray(layout?.items) ? layout.items.length : 0);
+    console.log("[PREVIEW] format", formatKey);
+    console.log("[PREVIEW] items", Array.isArray(layout?.format?.elements) ? layout.format.elements.length : 0);
+    console.log("[PREVIEW] visible items", Array.isArray(layout?.items) ? layout.items.length : 0);
   }
 
   return layout;
