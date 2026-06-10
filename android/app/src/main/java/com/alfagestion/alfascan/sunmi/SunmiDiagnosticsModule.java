@@ -35,7 +35,7 @@ public class SunmiDiagnosticsModule extends ReactContextBaseJavaModule {
   private static final String MODULE_NAME = "SunmiDiagnostics";
   private static final String SUNMI_PACKAGE = "woyou.aidlservice.jiuiv5";
   private static final String SUNMI_ACTION = "woyou.aidlservice.jiuiv5.IWoyouService";
-  private static final boolean PRINT_BARCODE_AS_TEXT = false;
+  private static final boolean PRINT_BARCODE_AS_TEXT = true;
 
   private static final String OUT_OF_PAPER_ACTION = "woyou.aidlservice.jiuv5.OUT_OF_PAPER_ACTION";
   private static final String ERROR_ACTION = "woyou.aidlservice.jiuv5.ERROR_ACTION";
@@ -538,6 +538,7 @@ public class SunmiDiagnosticsModule extends ReactContextBaseJavaModule {
   private void printLayoutItemsInternal(IWoyouService service, ReadableArray items, int copies) throws Exception {
     int totalCopies = Math.max(1, copies);
     Log.i(TAG, "[SUNMI_LAYOUT] received items " + items.size());
+    Log.i(TAG, "[SUNMI_LAYOUT] PRINT_BARCODE_AS_TEXT=" + PRINT_BARCODE_AS_TEXT);
     callPrinterCommand(callback -> service.printerInit(callback));
 
     for (int copy = 0; copy < totalCopies; copy++) {
@@ -594,35 +595,12 @@ public class SunmiDiagnosticsModule extends ReactContextBaseJavaModule {
           ).toLowerCase(Locale.ROOT);
 
           if ("barcode".equalsIgnoreCase(type)) {
-            Log.i(TAG, "[SUNMI_LAYOUT] barcode raw value=" + barcodeValue);
+            Log.i(TAG, "[SUNMI_LAYOUT] barcode mode TEXT_ONLY");
             if (!barcodeValue.isEmpty()) {
-              if (PRINT_BARCODE_AS_TEXT) {
-                Log.i(TAG, "[SUNMI_LAYOUT] barcode printed as text value=" + barcodeValue);
-                callPrinterCommand(callback -> service.setAlignment(resolveAlignmentValue(align), callback));
-                callPrinterCommand(callback -> service.setFontSize(18f, callback));
-                callPrinterCommand(callback -> service.printText(barcodeValue + "\n", callback));
-                continue;
-              }
-              int symbology = resolveBarcodeSymbology(
-                getStringSafe(item, "barcodeType"),
-                barcodeValue
-              );
-              String barcodeData = normalizeBarcodeDataForSymbology(barcodeValue, symbology);
-              int height = 120;
-              int width = 2;
-              int textposition = 2;
-              Log.i(TAG, "[SUNMI_LAYOUT] barcode symbology=" + symbology + " height=" + height + " width=" + width + " textposition=" + textposition);
-              Log.i(TAG, "[SUNMI_LAYOUT] barcode data=" + barcodeData + " length=" + barcodeData.length());
-              try {
-                callPrinterCommand(callback -> service.setAlignment(1, callback));
-                callPrinterCommand(callback -> service.printBarCode(barcodeData, symbology, height, width, textposition, callback));
-                Log.i(TAG, "[SUNMI_LAYOUT] barcode printed");
-              } catch (Exception barcodeError) {
-                Log.e(TAG, "[SUNMI_LAYOUT] barcode failed fallback text", barcodeError);
-                callPrinterCommand(callback -> service.setAlignment(resolveAlignmentValue(align), callback));
-                callPrinterCommand(callback -> service.setFontSize(18f, callback));
-                callPrinterCommand(callback -> service.printText(barcodeValue + "\n", callback));
-              }
+              Log.i(TAG, "[SUNMI_LAYOUT] barcode printed as plain text value=" + barcodeValue);
+              callPrinterCommand(callback -> service.setAlignment(resolveAlignmentValue(align), callback));
+              callPrinterCommand(callback -> service.setFontSize((float) Math.max(18, sunmiFontSize), callback));
+              callPrinterCommand(callback -> service.printText(barcodeValue + "\n", callback));
               continue;
             } else {
               Log.i(TAG, "[SUNMI_LAYOUT] barcode skipped empty value");
@@ -652,20 +630,20 @@ public class SunmiDiagnosticsModule extends ReactContextBaseJavaModule {
               if (isDescription) {
                 textMaxLines = Math.max(2, maxLines);
                 textMaxChars = 26;
-                printableText = limitLines(text, textMaxChars, textMaxLines);
+                printableText = limitWrappedText(text, textMaxChars, textMaxLines);
                 Log.i(TAG, "[SUNMI_LAYOUT] description wrapped maxLines=" + textMaxLines);
               } else if (isCompany) {
                 textMaxLines = 1;
                 textMaxChars = 28;
-                printableText = limitLines(text, textMaxChars, textMaxLines);
+                printableText = limitWrappedText(text, textMaxChars, textMaxLines);
               } else if (isPrice) {
                 textMaxLines = 1;
                 textMaxChars = 32;
-                printableText = limitLines(text, textMaxChars, textMaxLines);
+                printableText = limitWrappedText(text, textMaxChars, textMaxLines);
               } else {
                 textMaxLines = 1;
                 textMaxChars = 32;
-                printableText = limitLines(text, textMaxChars, textMaxLines);
+                printableText = limitWrappedText(text, textMaxChars, textMaxLines);
               }
 
               final String textToPrint = printableText;
@@ -739,7 +717,7 @@ public class SunmiDiagnosticsModule extends ReactContextBaseJavaModule {
     return out.toString();
   }
 
-  private String limitLines(String text, int maxChars, int maxLines) {
+  private String limitWrappedText(String text, int maxChars, int maxLines) {
     String wrapped = wrapText(text, maxChars);
     if (wrapped.isEmpty()) {
       return wrapped;
@@ -759,6 +737,10 @@ public class SunmiDiagnosticsModule extends ReactContextBaseJavaModule {
       out.append(lines[i]);
     }
     return out.toString();
+  }
+
+  private String limitLines(String text, int maxChars, int maxLines) {
+    return limitWrappedText(text, maxChars, maxLines);
   }
 
   private String repeatChar(char ch, int count) {
