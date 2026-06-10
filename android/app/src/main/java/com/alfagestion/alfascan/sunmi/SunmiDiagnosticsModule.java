@@ -705,7 +705,12 @@ public class SunmiDiagnosticsModule extends ReactContextBaseJavaModule {
       callPrinterCommand(callback -> service.lineWrap(1, callback));
     }
     if (finalFeedLines > 0) {
-      callPrinterCommand(callback -> service.lineWrap(finalFeedLines, callback));
+      StringBuilder blankFeed = new StringBuilder(finalFeedLines);
+      for (int i = 0; i < finalFeedLines; i++) {
+        blankFeed.append('\n');
+      }
+      final String feedText = blankFeed.toString();
+      callPrinterCommand(callback -> service.printText(feedText, callback));
     }
     Log.i(TAG, "[SUNMI] print layout done");
   }

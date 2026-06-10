@@ -111,6 +111,26 @@ const getPostPrintFeedLines = async () => {
   return Math.max(0, Math.min(10, parsedValue));
 };
 
+const feedPaperLines = async (module, lines) => {
+  const safeLines = Math.max(0, Math.round(Number(lines) || 0));
+  if (safeLines <= 0 || !module) {
+    return;
+  }
+
+  const blankFeed = "\n".repeat(safeLines);
+  if (typeof module.printText === "function") {
+    await module.printText(blankFeed);
+    return;
+  }
+  if (typeof module.printString === "function") {
+    await module.printString(blankFeed);
+    return;
+  }
+  if (typeof module.lineWrap === "function") {
+    await module.lineWrap(safeLines);
+  }
+};
+
 const callNativeAsync = async (module, methodName, ...args) => {
   if (!module || typeof module[methodName] !== "function") {
     throw new Error(INTEGRATION_NOT_IMPLEMENTED_MESSAGE);
@@ -607,9 +627,7 @@ export const printLabel = async (
     lastBottom = targetTop + Number(item.height || 24);
   }
 
-  if (typeof module.lineWrap === "function") {
-    await module.lineWrap(await getPostPrintFeedLines());
-  }
+  await feedPaperLines(module, await getPostPrintFeedLines());
 
   return { printed: true, layout };
 };
@@ -1017,7 +1035,7 @@ export const printSunmiDiagnosticTest = async () => {
   for (const line of lines) {
     await module.printString(`${line}\n`);
   }
-  await module.lineWrap(await getPostPrintFeedLines());
+  await feedPaperLines(module, await getPostPrintFeedLines());
   return { printed: true };
 };
 
