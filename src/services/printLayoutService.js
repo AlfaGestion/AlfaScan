@@ -659,6 +659,19 @@ export const renderPrintLayout = (formatConfig = {}, product = {}, options = {})
   };
 };
 
+export const buildPrintableLayout = (formatConfig = {}, product = {}, options = {}) => {
+  const layout = renderPrintLayout(formatConfig, product, options);
+
+  if (__DEV__) {
+    const formatKey = String(layout?.format?.key ?? formatConfig?.key ?? "product").trim() || "product";
+    console.log("[PRINT_PREVIEW] active format", formatKey);
+    console.log("[PRINT_PREVIEW] elements count", Array.isArray(layout?.format?.elements) ? layout.format.elements.length : 0);
+    console.log("[PRINT_PREVIEW] visible items count", Array.isArray(layout?.items) ? layout.items.length : 0);
+  }
+
+  return layout;
+};
+
 export const createSampleProduct = () => ({
   descripcion: "Nivea Deo Aerosol B&W Fresh Sin Siliconas X 150 Ml.",
   codigoBarra: "4005900985712",

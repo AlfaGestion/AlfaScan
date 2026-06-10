@@ -17,7 +17,7 @@ import {
   getDefaultPrintFormat,
   loadPrintFormats,
   normalizePrintConfig,
-  renderPrintLayout,
+  buildPrintableLayout,
   savePrintFormats,
   savePrintFormatsToSql,
   syncPrintFormatsFromSql,
@@ -189,7 +189,7 @@ export default function PrintConfigurationScreen() {
   const activeFormat = formatList[activeIndex] || formatList[0] || DEFAULT_PRINT_FORMATS[0];
   const selectedElement = getSelectedElement(activeFormat, selectedElementKey);
   const previewProduct = useMemo(() => createSampleProduct(), []);
-  const previewLayout = useMemo(() => renderPrintLayout(activeFormat, previewProduct), [activeFormat, previewProduct]);
+  const previewLayout = useMemo(() => buildPrintableLayout(activeFormat, previewProduct), [activeFormat, previewProduct]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -278,7 +278,7 @@ export default function PrintConfigurationScreen() {
         return;
       }
 
-      const layout = renderPrintLayout(activeFormat, previewProduct);
+      const layout = buildPrintableLayout(activeFormat, previewProduct);
       const baseHeight = layout.scale > 0 ? layout.paperHeightPx / layout.scale : 320;
       const baseWidth = 320;
 

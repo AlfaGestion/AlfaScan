@@ -10,6 +10,7 @@ export {
   loadPrintFormatsFromSql,
   normalizePrintConfig,
   normalizePrintFormats,
+  buildPrintableLayout,
   renderPrintLayout,
   savePrintFormats,
   savePrintFormatsToSql,

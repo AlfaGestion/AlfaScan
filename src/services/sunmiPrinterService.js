@@ -1,10 +1,11 @@
 import { NativeModules, Platform } from "react-native";
 import Constants from "expo-constants";
 
-import { getDefaultPrintFormat, loadPrintFormats, renderPrintLayout } from "@services/printLayoutService";
+import { buildPrintableLayout, getDefaultPrintFormat, loadPrintFormats } from "@services/printLayoutService";
 import { getCatalogConfig, getCompanyNameFromSqlConfig } from "@services/catalogService";
 
 const INTEGRATION_NOT_IMPLEMENTED_MESSAGE = "Integración Sunmi no disponible en esta build.";
+const EMPTY_LAYOUT_MESSAGE = "Este formato no tiene elementos visibles.";
 
 const ALIGNMENT_MAP = {
   left: 0,
@@ -414,7 +415,10 @@ export const printLabel = async (formatConfig = {}, product = {}, options = {}) 
     throw new Error(INTEGRATION_NOT_IMPLEMENTED_MESSAGE);
   }
 
-  const layout = renderPrintLayout(formatConfig, product, options);
+  const layout = buildPrintableLayout(formatConfig, product, options);
+  if (!Array.isArray(layout.items) || layout.items.length === 0) {
+    throw new Error(EMPTY_LAYOUT_MESSAGE);
+  }
 
   if (typeof module.printerInit === "function") {
     await module.printerInit();
@@ -584,7 +588,10 @@ export const printSimpleProductLabel = async (payloadOrFormatKey = "product", pr
     companyName,
   };
 
-  const layout = renderPrintLayout(formatConfig, printProduct, { companyName, fallbackText: "" });
+  const layout = buildPrintableLayout(formatConfig, printProduct, { companyName, fallbackText: "" });
+  if (!Array.isArray(layout.items) || layout.items.length === 0) {
+    throw new Error(EMPTY_LAYOUT_MESSAGE);
+  }
 
   const module = getDiagnosticsModule();
   console.log("[PRINT] using module", module ? "SunmiDiagnostics" : "none");

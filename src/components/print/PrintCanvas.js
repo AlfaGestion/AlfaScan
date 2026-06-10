@@ -3,7 +3,7 @@ import { LayoutAnimation, StyleSheet, Text, View } from "react-native";
 
 import Colors from "@styles/Colors";
 import { Fonts } from "@styles/Theme";
-import { renderPrintLayout } from "@services/printLayoutService";
+import { buildPrintableLayout } from "@services/printLayoutService";
 
 import PrintElement from "@components/print/PrintElement";
 
@@ -21,7 +21,7 @@ export default function PrintCanvas({
 }) {
   const [availableWidth, setAvailableWidth] = useState(0);
 
-  const layout = useMemo(() => renderPrintLayout(format, product), [format, product]);
+  const layout = useMemo(() => buildPrintableLayout(format, product), [format, product]);
   const fitScale = useMemo(() => {
     if (!availableWidth) {
       return 1;
@@ -29,6 +29,7 @@ export default function PrintCanvas({
     return Math.min(1, availableWidth / layout.paperWidthPx);
   }, [availableWidth, layout.paperWidthPx]);
   const displayScale = layout.scale * fitScale;
+  const hasVisibleItems = Array.isArray(layout.items) && layout.items.length > 0;
 
   const handleMove = (key, nextX, nextY) => {
     if (!onMoveElement) {
@@ -85,17 +86,23 @@ export default function PrintCanvas({
           />
         ))}
 
-        {layout.items.map((item) => (
-          <PrintElement
-            key={item.key}
-            element={item}
-            selected={selectedElementKey === item.key}
-            editable={editable}
-            displayScale={displayScale}
-            onSelect={onSelectElement}
-            onMove={handleMove}
-          />
-        ))}
+        {hasVisibleItems ? (
+          layout.items.map((item) => (
+            <PrintElement
+              key={item.key}
+              element={item}
+              selected={selectedElementKey === item.key}
+              editable={editable}
+              displayScale={displayScale}
+              onSelect={onSelectElement}
+              onMove={handleMove}
+            />
+          ))
+        ) : (
+          <View style={styles.emptyState} pointerEvents="none">
+            <Text style={[styles.emptyStateText, { color: theme.muted }]}>No hay elementos visibles para este formato.</Text>
+          </View>
+        )}
       </View>
 
       <Text style={[styles.hint, { color: theme.muted }]}>
@@ -122,6 +129,22 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontFamily: Fonts.body,
     textAlign: "center",
+  },
+  emptyState: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 18,
+  },
+  emptyStateText: {
+    fontSize: 14,
+    fontFamily: Fonts.body,
+    textAlign: "center",
+    lineHeight: 20,
   },
   gridLineHorizontal: {
     position: "absolute",
