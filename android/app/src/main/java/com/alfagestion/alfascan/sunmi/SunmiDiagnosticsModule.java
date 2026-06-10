@@ -35,6 +35,7 @@ public class SunmiDiagnosticsModule extends ReactContextBaseJavaModule {
   private static final String MODULE_NAME = "SunmiDiagnostics";
   private static final String SUNMI_PACKAGE = "woyou.aidlservice.jiuiv5";
   private static final String SUNMI_ACTION = "woyou.aidlservice.jiuiv5.IWoyouService";
+  private static final boolean PRINT_BARCODE_AS_TEXT = false;
 
   private static final String OUT_OF_PAPER_ACTION = "woyou.aidlservice.jiuv5.OUT_OF_PAPER_ACTION";
   private static final String ERROR_ACTION = "woyou.aidlservice.jiuv5.ERROR_ACTION";
@@ -581,19 +582,36 @@ public class SunmiDiagnosticsModule extends ReactContextBaseJavaModule {
           int sunmiFontSize = Math.max(10, getIntSafe(item, "sunmiFontSize", editorFontSize));
 
           if ("barcode".equalsIgnoreCase(type)) {
-            Log.i(TAG, "[SUNMI_LAYOUT] barcode value " + barcodeValue);
+            Log.i(TAG, "[SUNMI_LAYOUT] barcode raw value=" + barcodeValue);
             if (!barcodeValue.isEmpty()) {
-              int symbology = getIntSafe(item, "barcodeSymbology", 2);
-              int height = Math.max(80, getIntSafe(item, "height", 120));
-              int width = Math.max(2, getIntSafe(item, "width", 2));
-              int textposition = getBooleanSafe(item, "showNumber", true) ? 2 : 0;
-              try {
-                callPrinterCommand(callback -> service.setAlignment(1, callback));
-                callPrinterCommand(callback -> service.printBarCode(barcodeValue, symbology, height, width, textposition, callback));
-              } catch (Exception barcodeError) {
-                Log.e(TAG, "[SUNMI_LAYOUT] barcode failed, printing as text", barcodeError);
+              int symbology;
+              if (barcodeValue.matches("\\d{13}")) {
+                symbology = 2; // EAN13
+              } else if (barcodeValue.matches("\\d{8}")) {
+                symbology = 3; // EAN8
+              } else {
+                symbology = 8; // CODE128
+              }
+              if (PRINT_BARCODE_AS_TEXT) {
+                Log.i(TAG, "[SUNMI_LAYOUT] barcode fallback forced to text");
                 callPrinterCommand(callback -> service.setAlignment(resolveAlignmentValue("left"), callback));
+                callPrinterCommand(callback -> service.setFontSize(18f, callback));
                 callPrinterCommand(callback -> service.printText("Barra: " + barcodeValue + "\n", callback));
+              } else {
+                int height = Math.max(60, Math.min(160, getIntSafe(item, "height", 100)));
+                int width = Math.max(2, Math.min(4, getIntSafe(item, "width", 2)));
+                int textposition = 2;
+                Log.i(TAG, "[SUNMI_LAYOUT] barcode symbology=" + symbology + " height=" + height + " width=" + width + " textposition=" + textposition);
+                try {
+                  callPrinterCommand(callback -> service.setAlignment(1, callback));
+                  callPrinterCommand(callback -> service.printBarCode(barcodeValue, symbology, height, width, textposition, callback));
+                  Log.i(TAG, "[SUNMI_LAYOUT] barcode printed");
+                } catch (Exception barcodeError) {
+                  Log.e(TAG, "[SUNMI_LAYOUT] barcode failed fallback text", barcodeError);
+                  callPrinterCommand(callback -> service.setAlignment(resolveAlignmentValue("left"), callback));
+                  callPrinterCommand(callback -> service.setFontSize(18f, callback));
+                  callPrinterCommand(callback -> service.printText("Barra: " + barcodeValue + "\n", callback));
+                }
               }
             } else {
               Log.i(TAG, "[SUNMI_LAYOUT] barcode skipped empty value");
