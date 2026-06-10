@@ -1,23 +1,77 @@
 import { memo, useMemo, useRef } from "react";
 import { Image, PanResponder, StyleSheet, Text, View } from "react-native";
 
-import Colors from "@styles/Colors";
 import { Fonts } from "@styles/Theme";
 import { resolvePreviewFontFamily } from "@services/printFontService";
 
 import alfaLogo from "../../../assets/alfa_logo.png";
 
-const buildBarcodeBars = (value) => {
+const hashString = (value) => {
+  let hash = 2166136261;
+  const source = String(value ?? "");
+
+  for (let index = 0; index < source.length; index += 1) {
+    hash ^= source.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+
+  return hash >>> 0;
+};
+
+const buildBarcodeBars = (value, width) => {
   const source = String(value ?? "4005900985712") || "4005900985712";
-  return Array.from(source).flatMap((char, index) => {
-    const code = char.charCodeAt(0);
-    const bars = [
-      ((code + index) % 3) + 1,
-      ((code + index * 2) % 4) + 1,
-      ((code + index * 3) % 3) + 1,
-    ];
-    return bars;
-  });
+  const targetWidth = Math.max(1, Number(width) || 1);
+  const idealModuleWidth = 1.1;
+  const totalModules = Math.max(
+    24,
+    Math.min(240, Math.round(targetWidth / idealModuleWidth) || 24),
+  );
+  const moduleWidth = targetWidth / totalModules;
+  const quietZone = Math.max(4, Math.round(totalModules * 0.08));
+  const guardModules = 6;
+  const dataModules = Math.max(24, totalModules - quietZone * 2 - guardModules);
+  const bars = [];
+  let seed = hashString(source);
+
+  const nextRandom = () => {
+    seed = Math.imul(seed ^ (seed >>> 15), 2246822519);
+    seed ^= seed >>> 13;
+    seed = Math.imul(seed, 3266489917);
+    return seed >>> 0;
+  };
+
+  const pushSegment = (isBar, modules) => {
+    if (modules <= 0) {
+      return;
+    }
+
+    bars.push({
+      isBar,
+      width: modules * moduleWidth,
+    });
+  };
+
+  pushSegment(false, quietZone);
+  pushSegment(true, 1);
+  pushSegment(false, 1);
+  pushSegment(true, 1);
+
+  let remaining = dataModules;
+  let isBar = false;
+
+  while (remaining > 0) {
+    const run = Math.min(remaining, 1 + (nextRandom() % 3));
+    pushSegment(isBar, run);
+    remaining -= run;
+    isBar = !isBar;
+  }
+
+  pushSegment(true, 1);
+  pushSegment(false, 1);
+  pushSegment(true, 1);
+  pushSegment(false, quietZone);
+
+  return bars;
 };
 
 function PrintElement({
@@ -71,13 +125,27 @@ function PrintElement({
   ];
 
   if (element.type === "barcode") {
-    const bars = buildBarcodeBars(element.value);
+    const barcodeWidth = Math.max(1, element.width * scale);
+    const barcodeHeight = Math.max(1, element.height * scale);
+    const barcodeInnerWidth = Math.max(1, barcodeWidth - 2);
+    const barcodeInnerHeight = Math.max(1, barcodeHeight - 2);
+    const bars = buildBarcodeBars(element.value, barcodeInnerWidth);
     return (
       <View
-        style={wrapperStyle}
+        style={[
+          wrapperStyle,
+          styles.barcodeWrapper,
+          {
+            width: barcodeWidth,
+            minHeight: barcodeHeight,
+            height: barcodeHeight,
+          },
+        ]}
         {...(editable ? panResponder.panHandlers : {})}
       >
-        <View style={styles.barcodeContainer}>
+        <View
+          style={[styles.barcodeContainer, { height: barcodeInnerHeight }]}
+        >
           <View style={styles.barcodeBarsRow}>
             {bars.map((bar, index) => (
               <View
@@ -85,33 +153,15 @@ function PrintElement({
                 style={[
                   styles.barcodeBar,
                   {
-                    flexGrow: bar,
-                    flexBasis: 0,
-                    height: index % 4 === 0 ? 42 : index % 3 === 0 ? 36 : 30,
+                    width: bar.width,
+                    height: barcodeInnerHeight,
                     backgroundColor: "#111827",
+                    opacity: bar.isBar ? 1 : 0,
                   },
                 ]}
               />
             ))}
           </View>
-          {element.showNumber !== false ? (
-            <Text
-              style={[
-                styles.barcodeText,
-                {
-                  fontSize: Math.max(10, element.fontSize * 0.9),
-                  textAlign: element.align || "center",
-                  color: element.color || "#111827",
-                  fontFamily: resolvePreviewFontFamily(
-                    element.tipoFuente || element.fontFamily || "Monospace",
-                  ),
-                },
-              ]}
-              numberOfLines={1}
-            >
-              {element.value}
-            </Text>
-          ) : null}
         </View>
         {selected ? (
           <Text style={styles.selectionLabel}>{element.label}</Text>
@@ -256,21 +306,25 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     flex: 1,
     paddingHorizontal: 0,
+    paddingVertical: 0,
   },
   barcodeBarsRow: {
     width: "100%",
     flexDirection: "row",
-    alignItems: "stretch",
-    justifyContent: "stretch",
+    alignItems: "flex-start",
+    justifyContent: "flex-start",
     gap: 0,
-    minHeight: 42,
+    minHeight: 0,
   },
   barcodeBar: {
     borderRadius: 0,
   },
-  barcodeText: {
-    marginTop: 4,
-    fontFamily: Fonts.mono,
+  barcodeWrapper: {
+    padding: 0,
+    backgroundColor: "rgba(255,255,255,0.25)",
+    borderRadius: 6,
+    justifyContent: "flex-start",
+    alignItems: "flex-start",
   },
   logoWrap: {
     alignItems: "center",
