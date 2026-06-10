@@ -1162,7 +1162,7 @@ export const renderPrintLayout = (
   const scale = paperWidthPx / BASE_DESIGN_WIDTH;
 
   const elements = (format.elements || [])
-    .map((element) => {
+    .map((element, index) => {
       const item = normalizeElement(element);
       const visible = isSqlSource
         ? item.visible
@@ -1202,6 +1202,7 @@ export const renderPrintLayout = (
           options.fallbackText || "",
         ),
         barcodeSymbology: resolveBarcodeType(item.barcodeType),
+        renderKey: `${String(item.key || item.valueKey || item.type || "item").trim()}-${index + 1}`,
       };
     })
     .filter((item) => item.visible)
@@ -1240,7 +1241,7 @@ export const buildPrintableLayout = (
       ).trim() || "LOCAL";
     const visibleItems = Array.isArray(layout?.items) ? layout.items : [];
     console.log("[APP_LAYOUT] source", layoutSource);
-    console.log("[APP_LAYOUT] items", visibleItems.length);
+    console.log(`[APP_LAYOUT] ${formatKey} items ${visibleItems.length}`);
     console.log(
       "[APP_LAYOUT] visible Empresa",
       Boolean(
@@ -1261,7 +1262,6 @@ export const buildPrintableLayout = (
         ? layout.format.elements.length
         : 0,
     );
-    console.log("[PREVIEW] visible items", visibleItems.length);
   }
 
   return layout;

@@ -706,7 +706,7 @@ export const loadPrintFormatsFromSql = async () => {
         .map((row, index) => mapSqlDetailToElement(row, index));
 
       if (__DEV__) {
-        console.log(`[PRINT_SQL] codigo ${code} detalles ${detailRows.length}`);
+        console.log(`[PRINT_SQL] ${code} details ${detailRows.length}`);
         detailRows.forEach((row) => {
           const fieldName = toStringValue(
             row.Campo ?? row.campo ?? row.ValueKey ?? row.Valuekey,

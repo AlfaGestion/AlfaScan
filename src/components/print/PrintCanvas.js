@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { LayoutAnimation, StyleSheet, Text, View } from "react-native";
 
 import Colors from "@styles/Colors";
@@ -23,7 +23,10 @@ export default function PrintCanvas({
 }) {
   const [availableWidth, setAvailableWidth] = useState(0);
 
-  const layout = useMemo(() => buildPrintableLayout(format, product), [format, product]);
+  const layout = useMemo(
+    () => buildPrintableLayout(format, product),
+    [format, product],
+  );
   const fitScale = useMemo(() => {
     if (!availableWidth) {
       return 1;
@@ -31,7 +34,14 @@ export default function PrintCanvas({
     return Math.min(1, availableWidth / layout.paperWidthPx);
   }, [availableWidth, layout.paperWidthPx]);
   const displayScale = layout.scale * fitScale;
-  const hasVisibleItems = Array.isArray(layout.items) && layout.items.length > 0;
+  const hasVisibleItems =
+    Array.isArray(layout.items) && layout.items.length > 0;
+
+  useEffect(() => {
+    if (__DEV__) {
+      console.log("[PREVIEW] rendered items", layout.items.length);
+    }
+  }, [layout.items.length]);
 
   const handleMove = (key, nextX, nextY) => {
     if (!onMoveElement) {
@@ -62,7 +72,9 @@ export default function PrintCanvas({
         ]}
       >
         {showGrid
-          ? Array.from({ length: Math.ceil(layout.paperHeightPx / GRID_STEP) }).map((_, index) => (
+          ? Array.from({
+              length: Math.ceil(layout.paperHeightPx / GRID_STEP),
+            }).map((_, index) => (
               <View
                 key={`grid-h-${index}`}
                 pointerEvents="none"
@@ -77,7 +89,9 @@ export default function PrintCanvas({
             ))
           : null}
         {showGrid
-          ? Array.from({ length: Math.ceil(layout.paperWidthPx / GRID_STEP) }).map((_, index) => (
+          ? Array.from({
+              length: Math.ceil(layout.paperWidthPx / GRID_STEP),
+            }).map((_, index) => (
               <View
                 key={`grid-v-${index}`}
                 pointerEvents="none"
@@ -95,7 +109,7 @@ export default function PrintCanvas({
         {hasVisibleItems ? (
           layout.items.map((item) => (
             <PrintElement
-              key={item.key}
+              key={item.renderKey || item.key}
               element={item}
               selected={selectedElementKey === item.key}
               editable={editable}
@@ -106,7 +120,9 @@ export default function PrintCanvas({
           ))
         ) : (
           <View style={styles.emptyState} pointerEvents="none">
-            <Text style={[styles.emptyStateText, { color: theme.muted }]}>No hay elementos visibles para este formato.</Text>
+            <Text style={[styles.emptyStateText, { color: theme.muted }]}>
+              No hay elementos visibles para este formato.
+            </Text>
           </View>
         )}
       </View>
