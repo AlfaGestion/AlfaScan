@@ -14,6 +14,7 @@ import {
   Vibration,
   View,
 } from "react-native";
+import CheckBox from "expo-checkbox";
 import { useFocusEffect } from "@react-navigation/native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import Ionicons from "@expo/vector-icons/Ionicons";
@@ -21,12 +22,14 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 
 import BrandMark from "@components/BrandMark";
 import ProductImage from "@components/ProductImage";
+import PrintPreview from "@components/print/PrintPreview";
 import Product from "@db/Product";
 import Colors from "@styles/Colors";
 import { Fonts, Radii, Shadow } from "@styles/Theme";
 import Configuration from "@db/Configuration";
 import { appendPrintHistory } from "@services/printHistory";
 import { searchArticle, scanSearchArticle } from "@services/articleService";
+import { createSampleProduct, getDefaultPrintFormat, loadPrintFormats } from "@services/printLayoutService";
 import { getPrinterStatus, initPrinter } from "@services/sunmiPrinterService";
 import { printArticle } from "@services/printerService";
 import { useThemeConfig } from "@context/ThemeContext";
@@ -128,6 +131,11 @@ export default function HomeScreen({ navigation }) {
   const [loading, setLoading] = useState(false);
   const [menuVisible, setMenuVisible] = useState(false);
   const [scannerVisible, setScannerVisible] = useState(false);
+  const [previewEnabled, setPreviewEnabled] = useState(true);
+  const [previewModalVisible, setPreviewModalVisible] = useState(false);
+  const [previewFormatKey, setPreviewFormatKey] = useState("product");
+  const [previewFormat, setPreviewFormat] = useState(null);
+  const [previewProduct, setPreviewProduct] = useState(null);
   const [cameraMounted, setCameraMounted] = useState(false);
   const [cameraSlow, setCameraSlow] = useState(false);
   const [lastSyncAt, setLastSyncAt] = useState("");
@@ -137,6 +145,7 @@ export default function HomeScreen({ navigation }) {
     sqlMode: "LOCAL",
     useStockColumn: false,
     useProductImage: false,
+    homePrintPreviewEnabled: true,
     productImageHomeSize: "MEDIUM",
   });
   const [permission, requestPermission] = useCameraPermissions();
@@ -167,6 +176,10 @@ export default function HomeScreen({ navigation }) {
       const useProductImage = Configuration.isTruthyConfigValue(
         map.USE_PRODUCT_IMAGE ?? map.CARGA_IMAGENES,
       );
+      const homePrintPreviewEnabled =
+        map.HOME_PRINT_PREVIEW_ENABLED === undefined || map.HOME_PRINT_PREVIEW_ENABLED === null || map.HOME_PRINT_PREVIEW_ENABLED === ""
+          ? true
+          : Configuration.isTruthyConfigValue(map.HOME_PRINT_PREVIEW_ENABLED);
       const productImageHomeSize = String(
         map.PRODUCT_IMAGE_HOME_SIZE ?? "MEDIUM",
       )
@@ -178,9 +191,11 @@ export default function HomeScreen({ navigation }) {
         sqlMode,
         useStockColumn,
         useProductImage,
+        homePrintPreviewEnabled,
         productImageHomeSize,
       });
       setLastSyncAt(String(map.LAST_SYNC_AT ?? "").trim());
+      setPreviewEnabled(homePrintPreviewEnabled);
     } catch (e) {
       setLastSyncAt("");
       setScreenConfig((current) => ({
@@ -189,8 +204,10 @@ export default function HomeScreen({ navigation }) {
         sqlMode: "LOCAL",
         useStockColumn: false,
         useProductImage: false,
+        homePrintPreviewEnabled: true,
         productImageHomeSize: "MEDIUM",
       }));
+      setPreviewEnabled(true);
     }
   }, []);
 
@@ -349,6 +366,34 @@ export default function HomeScreen({ navigation }) {
     }
   }, []);
 
+  const loadPreviewFormat = useCallback(async (formatKey) => {
+    const key = String(formatKey ?? "product").trim().toLowerCase();
+    const formats = await loadPrintFormats().catch(() => null);
+    return (
+      formats?.[key] ||
+      getDefaultPrintFormat(key) ||
+      getDefaultPrintFormat("product")
+    );
+  }, []);
+
+  const openPrintPreview = useCallback(
+    async (formatKey) => {
+      const printableArticle = article || latestArticleRef.current || createSampleProduct();
+      const key = String(formatKey ?? "product").trim().toLowerCase();
+      setPreviewFormatKey(key);
+      setPreviewProduct(printableArticle);
+      try {
+        const format = await loadPreviewFormat(key);
+        setPreviewFormat(format);
+      } catch (error) {
+        console.log("[PRINT] preview format fallback", error?.message || error);
+        setPreviewFormat(getDefaultPrintFormat(key));
+      }
+      setPreviewModalVisible(true);
+    },
+    [article, loadPreviewFormat],
+  );
+
   const ensureCameraPermission = useCallback(async () => {
     if (permission?.granted) {
       console.log("[Camera] permission ready", Date.now());
@@ -473,6 +518,12 @@ export default function HomeScreen({ navigation }) {
         return;
       }
 
+      if (previewEnabled) {
+        console.log("[PRINT] home preview enabled");
+        await openPrintPreview(formatKey);
+        return;
+      }
+
       try {
         console.log("[PRINT] Home button pressed");
         console.log("[PRINT] formatKey", formatKey);
@@ -489,8 +540,50 @@ export default function HomeScreen({ navigation }) {
         Alert.alert("Impresora", "No se pudo imprimir. Revisá la impresora y volvé a intentar.");
       }
     },
-    [article, refreshPrinterStatus],
+    [article, openPrintPreview, previewEnabled, refreshPrinterStatus],
   );
+
+  const handlePreviewPrintNow = useCallback(async () => {
+    const printableArticle = previewProduct || article || latestArticleRef.current;
+    if (!printableArticle) {
+      setPreviewModalVisible(false);
+      setMessage("Buscá un artículo antes de imprimir.");
+      return;
+    }
+
+    setPreviewModalVisible(false);
+
+    try {
+      console.log("[PRINT] Home button pressed");
+      console.log("[PRINT] formatKey", previewFormatKey);
+      await printArticle({
+        article: printableArticle,
+        formatKey: previewFormatKey,
+        format: previewFormat || undefined,
+      });
+      await appendPrintHistory({
+        formatKey: previewFormatKey,
+        formatLabel: PRINT_BUTTONS.find((item) => item.key === previewFormatKey)?.label || previewFormatKey,
+        article: printableArticle,
+      });
+      await refreshPrinterStatus();
+      setPrinterStatus(getPrinterStatus());
+    } catch (e) {
+      console.log("[PRINT] error", e?.message || e);
+      Alert.alert("Impresora", "No se pudo imprimir. Revisá la impresora y volvé a intentar.");
+    }
+  }, [article, previewFormat, previewFormatKey, previewProduct, refreshPrinterStatus]);
+
+  const handlePreviewToggle = useCallback(async (nextValue) => {
+    const next = Boolean(nextValue);
+    setPreviewEnabled(next);
+    try {
+      await Configuration.createTable();
+      await Configuration.setConfigValue("HOME_PRINT_PREVIEW_ENABLED", next ? "1" : "0");
+    } catch (error) {
+      console.log("[PRINT] preview preference save failed", error?.message || error);
+    }
+  }, []);
 
   const clearSearch = useCallback(() => {
     setQuery("");
@@ -501,6 +594,8 @@ export default function HomeScreen({ navigation }) {
 
   const articleImageKey = article?.codigoInterno || article?.codigoBarra || "";
   const articleImageVisible = showProductImage && Boolean(articleImageKey);
+  const previewFormatToShow = previewFormat || getDefaultPrintFormat(previewFormatKey);
+  const previewProductToShow = previewProduct || article || latestArticleRef.current || createSampleProduct();
   const printerStatusLabel =
     printerStatus.mode === "SIMULATION"
       ? "Impresora no detectada. Modo simulación activo."
@@ -585,6 +680,67 @@ export default function HomeScreen({ navigation }) {
                 <Text style={[styles.drawerItemText, { color: themeStyles.text }]}>{item.label}</Text>
               </TouchableOpacity>
             ))}
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={previewModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPreviewModalVisible(false)}
+      >
+        <View style={styles.previewBackdrop}>
+          <Pressable style={StyleSheet.absoluteFillObject} onPress={() => setPreviewModalVisible(false)} />
+          <View style={[styles.previewModalCard, { backgroundColor: themeStyles.surface }, Shadow.md]}>
+            <View style={styles.previewModalHeader}>
+              <View style={styles.previewModalHeaderText}>
+                <Text style={[styles.previewModalTitle, { color: themeStyles.text }]}>Vista previa de impresión</Text>
+                <Text style={[styles.previewModalSubtitle, { color: themeStyles.muted }]} numberOfLines={2}>
+                  Revisá el diseño antes de gastar papel. Si se ve chico, el ajuste está en el diseño.
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => setPreviewModalVisible(false)}
+                style={[styles.previewModalClose, { backgroundColor: themeStyles.surfaceAlt, borderColor: themeStyles.border }]}
+              >
+                <Ionicons name="close" size={18} color={themeStyles.text} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={[styles.previewBadgeRow, { backgroundColor: themeStyles.surfaceAlt, borderColor: themeStyles.border }]}>
+              <Text style={[styles.previewBadgeText, { color: themeStyles.text }]}>
+                Formato: {PRINT_BUTTONS.find((item) => item.key === previewFormatKey)?.label || previewFormatKey}
+              </Text>
+              <Text style={[styles.previewBadgeText, { color: themeStyles.text }]}>
+                Modo: {previewEnabled ? "Previsualizar" : "Imprimir"}
+              </Text>
+            </View>
+
+            <ScrollView contentContainerStyle={styles.previewScroll} showsVerticalScrollIndicator={false}>
+              <PrintPreview
+                title="Vista previa"
+                format={previewFormatToShow}
+                product={previewProductToShow}
+                editable={false}
+                theme={themeStyles}
+              />
+            </ScrollView>
+
+            <View style={styles.previewActions}>
+              <TouchableOpacity
+                onPress={() => setPreviewModalVisible(false)}
+                style={[styles.previewActionButton, { backgroundColor: themeStyles.surfaceAlt, borderColor: themeStyles.border }]}
+              >
+                <Text style={[styles.previewActionText, { color: themeStyles.text }]}>Cerrar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={handlePreviewPrintNow}
+                style={[styles.previewActionButton, { backgroundColor: themeStyles.accent }]}
+              >
+                <Text style={[styles.previewActionText, { color: Colors.WHITE }]}>Imprimir ahora</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
@@ -760,6 +916,15 @@ export default function HomeScreen({ navigation }) {
           Shadow.md,
         ]}
       >
+        <View style={styles.printPreviewToggleRow}>
+          <Text style={[styles.printPreviewToggleText, { color: themeStyles.text }]}>Previsualizar</Text>
+          <CheckBox
+            value={previewEnabled}
+            onValueChange={handlePreviewToggle}
+            color={themeStyles.accent}
+          />
+        </View>
+
         <View style={styles.printStatusRow}>
           <Ionicons
             name={printerStatus.available ? "print-outline" : "information-circle-outline"}
@@ -1053,6 +1218,93 @@ const styles = StyleSheet.create({
     fontSize: 11,
     lineHeight: 13,
     fontFamily: Fonts.display,
+  },
+  printPreviewToggleRow: {
+    marginBottom: 10,
+    paddingHorizontal: 4,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  printPreviewToggleText: {
+    fontSize: 13,
+    fontFamily: Fonts.body,
+  },
+  previewBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(7, 12, 18, 0.72)",
+    justifyContent: "center",
+    padding: 16,
+  },
+  previewModalCard: {
+    borderRadius: Radii.xl,
+    padding: 16,
+    maxHeight: "92%",
+  },
+  previewModalHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 12,
+    marginBottom: 12,
+  },
+  previewModalHeaderText: {
+    flex: 1,
+  },
+  previewModalTitle: {
+    fontFamily: Fonts.display,
+    fontSize: 18,
+    marginBottom: 4,
+  },
+  previewModalSubtitle: {
+    fontFamily: Fonts.body,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  previewModalClose: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  previewBadgeRow: {
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    marginBottom: 12,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    justifyContent: "space-between",
+  },
+  previewBadgeText: {
+    fontFamily: Fonts.body,
+    fontSize: 12,
+  },
+  previewScroll: {
+    paddingBottom: 8,
+  },
+  previewActions: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 12,
+  },
+  previewActionButton: {
+    flex: 1,
+    minHeight: 48,
+    borderRadius: 14,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 14,
+  },
+  previewActionText: {
+    fontFamily: Fonts.display,
+    fontSize: 14,
   },
   scannerContainer: {
     flex: 1,
