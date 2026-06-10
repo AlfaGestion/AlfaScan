@@ -111,6 +111,7 @@ const normalizeSqlFieldKey = (value, type = "text", fallback = "") => {
   if (!raw) {
     if (type === "barcode") return "barcode";
     if (type === "logo") return "logo";
+    if (type === "separator") return "separator";
     return "";
   }
 
@@ -183,7 +184,9 @@ const mapSqlDetailToElement = (row = {}, index = 0) => {
   return {
     key,
     type,
-    label: toStringValue(row.TextoFijo ?? row.textoFijo ?? row.Nombre ?? row.nombre, key),
+    label:
+      toStringValue(row.TextoFijo ?? row.textoFijo ?? row.Nombre ?? row.nombre, key) ||
+      (type === "separator" ? "Separador" : key),
     visible: toBool(row.Visible ?? row.visible, true),
     x: toInt(row.X ?? row.x, 0),
     y: toInt(row.Y ?? row.y, 0),

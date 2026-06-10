@@ -570,7 +570,8 @@ public class SunmiDiagnosticsModule extends ReactContextBaseJavaModule {
         String value = getStringSafe(item, "value");
         String align = getStringSafe(item, "align");
         boolean italic = getBooleanSafe(item, "italic", false);
-        int fontSize = Math.max(10, getIntSafe(item, "fontSize", 16));
+        int editorFontSize = Math.max(10, getIntSafe(item, "fontSize", 16));
+        int sunmiFontSize = Math.max(10, getIntSafe(item, "sunmiFontSize", editorFontSize));
 
         if ("barcode".equalsIgnoreCase(type)) {
           String code = value.trim();
@@ -592,12 +593,13 @@ public class SunmiDiagnosticsModule extends ReactContextBaseJavaModule {
         } else {
           String text = value.trim();
           if (!text.isEmpty()) {
+            Log.i(TAG, "[PRINT_LAYOUT] item=" + type + " campo=" + getStringSafe(item, "key") + " editorFontSize=" + editorFontSize + " sunmiFontSize=" + sunmiFontSize);
             Log.i(TAG, "[SUNMI] print text type=" + type);
             callPrinterCommand(callback -> service.setAlignment(resolveAlignmentValue(align), callback));
             if (italic) {
-              callPrinterCommand(callback -> service.printTextWithFont(text + "\n", "serif", (float) fontSize, callback));
+              callPrinterCommand(callback -> service.printTextWithFont(text + "\n", "serif", (float) sunmiFontSize, callback));
             } else {
-              callPrinterCommand(callback -> service.setFontSize((float) fontSize, callback));
+              callPrinterCommand(callback -> service.setFontSize((float) sunmiFontSize, callback));
               callPrinterCommand(callback -> service.printText(text + "\n", callback));
             }
           }

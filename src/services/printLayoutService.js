@@ -313,6 +313,18 @@ const getPaperWidthPx = (format = {}) => {
   return 320;
 };
 
+const getPaperWidthMm = (format = {}) => {
+  if (String(format.paperWidth) === "58") return 58;
+  if (String(format.paperWidth) === "80") return 80;
+
+  const custom = parseInt(String(format.customPaperWidth ?? "").trim(), 10);
+  if (Number.isFinite(custom) && custom > 0) {
+    return custom;
+  }
+
+  return 80;
+};
+
 const getPaperHeightPx = (format = {}, paperWidthPx = 320) => {
   const explicit = parseInt(String(format.customPaperHeight ?? "").trim(), 10);
   if (Number.isFinite(explicit) && explicit >= 120) {
@@ -333,6 +345,51 @@ const normalizeBoolean = (value, fallback = false) => {
     return fallback;
   }
   return Configuration.isTruthyConfigValue(value);
+};
+
+export const mapEditorFontSizeToSunmi = (fontSize, field = "", paperWidthMm = 80) => {
+  const normalizedField = String(field ?? "").trim().toLowerCase();
+  const editorSize = Math.max(8, Number(fontSize) || 16);
+  const widthFactor = Number(paperWidthMm) <= 58 ? 0.95 : 1;
+
+  const baseSize =
+    editorSize <= 12
+      ? 18
+      : editorSize <= 18
+        ? 22
+        : editorSize <= 24
+          ? 28
+          : editorSize <= 32
+            ? 36
+            : Math.round(editorSize * 1.1);
+
+  if (normalizedField === "price") {
+    const priceSize =
+      editorSize <= 12
+        ? 30
+        : editorSize <= 18
+          ? 32
+          : editorSize <= 24
+            ? 36
+            : editorSize <= 32
+              ? 40
+              : Math.round(editorSize * 1.15);
+    return Math.max(30, Math.round(priceSize * widthFactor));
+  }
+
+  if (normalizedField === "companyname") {
+    return Math.max(18, Math.round(baseSize * widthFactor));
+  }
+
+  if (normalizedField === "description") {
+    return Math.max(22, Math.round(baseSize * widthFactor));
+  }
+
+  if (normalizedField === "internalcode" || normalizedField === "barcode" || normalizedField === "code" || normalizedField === "codigo") {
+    return Math.max(18, Math.round(baseSize * widthFactor));
+  }
+
+  return Math.max(18, Math.round(baseSize * widthFactor));
 };
 
 const normalizeElement = (element = {}, fallback = {}) => {
@@ -618,6 +675,7 @@ export const renderPrintLayout = (formatConfig = {}, product = {}, options = {})
   const format = migrateLegacyFormat(formatConfig, DEFAULT_PRINT_FORMATS.find((item) => item.key === formatConfig.key) || DEFAULT_PRINT_FORMATS[0]);
   const paperWidthPx = getPaperWidthPx(format);
   const paperHeightPx = getPaperHeightPx(format, paperWidthPx);
+  const paperWidthMm = getPaperWidthMm(format);
   const scale = paperWidthPx / BASE_DESIGN_WIDTH;
 
   const elements = (format.elements || [])
@@ -636,6 +694,7 @@ export const renderPrintLayout = (formatConfig = {}, product = {}, options = {})
 
       return {
         ...item,
+        editorFontSize: item.fontSize,
         visible,
         x: Math.round(item.x * scale),
         y: Math.round(item.y * scale),
@@ -645,6 +704,7 @@ export const renderPrintLayout = (formatConfig = {}, product = {}, options = {})
         italic: Boolean(item.italic),
         fontStyle: item.italic ? "italic" : "normal",
         separatorThickness: Math.max(1, Math.round((Number(item.separatorThickness ?? 2) || 2) * scale)),
+        sunmiFontSize: mapEditorFontSizeToSunmi(item.fontSize, item.key || item.valueKey || item.type, paperWidthMm),
         value: formatFieldValue(item, product, options.fallbackText || ""),
         barcodeSymbology: resolveBarcodeType(item.barcodeType),
       };
@@ -661,6 +721,7 @@ export const renderPrintLayout = (formatConfig = {}, product = {}, options = {})
     format,
     paperWidthPx,
     paperHeightPx,
+    paperWidthMm,
     scale,
     items: elements,
   };

@@ -134,14 +134,26 @@ function PrintElement({
   }
 
   if (element.type === "separator") {
-    const thickness = Math.max(1, Math.round(Number(element.separatorThickness ?? 2) || 2));
+    const thickness = Math.max(2, Math.round(Number(element.separatorThickness ?? 2) || 2));
     return (
-      <View style={wrapperStyle} {...(editable ? panResponder.panHandlers : {})}>
+      <View
+        style={[
+          wrapperStyle,
+          styles.separatorWrapper,
+          {
+            height: Math.max(12, thickness + 10),
+            minHeight: Math.max(12, thickness + 10),
+            backgroundColor: "transparent",
+          },
+        ]}
+        {...(editable ? panResponder.panHandlers : {})}
+      >
         <View
           style={[
             styles.separatorLine,
             {
               height: thickness,
+              minHeight: thickness,
               backgroundColor: element.color || "#111827",
             },
           ]}
@@ -236,5 +248,11 @@ const styles = StyleSheet.create({
   separatorLine: {
     width: "100%",
     borderRadius: 999,
+  },
+  separatorWrapper: {
+    paddingVertical: 2,
+    paddingHorizontal: 0,
+    justifyContent: "center",
+    alignItems: "stretch",
   },
 });

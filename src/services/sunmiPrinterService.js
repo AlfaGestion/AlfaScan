@@ -1,7 +1,12 @@
 import { NativeModules, Platform } from "react-native";
 import Constants from "expo-constants";
 
-import { buildPrintableLayout, getDefaultPrintFormat, loadPrintFormats } from "@services/printLayoutService";
+import {
+  buildPrintableLayout,
+  getDefaultPrintFormat,
+  loadPrintFormats,
+  mapEditorFontSizeToSunmi,
+} from "@services/printLayoutService";
 import { getCatalogConfig, getCompanyNameFromSqlConfig } from "@services/catalogService";
 
 const INTEGRATION_NOT_IMPLEMENTED_MESSAGE = "Integración Sunmi no disponible en esta build.";
@@ -425,6 +430,10 @@ export const printLabel = async (formatConfig = {}, product = {}, options = {}) 
     throw new Error(EMPTY_LAYOUT_MESSAGE);
   }
 
+  if (__DEV__) {
+    console.log("[PRINT_LAYOUT] paperWidthMm", layout.paperWidthMm || formatConfig?.paperWidth || 80);
+  }
+
   if (typeof module.printerInit === "function") {
     await module.printerInit();
   }
@@ -450,15 +459,23 @@ export const printLabel = async (formatConfig = {}, product = {}, options = {}) 
         fontSize: Math.max(10, Number(item.fontSize || 16)),
       });
     } else if (item.type === "logo") {
+      const sunmiFontSize = Math.max(
+        18,
+        Number(item.sunmiFontSize ?? mapEditorFontSizeToSunmi(item.editorFontSize ?? item.fontSize, item.key, layout.paperWidthMm)),
+      );
       await printText(item.value || item.sampleText || "", {
         align: item.align,
-        fontSize: item.fontSize,
+        fontSize: sunmiFontSize,
         italic: item.italic,
       });
     } else {
+      const sunmiFontSize = Math.max(
+        18,
+        Number(item.sunmiFontSize ?? mapEditorFontSizeToSunmi(item.editorFontSize ?? item.fontSize, item.key, layout.paperWidthMm)),
+      );
       await printText(item.value || item.sampleText || "", {
         align: item.align,
-        fontSize: item.fontSize,
+        fontSize: sunmiFontSize,
         italic: item.italic,
       });
     }
@@ -601,6 +618,20 @@ export const printSimpleProductLabel = async (payloadOrFormatKey = "product", pr
   const layout = buildPrintableLayout(formatConfig, printProduct, { companyName, fallbackText: "" });
   if (!Array.isArray(layout.items) || layout.items.length === 0) {
     throw new Error(EMPTY_LAYOUT_MESSAGE);
+  }
+
+  if (__DEV__) {
+    console.log("[PRINT_LAYOUT] paperWidthMm", layout.paperWidthMm || formatConfig?.paperWidth || 80);
+    layout.items.forEach((item) => {
+      if (!item || item.type === "barcode") {
+        return;
+      }
+      console.log("[PRINT_LAYOUT] item", item.key || item.valueKey || item.type, {
+        campo: item.key || item.valueKey || item.type,
+        editorFontSize: item.editorFontSize,
+        sunmiFontSize: item.sunmiFontSize,
+      });
+    });
   }
 
   const module = getDiagnosticsModule();
