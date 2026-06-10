@@ -1037,6 +1037,7 @@ const resolveTemplateText = (template, element = {}, product = {}) => {
 
 const formatFieldValue = (element, product = {}, fallback = "") => {
   const key = String(element.valueKey ?? element.key ?? "").trim();
+  const normalizedKey = key.toLowerCase();
   const lookup = {
     description: product.descripcion ?? product.name ?? "",
     price: product.precio ?? product.price1 ?? 0,
@@ -1063,9 +1064,33 @@ const formatFieldValue = (element, product = {}, fallback = "") => {
     stock: product.stock ?? product.Stock ?? "",
     date: product.fechaActualizacion ?? product.FechaActualizacion ?? "",
     companyName: product.companyName ?? "",
+    empresa: product.companyName ?? "",
+    descripcion: product.descripcion ?? product.name ?? "",
+    precio: product.precio ?? product.price1 ?? 0,
+    codigobarra:
+      product.codigoBarra ??
+      product.CodigoBarra ??
+      product.codigoBarras ??
+      product.CodigoBarras ??
+      product.barcode ??
+      product.codigo ??
+      product.Codigo ??
+      product.code ??
+      "",
+    codigoarticulo:
+      product.codigoInterno ??
+      product.CodigoInterno ??
+      product.codigoArticulo ??
+      product.CodigoArticulo ??
+      product.internalCode ??
+      product.codigo ??
+      product.Codigo ??
+      product.code ??
+      "",
+    textofijo: element.sampleText ?? "",
     logo: "ALFA",
   };
-  const raw = lookup[key];
+  const raw = lookup[key] ?? lookup[normalizedKey];
   const templateValue = resolveTemplateText(
     element.sampleText,
     element,
@@ -1114,6 +1139,12 @@ export const renderPrintLayout = (
   product = {},
   options = {},
 ) => {
+  const resolvedProduct = {
+    ...product,
+    companyName: String(
+      options.companyName ?? product.companyName ?? "",
+    ).trim(),
+  };
   const format = migrateLegacyFormat(
     formatConfig,
     DEFAULT_PRINT_FORMATS.find((item) => item.key === formatConfig.key) ||
@@ -1165,7 +1196,11 @@ export const renderPrintLayout = (
           item.key || item.valueKey || item.type,
           paperWidthMm,
         ),
-        value: formatFieldValue(item, product, options.fallbackText || ""),
+        value: formatFieldValue(
+          item,
+          resolvedProduct,
+          options.fallbackText || "",
+        ),
         barcodeSymbology: resolveBarcodeType(item.barcodeType),
       };
     })

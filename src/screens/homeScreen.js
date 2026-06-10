@@ -31,6 +31,7 @@ import Product from "@db/Product";
 import Colors from "@styles/Colors";
 import { Fonts, Radii, Shadow } from "@styles/Theme";
 import Configuration from "@db/Configuration";
+import { getCompanyNameFromSqlConfig } from "@services/catalogService";
 import { appendPrintHistory } from "@services/printHistory";
 import { searchArticle, scanSearchArticle } from "@services/articleService";
 import {
@@ -459,6 +460,20 @@ export default function HomeScreen({ navigation }) {
     );
   }, []);
 
+  const resolvePreviewCompanyName = useCallback(
+    async (articleToPrint = null) => {
+      const articleCompanyName = String(
+        articleToPrint?.companyName ?? "",
+      ).trim();
+      if (articleCompanyName) {
+        return articleCompanyName;
+      }
+
+      return String(await getCompanyNameFromSqlConfig().catch(() => "")).trim();
+    },
+    [],
+  );
+
   const openPrintPreview = useCallback(
     async (formatKey) => {
       const printableArticle = article || latestArticleRef.current;
@@ -470,12 +485,19 @@ export default function HomeScreen({ navigation }) {
       const key = String(formatKey ?? "product")
         .trim()
         .toLowerCase();
+      const companyName = await resolvePreviewCompanyName(printableArticle);
+      const previewArticle = {
+        ...printableArticle,
+        companyName,
+      };
       setPreviewFormatKey(key);
-      setPreviewProduct(printableArticle);
+      setPreviewProduct(previewArticle);
       try {
         const format = await loadPreviewFormat(key);
         setPreviewFormat(format);
-        const layout = buildPrintableLayout(format, printableArticle);
+        const layout = buildPrintableLayout(format, previewArticle, {
+          companyName,
+        });
         console.log("[PRINT_PREVIEW] enabled", true);
         console.log("[PRINT_PREVIEW] format", key);
         console.log("[PRINT_PREVIEW] paperWidthMm", layout.paperWidthMm);
@@ -487,7 +509,9 @@ export default function HomeScreen({ navigation }) {
         console.log("[PRINT] preview format fallback", error?.message || error);
         const fallbackFormat = getDefaultPrintFormat(key);
         setPreviewFormat(fallbackFormat);
-        const layout = buildPrintableLayout(fallbackFormat, printableArticle);
+        const layout = buildPrintableLayout(fallbackFormat, previewArticle, {
+          companyName,
+        });
         console.log("[PRINT_PREVIEW] enabled", true);
         console.log("[PRINT_PREVIEW] format", key);
         console.log("[PRINT_PREVIEW] paperWidthMm", layout.paperWidthMm);
@@ -519,13 +543,18 @@ export default function HomeScreen({ navigation }) {
       const key = String(previewFormatKey ?? "product")
         .trim()
         .toLowerCase();
+      const companyName = await resolvePreviewCompanyName(printableArticle);
+      const previewArticle = {
+        ...printableArticle,
+        companyName,
+      };
       const nextFormat =
         sqlFormats?.[key] ||
         (await loadPreviewFormat(key)) ||
         getDefaultPrintFormat(key);
 
       setPreviewFormat(nextFormat);
-      setPreviewProduct(printableArticle);
+      setPreviewProduct(previewArticle);
       console.log("[PRINT_SYNC] preview refreshed");
     } catch (error) {
       console.log("[PRINT_SYNC] refresh failed", error?.message || error);
@@ -541,6 +570,7 @@ export default function HomeScreen({ navigation }) {
     loadPreviewFormat,
     previewFormatKey,
     previewProduct,
+    resolvePreviewCompanyName,
     refreshingDesign,
   ]);
 

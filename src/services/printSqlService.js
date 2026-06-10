@@ -47,11 +47,9 @@ const normalizeCode = (value, index = 0) => {
   return PRINT_CODES[index] || PRINT_CODES[0];
 };
 
-const normalizeSyncItemLabel = (item = {}) => {
-  const rawLabel = String(
-    item.label ?? item.key ?? item.valueKey ?? "Item",
-  ).trim();
-  const normalized = rawLabel
+const normalizeContractText = (value = "") =>
+  String(value ?? "")
+    .trim()
     .toLowerCase()
     .replace(/[áäàâ]/g, "a")
     .replace(/[éëèê]/g, "e")
@@ -59,6 +57,137 @@ const normalizeSyncItemLabel = (item = {}) => {
     .replace(/[óöòô]/g, "o")
     .replace(/[úüùû]/g, "u")
     .replace(/[\s_-]+/g, "");
+
+const normalizeSqlContractType = (value = "") => {
+  const normalized = normalizeContractText(value);
+  if (!normalized) {
+    return "texto";
+  }
+  if (normalized === "dato" || normalized === "empresa") return "Dato";
+  if (
+    normalized === "texto" ||
+    normalized === "text" ||
+    normalized === "descripcion"
+  )
+    return "texto";
+  if (normalized === "precio") return "precio";
+  if (normalized === "codigobarra" || normalized === "barcode") {
+    return "codigobarra";
+  }
+  if (
+    normalized === "linea" ||
+    normalized === "line" ||
+    normalized === "separator" ||
+    normalized === "separador"
+  ) {
+    return "linea";
+  }
+  if (normalized === "logo") return "Dato";
+  if (normalized === "price") return "precio";
+  return "texto";
+};
+
+const normalizeSqlContractCampo = (tipoElemento = "", campo = "") => {
+  const tipo = normalizeSqlContractType(tipoElemento);
+  const normalizedCampo = normalizeContractText(campo);
+
+  if (tipo === "Dato") return "Empresa";
+  if (tipo === "texto") return "Descripcion";
+  if (tipo === "precio") return "Precio";
+  if (tipo === "codigobarra") return "CodigoBarra";
+  if (tipo === "linea") return "TextoFijo";
+
+  if (normalizedCampo === "empresa" || normalizedCampo === "companyname") {
+    return "Empresa";
+  }
+  if (normalizedCampo === "descripcion" || normalizedCampo === "description") {
+    return "Descripcion";
+  }
+  if (normalizedCampo === "precio" || normalizedCampo === "price") {
+    return "Precio";
+  }
+  if (
+    normalizedCampo === "codigobarra" ||
+    normalizedCampo === "codigobarras" ||
+    normalizedCampo === "barcode"
+  ) {
+    return "CodigoBarra";
+  }
+  if (
+    normalizedCampo === "codigoarticulo" ||
+    normalizedCampo === "codigointerno" ||
+    normalizedCampo === "internalcode"
+  ) {
+    return "CodigoArticulo";
+  }
+  if (normalizedCampo === "textofijo" || normalizedCampo === "fixedtext") {
+    return "TextoFijo";
+  }
+
+  return campo ? String(campo).trim() : "TextoFijo";
+};
+
+const normalizeSqlContractValueKey = (campo = "", tipoElemento = "") => {
+  const normalizedCampo = normalizeContractText(campo);
+  const tipo = normalizeSqlContractType(tipoElemento);
+
+  if (
+    tipo === "Dato" ||
+    normalizedCampo === "empresa" ||
+    normalizedCampo === "companyname"
+  ) {
+    return "companyName";
+  }
+  if (
+    tipo === "texto" ||
+    normalizedCampo === "descripcion" ||
+    normalizedCampo === "description"
+  ) {
+    return "description";
+  }
+  if (
+    tipo === "precio" ||
+    normalizedCampo === "precio" ||
+    normalizedCampo === "price"
+  ) {
+    return "price";
+  }
+  if (
+    tipo === "codigobarra" ||
+    normalizedCampo === "codigobarra" ||
+    normalizedCampo === "codigobarras" ||
+    normalizedCampo === "barcode"
+  ) {
+    return "barcode";
+  }
+  if (
+    normalizedCampo === "codigoarticulo" ||
+    normalizedCampo === "codigointerno" ||
+    normalizedCampo === "internalcode"
+  ) {
+    return "internalCode";
+  }
+  if (normalizedCampo === "stock") return "stock";
+  if (normalizedCampo === "fecha" || normalizedCampo === "date") return "date";
+  if (normalizedCampo === "logo") return "logo";
+  if (tipo === "linea") return "textofijo";
+  if (normalizedCampo === "textofijo" || normalizedCampo === "fixedtext") {
+    return "textofijo";
+  }
+
+  return normalizeSqlFieldKey(campo, tipoElemento || "text", campo);
+};
+
+const normalizeSyncItemLabel = (item = {}) => {
+  const rawLabel = String(
+    item.campo ??
+      item.Campo ??
+      item.label ??
+      item.key ??
+      item.valueKey ??
+      "Item",
+  ).trim();
+  const normalized = normalizeContractText(rawLabel);
 
   if (normalized === "empresa" || normalized === "companyname") {
     return "Empresa";
@@ -144,6 +273,8 @@ const normalizeSqlElementType = (value) => {
     .toLowerCase();
   if (
     normalized === "barcode" ||
+    normalized === "codigobarra" ||
+    normalized === "codigobarras" ||
     normalized === "codigo_barra" ||
     normalized === "codigo de barra"
   ) {
@@ -162,6 +293,14 @@ const normalizeSqlElementType = (value) => {
   }
   if (normalized === "logo") {
     return "logo";
+  }
+  if (
+    normalized === "dato" ||
+    normalized === "texto" ||
+    normalized === "text" ||
+    normalized === "precio"
+  ) {
+    return "text";
   }
   return "text";
 };
@@ -239,21 +378,24 @@ const normalizeSqlFieldKey = (value, type = "text", fallback = "") => {
 };
 
 const mapSqlDetailToElement = (row = {}, index = 0) => {
-  const field = toStringValue(
+  const tipoElemento = normalizeSqlContractType(
+    row.TipoElemento ?? row.tipoElemento,
+  );
+  const rawField = toStringValue(
     row.Campo ?? row.campo ?? row.ValueKey ?? row.Valuekey,
   );
-  const type = normalizeSqlElementType(row.TipoElemento ?? row.tipoElemento);
-  const key = normalizeSqlFieldKey(
-    field,
-    type,
-    type === "barcode"
+  const textoFijo = toStringValue(row.TextoFijo ?? row.textoFijo ?? "");
+  const campo = normalizeSqlContractCampo(tipoElemento, rawField);
+  const isVisualLine =
+    tipoElemento === "linea" && /^-+$/.test(textoFijo.replace(/\s+/g, ""));
+  const type = isVisualLine
+    ? "separator"
+    : tipoElemento === "codigobarra"
       ? "barcode"
-      : type === "logo"
-        ? "logo"
-        : type === "separator"
-          ? `separator_${index + 1}`
-          : `element_${index + 1}`,
-  );
+      : "text";
+  const valueKey = isVisualLine
+    ? "separator"
+    : normalizeSqlContractValueKey(campo, tipoElemento);
   const fontSize = toInt(
     row.TamanoFuente ?? row.tamanoFuente ?? row.FontSize,
     16,
@@ -268,13 +410,16 @@ const mapSqlDetailToElement = (row = {}, index = 0) => {
   );
 
   return {
-    key,
+    key: valueKey || `element_${index + 1}`,
+    campo,
+    Campo: campo,
+    tipoElemento,
+    TipoElemento: tipoElemento,
     type,
     label:
-      toStringValue(
-        row.TextoFijo ?? row.textoFijo ?? row.Nombre ?? row.nombre,
-        key,
-      ) || (type === "separator" ? "Separador" : key),
+      textoFijo ||
+      toStringValue(row.Nombre ?? row.nombre, campo) ||
+      (type === "separator" ? "Separador" : campo),
     visible: toBool(row.Visible ?? row.visible, true),
     x: toInt(row.X ?? row.x, 0),
     y: toInt(row.Y ?? row.y, 0),
@@ -291,12 +436,12 @@ const mapSqlDetailToElement = (row = {}, index = 0) => {
     uppercase: toBool(row.Mayuscula ?? row.mayuscula, false),
     maxLines,
     zIndex: toInt(row.Orden ?? row.orden, index + 1),
-    sampleText: toStringValue(row.TextoFijo ?? row.textoFijo ?? ""),
-    valueKey: normalizeSqlFieldKey(field, type, key) || key,
-    formatAsPrice: key === "price",
-    showSymbol: key === "price",
+    sampleText: textoFijo,
+    valueKey,
+    formatAsPrice: valueKey === "price",
+    showSymbol: valueKey === "price",
     showNumber:
-      type === "barcode"
+      valueKey === "barcode"
         ? toBool(row.ShowNumber ?? row.showNumber, true)
         : true,
     barcodeType: "EAN13",
@@ -319,9 +464,8 @@ const mapSqlHeaderToFormat = (row = {}, index = 0, elements = []) => {
     elements
       .filter((item) => item.visible)
       .map((item) =>
-        normalizeSqlFieldKey(
-          item.valueKey ?? item.key ?? "",
-          item.type ?? "text",
+        normalizeContractText(
+          item.campo ?? item.Campo ?? item.valueKey ?? item.key ?? "",
         ),
       ),
   );
@@ -339,13 +483,18 @@ const mapSqlHeaderToFormat = (row = {}, index = 0, elements = []) => {
     marginTop: "0",
     marginBottom: "0",
     alignment: "center",
-    showDescription: visibleKeys.has("description"),
-    showPrice: visibleKeys.has("price"),
-    showBarcode: visibleKeys.has("barcode"),
+    showDescription:
+      visibleKeys.has("descripcion") || visibleKeys.has("description"),
+    showPrice: visibleKeys.has("precio") || visibleKeys.has("price"),
+    showBarcode: visibleKeys.has("codigobarra") || visibleKeys.has("barcode"),
     showStock: visibleKeys.has("stock"),
     showDate: visibleKeys.has("date"),
-    showCompanyName: visibleKeys.has("companyName"),
-    showInternalCode: visibleKeys.has("internalCode"),
+    showCompanyName:
+      visibleKeys.has("empresa") || visibleKeys.has("companyname"),
+    showInternalCode:
+      visibleKeys.has("codigoarticulo") ||
+      visibleKeys.has("codigointerno") ||
+      visibleKeys.has("internalcode"),
     showLogo: visibleKeys.has("logo"),
     boldPrice: Boolean(
       elements.find((item) => item.key === "price")?.fontWeight === "700",
@@ -664,6 +813,28 @@ export const savePrintFormatsToSql = async (formats = {}) => {
         elementIndex += 1
       ) {
         const element = elements[elementIndex] || {};
+        const rawSampleText = String(element.sampleText ?? "").trim();
+        const isVisualLine =
+          String(element.type ?? "")
+            .trim()
+            .toLowerCase() === "separator" ||
+          String(element.key ?? "")
+            .trim()
+            .toLowerCase()
+            .startsWith("separator") ||
+          /^-+$/.test(rawSampleText.replace(/\s+/g, ""));
+        const sqlTipoElemento = normalizeSqlContractType(
+          isVisualLine
+            ? "linea"
+            : (element.TipoElemento ?? element.tipoElemento ?? element.type),
+        );
+        const sqlCampo = normalizeSqlContractCampo(
+          sqlTipoElemento,
+          element.Campo ?? element.campo ?? element.valueKey ?? element.key,
+        );
+        const sqlTextoFijo = isVisualLine
+          ? rawSampleText || "------------"
+          : String(element.sampleText ?? "");
         const visible = element.visible === false ? 0 : 1;
         const fontWeight =
           String(element.fontWeight ?? "400").trim() === "700" ? 1 : 0;
@@ -674,9 +845,9 @@ export const savePrintFormatsToSql = async (formats = {}) => {
             IdReporte, TipoElemento, Campo, TextoFijo, X, Y, Ancho, Alto, TamanoFuente, Negrita, Alineacion, Visible, Orden, MaxLineas, Mayuscula, Italica, FechaModificacion
           ) VALUES (
             ${insertedId},
-            ${sqlLiteral(String(element.type ?? "text"))},
-            ${sqlLiteral(String(element.valueKey ?? element.key ?? ""))},
-            ${sqlLiteral(String(element.sampleText ?? ""))},
+            ${sqlLiteral(sqlTipoElemento)},
+            ${sqlLiteral(sqlCampo)},
+            ${sqlLiteral(sqlTextoFijo)},
             ${toInt(element.x, 0)},
             ${toInt(element.y, 0)},
             ${toInt(element.width, 0)},
