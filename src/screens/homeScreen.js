@@ -14,6 +14,7 @@ import {
   Vibration,
   View,
 } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import CheckBox from "expo-checkbox";
 import { useFocusEffect } from "@react-navigation/native";
 import { CameraView, useCameraPermissions } from "expo-camera";
@@ -29,7 +30,7 @@ import { Fonts, Radii, Shadow } from "@styles/Theme";
 import Configuration from "@db/Configuration";
 import { appendPrintHistory } from "@services/printHistory";
 import { searchArticle, scanSearchArticle } from "@services/articleService";
-import { createSampleProduct, getDefaultPrintFormat, loadPrintFormats } from "@services/printLayoutService";
+import { buildPrintableLayout, getDefaultPrintFormat, loadPrintFormats } from "@services/printLayoutService";
 import { getPrinterStatus, initPrinter } from "@services/sunmiPrinterService";
 import { printArticle } from "@services/printerService";
 import { useThemeConfig } from "@context/ThemeContext";
@@ -51,6 +52,9 @@ const PRINT_BUTTONS = [
   { key: "small", label: "Chico" },
   { key: "custom", label: "Pers." },
 ];
+
+const PRINT_PREVIEW_STORAGE_KEY = "PRINT_PREVIEW_ENABLED";
+const DEFAULT_PRINT_PREVIEW_ENABLED = __DEV__;
 
 const IMAGE_SIZE_MAP = {
   SMALL: { width: 72, height: 72 },
@@ -131,7 +135,7 @@ export default function HomeScreen({ navigation }) {
   const [loading, setLoading] = useState(false);
   const [menuVisible, setMenuVisible] = useState(false);
   const [scannerVisible, setScannerVisible] = useState(false);
-  const [previewEnabled, setPreviewEnabled] = useState(true);
+  const [previewEnabled, setPreviewEnabled] = useState(DEFAULT_PRINT_PREVIEW_ENABLED);
   const [previewModalVisible, setPreviewModalVisible] = useState(false);
   const [previewFormatKey, setPreviewFormatKey] = useState("product");
   const [previewFormat, setPreviewFormat] = useState(null);
@@ -145,7 +149,6 @@ export default function HomeScreen({ navigation }) {
     sqlMode: "LOCAL",
     useStockColumn: false,
     useProductImage: false,
-    homePrintPreviewEnabled: true,
     productImageHomeSize: "MEDIUM",
   });
   const [permission, requestPermission] = useCameraPermissions();
@@ -176,10 +179,6 @@ export default function HomeScreen({ navigation }) {
       const useProductImage = Configuration.isTruthyConfigValue(
         map.USE_PRODUCT_IMAGE ?? map.CARGA_IMAGENES,
       );
-      const homePrintPreviewEnabled =
-        map.HOME_PRINT_PREVIEW_ENABLED === undefined || map.HOME_PRINT_PREVIEW_ENABLED === null || map.HOME_PRINT_PREVIEW_ENABLED === ""
-          ? true
-          : Configuration.isTruthyConfigValue(map.HOME_PRINT_PREVIEW_ENABLED);
       const productImageHomeSize = String(
         map.PRODUCT_IMAGE_HOME_SIZE ?? "MEDIUM",
       )
@@ -191,11 +190,9 @@ export default function HomeScreen({ navigation }) {
         sqlMode,
         useStockColumn,
         useProductImage,
-        homePrintPreviewEnabled,
         productImageHomeSize,
       });
       setLastSyncAt(String(map.LAST_SYNC_AT ?? "").trim());
-      setPreviewEnabled(homePrintPreviewEnabled);
     } catch (e) {
       setLastSyncAt("");
       setScreenConfig((current) => ({
@@ -204,10 +201,31 @@ export default function HomeScreen({ navigation }) {
         sqlMode: "LOCAL",
         useStockColumn: false,
         useProductImage: false,
-        homePrintPreviewEnabled: true,
         productImageHomeSize: "MEDIUM",
       }));
-      setPreviewEnabled(true);
+    }
+  }, []);
+
+  const loadPreviewPreference = useCallback(async () => {
+    try {
+      const storedValue = await AsyncStorage.getItem(PRINT_PREVIEW_STORAGE_KEY);
+      if (storedValue === null || storedValue === undefined || storedValue === "") {
+        setPreviewEnabled(DEFAULT_PRINT_PREVIEW_ENABLED);
+        await AsyncStorage.setItem(
+          PRINT_PREVIEW_STORAGE_KEY,
+          JSON.stringify(DEFAULT_PRINT_PREVIEW_ENABLED),
+        );
+        return;
+      }
+
+      try {
+        setPreviewEnabled(JSON.parse(storedValue));
+      } catch (parseError) {
+        setPreviewEnabled(storedValue === "1" || String(storedValue).toLowerCase() === "true");
+      }
+    } catch (error) {
+      console.log("[PRINT_PREVIEW] preference load failed", error?.message || error);
+      setPreviewEnabled(DEFAULT_PRINT_PREVIEW_ENABLED);
     }
   }, []);
 
@@ -215,6 +233,12 @@ export default function HomeScreen({ navigation }) {
     useCallback(() => {
       loadHomeConfig();
     }, [loadHomeConfig]),
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      loadPreviewPreference();
+    }, [loadPreviewPreference]),
   );
 
   const refreshPrinterStatus = useCallback(async () => {
@@ -378,16 +402,32 @@ export default function HomeScreen({ navigation }) {
 
   const openPrintPreview = useCallback(
     async (formatKey) => {
-      const printableArticle = article || latestArticleRef.current || createSampleProduct();
+      const printableArticle = article || latestArticleRef.current;
+      if (!printableArticle) {
+        setMessage("BuscÃ¡ un artÃ­culo antes de previsualizar.");
+        return;
+      }
+
       const key = String(formatKey ?? "product").trim().toLowerCase();
       setPreviewFormatKey(key);
       setPreviewProduct(printableArticle);
       try {
         const format = await loadPreviewFormat(key);
         setPreviewFormat(format);
+        const layout = buildPrintableLayout(format, printableArticle);
+        console.log("[PRINT_PREVIEW] enabled", true);
+        console.log("[PRINT_PREVIEW] format", key);
+        console.log("[PRINT_PREVIEW] paperWidthMm", layout.paperWidthMm);
+        console.log("[PRINT_PREVIEW] items", Array.isArray(layout.items) ? layout.items.length : 0);
       } catch (error) {
         console.log("[PRINT] preview format fallback", error?.message || error);
-        setPreviewFormat(getDefaultPrintFormat(key));
+        const fallbackFormat = getDefaultPrintFormat(key);
+        setPreviewFormat(fallbackFormat);
+        const layout = buildPrintableLayout(fallbackFormat, printableArticle);
+        console.log("[PRINT_PREVIEW] enabled", true);
+        console.log("[PRINT_PREVIEW] format", key);
+        console.log("[PRINT_PREVIEW] paperWidthMm", layout.paperWidthMm);
+        console.log("[PRINT_PREVIEW] items", Array.isArray(layout.items) ? layout.items.length : 0);
       }
       setPreviewModalVisible(true);
     },
@@ -519,7 +559,6 @@ export default function HomeScreen({ navigation }) {
       }
 
       if (previewEnabled) {
-        console.log("[PRINT] home preview enabled");
         await openPrintPreview(formatKey);
         return;
       }
@@ -578,8 +617,7 @@ export default function HomeScreen({ navigation }) {
     const next = Boolean(nextValue);
     setPreviewEnabled(next);
     try {
-      await Configuration.createTable();
-      await Configuration.setConfigValue("HOME_PRINT_PREVIEW_ENABLED", next ? "1" : "0");
+      await AsyncStorage.setItem(PRINT_PREVIEW_STORAGE_KEY, JSON.stringify(next));
     } catch (error) {
       console.log("[PRINT] preview preference save failed", error?.message || error);
     }
@@ -595,7 +633,7 @@ export default function HomeScreen({ navigation }) {
   const articleImageKey = article?.codigoInterno || article?.codigoBarra || "";
   const articleImageVisible = showProductImage && Boolean(articleImageKey);
   const previewFormatToShow = previewFormat || getDefaultPrintFormat(previewFormatKey);
-  const previewProductToShow = previewProduct || article || latestArticleRef.current || createSampleProduct();
+  const previewProductToShow = previewProduct || article || latestArticleRef.current;
   const printerStatusLabel =
     printerStatus.mode === "SIMULATION"
       ? "Impresora no detectada. Modo simulación activo."
@@ -695,9 +733,9 @@ export default function HomeScreen({ navigation }) {
           <View style={[styles.previewModalCard, { backgroundColor: themeStyles.surface }, Shadow.md]}>
             <View style={styles.previewModalHeader}>
               <View style={styles.previewModalHeaderText}>
-                <Text style={[styles.previewModalTitle, { color: themeStyles.text }]}>Vista previa de impresión</Text>
+                <Text style={[styles.previewModalTitle, { color: themeStyles.text }]}>Vista previa de etiqueta</Text>
                 <Text style={[styles.previewModalSubtitle, { color: themeStyles.muted }]} numberOfLines={2}>
-                  Revisá el diseño antes de gastar papel. Si se ve chico, el ajuste está en el diseño.
+                  Compará el tamaño visual con el papel antes de enviar a Sunmi.
                 </Text>
               </View>
               <TouchableOpacity
@@ -713,16 +751,18 @@ export default function HomeScreen({ navigation }) {
                 Formato: {PRINT_BUTTONS.find((item) => item.key === previewFormatKey)?.label || previewFormatKey}
               </Text>
               <Text style={[styles.previewBadgeText, { color: themeStyles.text }]}>
-                Modo: {previewEnabled ? "Previsualizar" : "Imprimir"}
+                Ancho: {String(previewFormatToShow?.paperWidthMm ?? 80)} mm
               </Text>
             </View>
 
             <ScrollView contentContainerStyle={styles.previewScroll} showsVerticalScrollIndicator={false}>
               <PrintPreview
-                title="Vista previa"
+                title="Vista de etiqueta"
                 format={previewFormatToShow}
                 product={previewProductToShow}
                 editable={false}
+                showGrid={false}
+                showHint={false}
                 theme={themeStyles}
               />
             </ScrollView>
@@ -916,15 +956,6 @@ export default function HomeScreen({ navigation }) {
           Shadow.md,
         ]}
       >
-        <View style={styles.printPreviewToggleRow}>
-          <Text style={[styles.printPreviewToggleText, { color: themeStyles.text }]}>Previsualizar</Text>
-          <CheckBox
-            value={previewEnabled}
-            onValueChange={handlePreviewToggle}
-            color={themeStyles.accent}
-          />
-        </View>
-
         <View style={styles.printStatusRow}>
           <Ionicons
             name={printerStatus.available ? "print-outline" : "information-circle-outline"}
@@ -943,35 +974,44 @@ export default function HomeScreen({ navigation }) {
         </View>
 
         <View style={styles.printButtonsRow}>
-        {PRINT_BUTTONS.map((button) => (
-          <TouchableOpacity
-            key={button.key}
-            style={[
-              styles.printButton,
-              { backgroundColor: themeStyles.surface },
-              Shadow.sm,
-            ]}
-            onPress={() => handlePrint(button.key)}
-            disabled={!article}
-          >
-            <Ionicons
-              name="print-outline"
-              size={20}
-              color={article ? themeStyles.accent : themeStyles.muted}
-            />
-            <Text
+          {PRINT_BUTTONS.map((button) => (
+            <TouchableOpacity
+              key={button.key}
               style={[
-                styles.printButtonText,
-                { color: article ? themeStyles.text : themeStyles.muted },
+                styles.printButton,
+                { backgroundColor: themeStyles.surface },
+                Shadow.sm,
               ]}
-              numberOfLines={2}
-              adjustsFontSizeToFit
-              minimumFontScale={0.8}
+              onPress={() => handlePrint(button.key)}
+              disabled={!article}
             >
-              {button.label}
-            </Text>
-          </TouchableOpacity>
-        ))}
+              <Ionicons
+                name="print-outline"
+                size={20}
+                color={article ? themeStyles.accent : themeStyles.muted}
+              />
+              <Text
+                style={[
+                  styles.printButtonText,
+                  { color: article ? themeStyles.text : themeStyles.muted },
+                ]}
+                numberOfLines={2}
+                adjustsFontSizeToFit
+                minimumFontScale={0.8}
+              >
+                {button.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        <View style={styles.printPreviewToggleRow}>
+          <Text style={[styles.printPreviewToggleText, { color: themeStyles.text }]}>Vista previa</Text>
+          <CheckBox
+            value={previewEnabled}
+            onValueChange={handlePreviewToggle}
+            color={themeStyles.accent}
+          />
         </View>
       </View>
     </SafeAreaView>

@@ -17,6 +17,8 @@ export default function PrintCanvas({
   onSelectElement,
   onMoveElement,
   onLayoutChange,
+  showGrid = true,
+  showHint = true,
   theme,
 }) {
   const [availableWidth, setAvailableWidth] = useState(0);
@@ -59,32 +61,36 @@ export default function PrintCanvas({
           },
         ]}
       >
-        {Array.from({ length: Math.ceil(layout.paperHeightPx / GRID_STEP) }).map((_, index) => (
-          <View
-            key={`grid-h-${index}`}
-            pointerEvents="none"
-            style={[
-              styles.gridLineHorizontal,
-              {
-                top: index * GRID_STEP * fitScale,
-                borderTopColor: "rgba(15,23,32,0.05)",
-              },
-            ]}
-          />
-        ))}
-        {Array.from({ length: Math.ceil(layout.paperWidthPx / GRID_STEP) }).map((_, index) => (
-          <View
-            key={`grid-v-${index}`}
-            pointerEvents="none"
-            style={[
-              styles.gridLineVertical,
-              {
-                left: index * GRID_STEP * fitScale,
-                borderLeftColor: "rgba(15,23,32,0.04)",
-              },
-            ]}
-          />
-        ))}
+        {showGrid
+          ? Array.from({ length: Math.ceil(layout.paperHeightPx / GRID_STEP) }).map((_, index) => (
+              <View
+                key={`grid-h-${index}`}
+                pointerEvents="none"
+                style={[
+                  styles.gridLineHorizontal,
+                  {
+                    top: index * GRID_STEP * fitScale,
+                    borderTopColor: "rgba(15,23,32,0.05)",
+                  },
+                ]}
+              />
+            ))
+          : null}
+        {showGrid
+          ? Array.from({ length: Math.ceil(layout.paperWidthPx / GRID_STEP) }).map((_, index) => (
+              <View
+                key={`grid-v-${index}`}
+                pointerEvents="none"
+                style={[
+                  styles.gridLineVertical,
+                  {
+                    left: index * GRID_STEP * fitScale,
+                    borderLeftColor: "rgba(15,23,32,0.04)",
+                  },
+                ]}
+              />
+            ))
+          : null}
 
         {hasVisibleItems ? (
           layout.items.map((item) => (
@@ -105,9 +111,11 @@ export default function PrintCanvas({
         )}
       </View>
 
-      <Text style={[styles.hint, { color: theme.muted }]}>
-        Tocá un elemento para seleccionarlo y arrastralo para moverlo.
-      </Text>
+      {showHint ? (
+        <Text style={[styles.hint, { color: theme.muted }]}>
+          Tocá un elemento para seleccionarlo y arrastralo para moverlo.
+        </Text>
+      ) : null}
     </View>
   );
 }

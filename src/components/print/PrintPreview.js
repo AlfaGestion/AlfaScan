@@ -11,6 +11,8 @@ export default function PrintPreview({
   onSelectElement,
   onMoveElement,
   editable = true,
+  showGrid = true,
+  showHint = true,
   theme,
 }) {
   return (
@@ -23,6 +25,8 @@ export default function PrintPreview({
         selectedElementKey={selectedElementKey}
         onSelectElement={onSelectElement}
         onMoveElement={onMoveElement}
+        showGrid={showGrid}
+        showHint={showHint}
         theme={theme}
       />
     </View>
