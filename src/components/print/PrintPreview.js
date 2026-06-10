@@ -11,8 +11,8 @@ export default function PrintPreview({
   onSelectElement,
   onMoveElement,
   editable = true,
-  showGrid = true,
-  showHint = true,
+  showGrid = false,
+  showHint = false,
   theme,
 }) {
   return (

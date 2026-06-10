@@ -1,178 +1,185 @@
-import { Component, useCallback, useEffect, useMemo, useState } from "react";
-import { Alert, ActivityIndicator, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  ActivityIndicator,
+  Alert,
+  Modal,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import CheckBox from "expo-checkbox";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import ConfigItem from "@components/ConfigItem";
-import PrintPreview from "@components/print/PrintPreview";
-import PrintPropertiesPanel from "@components/print/PrintPropertiesPanel";
 import Colors from "@styles/Colors";
 import { Fonts, Radii, Shadow } from "@styles/Theme";
 import Configuration from "@db/Configuration";
 import { useThemeConfig } from "@context/ThemeContext";
+import PrintPreview from "@components/print/PrintPreview";
 import {
-  createSampleProduct,
   DEFAULT_PRINT_FORMATS,
   PRINT_FORMAT_KEYS,
+  buildPrintableLayout,
+  createSampleProduct,
   getDefaultPrintFormat,
   loadPrintFormats,
   normalizePrintConfig,
-  buildPrintableLayout,
   savePrintFormats,
   savePrintFormatsToSql,
-  syncPrintFormatsFromSql,
 } from "@services/printLayoutService";
 import { printArticle } from "@services/printerService";
 
-const GENERAL_ALIGNMENT_OPTIONS = [
+const SIZE_PRESETS = [
+  { label: "80%", factor: 0.8 },
+  { label: "100%", factor: 1 },
+  { label: "120%", factor: 1.2 },
+  { label: "150%", factor: 1.5 },
+  { label: "200%", factor: 2 },
+];
+
+const ALIGNMENT_OPTIONS = [
   { label: "Izquierda", value: "left" },
   { label: "Centro", value: "center" },
   { label: "Derecha", value: "right" },
 ];
 
-const createVisibilityMap = () => ({
-  showDescription: "description",
-  showPrice: "price",
-  showBarcode: "barcode",
-  showStock: "stock",
-  showDate: "date",
-  showCompanyName: "companyName",
-  showInternalCode: "internalCode",
-  showLogo: "logo",
-});
+const clone = (value) => JSON.parse(JSON.stringify(value));
 
-const safeNormalizePrintConfig = (value) => {
-  if (typeof normalizePrintConfig === "function") {
-    try {
-      return normalizePrintConfig(value);
-    } catch (error) {
-      if (__DEV__) {
-        console.log("[PrintConfig] normalize fallback", error?.message || error);
-      }
-    }
-  }
+const isTextLikeElement = (element = {}) =>
+  String(element?.type ?? "text").trim() !== "barcode";
 
-  return {
-    gondola: getDefaultPrintFormat("gondola"),
-    product: getDefaultPrintFormat("product"),
-    small: getDefaultPrintFormat("small"),
-    custom: getDefaultPrintFormat("custom"),
-  };
-};
-
-const arePrintConfigsEqual = (left, right) => JSON.stringify(left) === JSON.stringify(right);
-
-class PrintSectionErrorBoundary extends Component {
-  constructor(props) {
-    super(props);
-    this.state = { hasError: false, error: null };
-  }
-
-  static getDerivedStateFromError(error) {
-    return { hasError: true, error };
-  }
-
-  componentDidCatch(error) {
-    if (__DEV__) {
-      console.log("[PrintConfig] section error", error?.message || error);
-    }
-  }
-
-  render() {
-    if (this.state.hasError) {
-      return (
-        this.props.fallback || (
-          <View style={[styles.sectionErrorBox, { backgroundColor: this.props.theme.surfaceAlt, borderColor: this.props.theme.border }]}>
-            <Text style={[styles.sectionErrorTitle, { color: this.props.theme.text }]}>
-              No se pudo cargar esta sección
-            </Text>
-            <Text style={[styles.sectionErrorText, { color: this.props.theme.muted }]}>
-              Usando configuración básica.
-            </Text>
-          </View>
-        )
-      );
-    }
-
-    return this.props.children;
-  }
-}
-
-const syncElementVisibility = (format, flagKey, visible) => {
-  const visibilityMap = createVisibilityMap(format);
-  const targetKey = visibilityMap[flagKey];
-  const next = { ...format, [flagKey]: Boolean(visible) };
-  if (!targetKey || !Array.isArray(format.elements)) {
-    return next;
-  }
-
-  next.elements = format.elements.map((element) =>
-    element.key === targetKey ? { ...element, visible: Boolean(visible) } : element,
+const scaleFormatForPreview = (
+  baseFormat = {},
+  currentFormat = {},
+  factor = 1,
+) => {
+  const align =
+    String(
+      (Array.isArray(currentFormat.elements)
+        ? currentFormat.elements
+        : []
+      ).find((item) => isTextLikeElement(item))?.align ??
+        currentFormat.alignment ??
+        baseFormat.alignment ??
+        "center",
+    ).trim() || "center";
+  const fontWeight =
+    String(
+      (Array.isArray(currentFormat.elements)
+        ? currentFormat.elements
+        : []
+      ).find((item) => isTextLikeElement(item))?.fontWeight ?? "400",
+    ).trim() === "700"
+      ? "700"
+      : "400";
+  const italic = Boolean(
+    (Array.isArray(currentFormat.elements) ? currentFormat.elements : []).find(
+      (item) => isTextLikeElement(item),
+    )?.italic ?? false,
   );
+
+  const next = clone(baseFormat);
+  next.alignment = align;
+  next.boldPrice = fontWeight === "700";
+  next.previewBeforePrint = Boolean(
+    currentFormat.previewBeforePrint ?? baseFormat.previewBeforePrint ?? true,
+  );
+  next.elements = (Array.isArray(next.elements) ? next.elements : []).map(
+    (element) => {
+      if (!isTextLikeElement(element)) {
+        return { ...element };
+      }
+
+      const baseFontSize = Number(element.fontSize ?? 16) || 16;
+      const baseHeight = Number(element.height ?? 36) || 36;
+      return {
+        ...element,
+        fontSize: Math.max(8, Math.round(baseFontSize * factor)),
+        height: Math.max(12, Math.round(baseHeight * factor)),
+        fontWeight,
+        italic,
+        align,
+      };
+    },
+  );
+
   return next;
 };
 
-const normalizeElementValue = (field, value) => {
-  if (["visible", "uppercase", "italic", "showSymbol", "thousandSeparator", "showNumber"].includes(field)) {
-    return Boolean(value);
+const applyGlobalTextStyle = (format = {}, patch = {}) => {
+  const next = clone(format);
+  next.alignment = patch.align ?? next.alignment ?? "center";
+  if (patch.fontWeight) {
+    next.boldPrice = patch.fontWeight === "700";
   }
-  if (["fontSize", "x", "y", "width", "height", "decimals", "maxLines", "zIndex"].includes(field)) {
-    const parsed = parseInt(String(value ?? "").trim(), 10);
-    return Number.isFinite(parsed) ? parsed : 0;
+  if (patch.italic !== undefined) {
+    next.italic = Boolean(patch.italic);
   }
-  return String(value ?? "").trim();
+
+  next.elements = (Array.isArray(next.elements) ? next.elements : []).map(
+    (element) => {
+      if (!isTextLikeElement(element)) {
+        return { ...element };
+      }
+
+      return {
+        ...element,
+        ...(patch.fontWeight !== undefined
+          ? { fontWeight: patch.fontWeight }
+          : {}),
+        ...(patch.italic !== undefined
+          ? { italic: Boolean(patch.italic) }
+          : {}),
+        ...(patch.align ? { align: patch.align } : {}),
+      };
+    },
+  );
+
+  return next;
 };
 
-const getSelectedElement = (format, selectedKey) =>
-  (format?.elements || []).find((element) => element.key === selectedKey) || null;
+const formatPreviewPaperInfo = (format, previewLayout) => {
+  const widthLabel =
+    String(format.paperWidth) === "custom"
+      ? "Personalizado"
+      : `${String(format.paperWidth ?? "80").trim()} mm`;
+  return `${widthLabel} • alto estimado ${Math.round(Number(previewLayout?.paperHeightPx ?? 0))} px`;
+};
 
-const DEFAULT_SELECTED_ELEMENT_KEY = "description";
-
-const pickFormatList = (formats) =>
-  PRINT_FORMAT_KEYS.map((key, index) => formats?.[key] || DEFAULT_PRINT_FORMATS[index]);
-
-const FormatTabs = ({ formats, activeIndex, onChange, theme }) => (
-  <View style={styles.tabsRow}>
-    {(Array.isArray(formats) ? formats : []).map((item, index) => {
-      const active = activeIndex === index;
-      return (
-        <TouchableOpacity
-          key={item.key}
-          onPress={() => onChange(index)}
-          style={[
-            styles.tabChip,
-            {
-              backgroundColor: active ? theme.accent : theme.surfaceAlt,
-              borderColor: active ? theme.accent : theme.border,
-            },
-          ]}
-        >
-          <Text style={[styles.tabText, { color: active ? Colors.WHITE : theme.text }]}>{item.name}</Text>
-        </TouchableOpacity>
-      );
-    })}
-  </View>
-);
-
-const SectionTitle = ({ children, theme }) => (
-  <Text style={[styles.sectionTitle, { color: theme.text }]}>{children}</Text>
-);
+const safeNormalizePrintConfig = (value) => {
+  try {
+    return normalizePrintConfig(value);
+  } catch (error) {
+    return {
+      gondola: getDefaultPrintFormat("gondola"),
+      product: getDefaultPrintFormat("product"),
+      small: getDefaultPrintFormat("small"),
+      custom: getDefaultPrintFormat("custom"),
+    };
+  }
+};
 
 export default function PrintConfigurationScreen() {
-  const [formats, setFormats] = useState(() => safeNormalizePrintConfig(DEFAULT_PRINT_FORMATS));
+  const [formats, setFormats] = useState(() =>
+    safeNormalizePrintConfig(DEFAULT_PRINT_FORMATS),
+  );
   const [activeIndex, setActiveIndex] = useState(0);
-  const [selectedElementKey, setSelectedElementKey] = useState(DEFAULT_SELECTED_ELEMENT_KEY);
   const [previewEnabled, setPreviewEnabled] = useState(true);
   const [previewModalVisible, setPreviewModalVisible] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [sqlBusy, setSqlBusy] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [testing, setTesting] = useState(false);
   const [status, setStatus] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const { darkMode } = useThemeConfig();
   const insets = useSafeAreaInsets();
+  const baseFormatsRef = useRef(
+    safeNormalizePrintConfig(DEFAULT_PRINT_FORMATS),
+  );
+  const hydratingRef = useRef(true);
+  const saveTimerRef = useRef(null);
 
   const theme = useMemo(
     () => ({
@@ -188,45 +195,63 @@ export default function PrintConfigurationScreen() {
     [darkMode],
   );
 
-  const safeFormats = useMemo(() => safeNormalizePrintConfig(formats), [formats]);
-  const formatList = useMemo(() => pickFormatList(safeFormats), [safeFormats]);
-  const activeFormat = formatList[activeIndex] || formatList[0] || DEFAULT_PRINT_FORMATS[0];
-  const selectedElement = getSelectedElement(activeFormat, selectedElementKey);
+  const safeFormats = useMemo(
+    () => safeNormalizePrintConfig(formats),
+    [formats],
+  );
+  const formatList = useMemo(
+    () =>
+      PRINT_FORMAT_KEYS.map(
+        (key, index) => safeFormats?.[key] || DEFAULT_PRINT_FORMATS[index],
+      ),
+    [safeFormats],
+  );
+  const activeFormat =
+    formatList[activeIndex] || formatList[0] || DEFAULT_PRINT_FORMATS[0];
   const previewProduct = useMemo(() => createSampleProduct(), []);
-  const previewLayout = useMemo(() => buildPrintableLayout(activeFormat, previewProduct), [activeFormat, previewProduct]);
+  const previewLayout = useMemo(
+    () => buildPrintableLayout(activeFormat, previewProduct),
+    [activeFormat, previewProduct],
+  );
 
-  const loadPreviewPreference = useCallback(async () => {
-    await Configuration.createTable();
-    const raw = await Configuration.getConfigValue("PRINT_PREVIEW_ENABLED").catch(() => null);
-    const enabled =
-      raw === null || raw === undefined || raw === ""
-        ? true
-        : Configuration.isTruthyConfigValue(raw);
-    setPreviewEnabled(enabled);
+  const persistFormats = useCallback(async (nextFormats) => {
+    const normalized = safeNormalizePrintConfig(nextFormats);
+    setSaving(true);
+    try {
+      await savePrintFormats(normalized);
+      await savePrintFormatsToSql(normalized).catch((error) => {
+        if (__DEV__) {
+          console.log(
+            "[PRINT_CONFIG] sql save failed",
+            error?.message || error,
+          );
+        }
+      });
+      setStatus("Ajustes guardados.");
+    } catch (error) {
+      setStatus(error?.message || "No se pudieron guardar los ajustes.");
+    } finally {
+      setSaving(false);
+    }
   }, []);
-
-  useEffect(() => {
-    loadPreviewPreference().catch(() => {
-      setPreviewEnabled(true);
-    });
-  }, [loadPreviewPreference]);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const loaded = await loadPrintFormats();
-      if (!loaded) {
-        throw new Error("No se pudo cargar el diseÃ±o desde SQL.");
-      }
-      const normalized = safeNormalizePrintConfig(loaded);
-      setFormats((current) => (arePrintConfigsEqual(current, normalized) ? current : normalized));
-      if (__DEV__) {
-        console.log("[PRINT_CONFIG] loaded print formats");
-      }
-      setStatus("DiseÃ±o cargado desde SQL.");
-    } catch (e) {
-      setStatus(e?.message || "No se pudo cargar el diseÃ±o desde SQL.");
+      const normalized = safeNormalizePrintConfig(
+        loaded || DEFAULT_PRINT_FORMATS,
+      );
+      baseFormatsRef.current = clone(normalized);
+      setFormats(normalized);
+      setStatus("Diseño cargado desde SQL.");
+    } catch (error) {
+      const fallback = safeNormalizePrintConfig(DEFAULT_PRINT_FORMATS);
+      baseFormatsRef.current = clone(fallback);
+      setFormats(fallback);
+      setStatus(error?.message || "No se pudo cargar el diseño desde SQL.");
     } finally {
+      hydratingRef.current = false;
       setLoading(false);
     }
   }, []);
@@ -239,12 +264,28 @@ export default function PrintConfigurationScreen() {
   );
 
   useEffect(() => {
-    if (!selectedElement) {
-      const firstVisible =
-        activeFormat?.elements?.find((element) => element?.visible) || activeFormat?.elements?.[0];
-      setSelectedElementKey(firstVisible?.key || DEFAULT_SELECTED_ELEMENT_KEY);
+    if (hydratingRef.current) {
+      return undefined;
     }
-  }, [activeFormat, selectedElement]);
+
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+    }
+
+    saveTimerRef.current = setTimeout(() => {
+      persistFormats(formats).catch(() => {});
+    }, 500);
+
+    return () => {
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current);
+      }
+    };
+  }, [formats, persistFormats]);
+
+  useEffect(() => {
+    setPreviewEnabled(Boolean(activeFormat.previewBeforePrint ?? true));
+  }, [activeFormat.key, activeFormat.previewBeforePrint]);
 
   const updateActiveFormat = useCallback(
     (updater) => {
@@ -252,149 +293,133 @@ export default function PrintConfigurationScreen() {
         const normalized = safeNormalizePrintConfig(current);
         const next = { ...normalized };
         const key = PRINT_FORMAT_KEYS[activeIndex] || PRINT_FORMAT_KEYS[0];
-        next[key] = updater(normalized[key] || DEFAULT_PRINT_FORMATS[activeIndex] || DEFAULT_PRINT_FORMATS[0]);
+        next[key] = updater(
+          normalized[key] ||
+            DEFAULT_PRINT_FORMATS[activeIndex] ||
+            DEFAULT_PRINT_FORMATS[0],
+        );
         return next;
       });
     },
     [activeIndex],
   );
 
-  const updateFormatField = useCallback(
-    (field, value) => {
-      updateActiveFormat((current) => ({ ...current, [field]: value }));
+  const applySizePreset = useCallback(
+    (factor) => {
+      const key = PRINT_FORMAT_KEYS[activeIndex] || PRINT_FORMAT_KEYS[0];
+      updateActiveFormat((current) =>
+        scaleFormatForPreview(
+          baseFormatsRef.current?.[key] || current,
+          current,
+          factor,
+        ),
+      );
+      setStatus(`Tamaño aplicado: ${Math.round(factor * 100)}%.`);
+    },
+    [activeIndex, updateActiveFormat],
+  );
+
+  const applyBold = useCallback(
+    (value) => {
+      updateActiveFormat((current) =>
+        applyGlobalTextStyle(current, { fontWeight: value ? "700" : "400" }),
+      );
+      setStatus(value ? "Negrita activada." : "Negrita desactivada.");
     },
     [updateActiveFormat],
   );
 
-  const updateElementField = useCallback(
-    (field, value) => {
-      updateActiveFormat((current) => ({
-        ...current,
-        elements: (current.elements || []).map((element) =>
-          element.key === selectedElementKey
-            ? { ...element, [field]: normalizeElementValue(field, value) }
-            : element,
-        ),
-      }));
-    },
-    [selectedElementKey, updateActiveFormat],
-  );
-
-  const moveElement = useCallback(
-    (key, nextX, nextY) => {
-      updateActiveFormat((current) => ({
-        ...current,
-        elements: (current.elements || []).map((element) =>
-          element.key === key ? { ...element, x: Math.max(0, Math.round(nextX)), y: Math.max(0, Math.round(nextY)) } : element,
-        ),
-      }));
+  const applyItalic = useCallback(
+    (value) => {
+      updateActiveFormat((current) =>
+        applyGlobalTextStyle(current, { italic: value }),
+      );
+      setStatus(value ? "Itálica activada." : "Itálica desactivada.");
     },
     [updateActiveFormat],
   );
 
-  const handleQuickAction = useCallback(
-    (action) => {
-      if (!selectedElement) {
-        return;
-      }
-
-      const layout = buildPrintableLayout(activeFormat, previewProduct);
-      const baseHeight = layout.scale > 0 ? layout.paperHeightPx / layout.scale : 320;
-      const baseWidth = 320;
-
-      const apply = (patch) => {
-        updateElementField("x", patch.x ?? selectedElement.x);
-        updateElementField("y", patch.y ?? selectedElement.y);
-        if (patch.fontSize !== undefined) {
-          updateElementField("fontSize", patch.fontSize);
-        }
-        if (patch.zIndex !== undefined) {
-          updateElementField("zIndex", patch.zIndex);
-        }
-      };
-
-      switch (action) {
-        case "fontUp":
-          updateElementField("fontSize", Number(selectedElement.fontSize || 16) + 2);
-          break;
-        case "fontDown":
-          updateElementField("fontSize", Math.max(8, Number(selectedElement.fontSize || 16) - 2));
-          break;
-        case "moveUp":
-          apply({ y: Math.max(0, Number(selectedElement.y || 0) - 4) });
-          break;
-        case "moveDown":
-          apply({ y: Math.max(0, Number(selectedElement.y || 0) + 4) });
-          break;
-        case "moveLeft":
-          apply({ x: Math.max(0, Number(selectedElement.x || 0) - 4) });
-          break;
-        case "moveRight":
-          apply({ x: Math.max(0, Number(selectedElement.x || 0) + 4) });
-          break;
-        case "centerX":
-          apply({ x: Math.max(0, Math.round((baseWidth - Number(selectedElement.width || 0)) / 2)) });
-          break;
-        case "centerY":
-          apply({ y: Math.max(0, Math.round((baseHeight - Number(selectedElement.height || 0)) / 2)) });
-          break;
-        case "bringFront": {
-          const maxZ = Math.max(...(activeFormat.elements || []).map((element) => Number(element.zIndex || 1)));
-          updateElementField("zIndex", maxZ + 1);
-          break;
-        }
-        case "sendBack": {
-          const minZ = Math.min(...(activeFormat.elements || []).map((element) => Number(element.zIndex || 1)));
-          updateElementField("zIndex", Math.max(1, minZ - 1));
-          break;
-        }
-        default:
-          break;
-      }
+  const applyAlignment = useCallback(
+    (align) => {
+      updateActiveFormat((current) => applyGlobalTextStyle(current, { align }));
+      setStatus(`Alineación: ${align}.`);
     },
-    [activeFormat, previewProduct, selectedElement, updateElementField],
+    [updateActiveFormat],
   );
 
-  const save = async () => {
-    setSaving(true);
-    setStatus("");
-    try {
-      await savePrintFormats(safeFormats);
-      setStatus("Diseño de impresión guardado correctamente.");
-    } catch (e) {
-      setStatus(e?.message || "No se pudo guardar el diseño.");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const saveToSql = async () => {
-    setSqlBusy(true);
-    setStatus("");
-    try {
-      await savePrintFormatsToSql(safeFormats);
-      setStatus("Diseño guardado en SQL.");
-    } catch (e) {
-      setStatus(e?.message || "No se pudo guardar el diseño en SQL.");
-    } finally {
-      setSqlBusy(false);
-    }
-  };
-
-  const loadFromSql = async () => {
-    setSqlBusy(true);
-    setStatus("");
-    try {
-      const sqlFormats = await syncPrintFormatsFromSql();
-      if (!sqlFormats) {
-        throw new Error("No se encontró diseño de impresión en SQL.");
+  const handlePreviewToggle = useCallback(
+    async (value) => {
+      const next = Boolean(value);
+      setPreviewEnabled(next);
+      updateActiveFormat((current) => ({
+        ...current,
+        previewBeforePrint: next,
+      }));
+      try {
+        await Configuration.createTable();
+        await Configuration.setConfigValue(
+          "PRINT_PREVIEW_ENABLED",
+          next ? "1" : "0",
+        );
+      } catch (error) {
+        if (__DEV__) {
+          console.log(
+            "[PRINT_CONFIG] preview preference save failed",
+            error?.message || error,
+          );
+        }
       }
-      setFormats(safeNormalizePrintConfig(sqlFormats));
-      setStatus("Diseño cargado desde SQL y guardado localmente.");
-    } catch (e) {
-      setStatus(e?.message || "No se pudo cargar el diseño desde SQL.");
+    },
+    [updateActiveFormat],
+  );
+
+  const printTest = async () => {
+    if (testing) {
+      return;
+    }
+
+    setTesting(true);
+    setStatus("");
+    try {
+      if (previewEnabled) {
+        setPreviewModalVisible(true);
+        setStatus("Mostrando vista previa.");
+      } else {
+        await printArticle({
+          article: previewProduct,
+          formatKey: activeFormat.key,
+          format: activeFormat,
+        });
+        setStatus("Prueba de impresión enviada.");
+      }
+    } catch (error) {
+      setStatus(
+        error?.message ||
+          "No se pudo imprimir. Revisá la impresora y volvé a intentar.",
+      );
     } finally {
-      setSqlBusy(false);
+      setTesting(false);
+    }
+  };
+
+  const handlePreviewPrintNow = async () => {
+    setPreviewModalVisible(false);
+    setTesting(true);
+    setStatus("");
+    try {
+      await printArticle({
+        article: previewProduct,
+        formatKey: activeFormat.key,
+        format: activeFormat,
+      });
+      setStatus("Prueba de impresión enviada.");
+    } catch (error) {
+      setStatus(
+        error?.message ||
+          "No se pudo imprimir. Revisá la impresora y volvé a intentar.",
+      );
+    } finally {
+      setTesting(false);
     }
   };
 
@@ -409,19 +434,18 @@ export default function PrintConfigurationScreen() {
           style: "destructive",
           onPress: () => {
             const fresh = getDefaultPrintFormat(activeFormat.key);
+            baseFormatsRef.current = {
+              ...baseFormatsRef.current,
+              [fresh.key]: fresh,
+            };
             setFormats((current) => {
               const normalized = safeNormalizePrintConfig(current);
               const next = {
                 ...normalized,
                 [fresh.key]: fresh,
               };
-              return arePrintConfigsEqual(current, next) ? current : next;
+              return next;
             });
-            setSelectedElementKey(
-              fresh.elements?.find((item) => item.visible)?.key ||
-                fresh.elements?.[0]?.key ||
-                DEFAULT_SELECTED_ELEMENT_KEY,
-            );
             setStatus("Diseño restaurado.");
           },
         },
@@ -429,74 +453,16 @@ export default function PrintConfigurationScreen() {
     );
   };
 
-  const printTest = async () => {
-    if (testing) {
-      return;
-    }
-
-    setTesting(true);
-    setStatus("");
-    try {
-      if (previewEnabled) {
-        setPreviewModalVisible(true);
-        setStatus("Mostrando vista previa.");
-      } else {
-        await printArticle({ article: previewProduct, formatKey: activeFormat.key, format: activeFormat });
-        setStatus("Prueba de impresión enviada.");
-      }
-    } catch (e) {
-      console.log("[PRINT] test error", e?.message || e);
-      setStatus("No se pudo imprimir. Revisá la impresora y volvé a intentar.");
-    } finally {
-      setTesting(false);
-    }
-  };
-
-  const handlePreviewToggle = useCallback(
-    async (value) => {
-      const next = Boolean(value);
-      setPreviewEnabled(next);
-      try {
-        await Configuration.createTable();
-        await Configuration.setConfigValue("PRINT_PREVIEW_ENABLED", next ? "1" : "0");
-      } catch (error) {
-        if (__DEV__) {
-          console.log("[PRINT_CONFIG] preview preference save failed", error?.message || error);
-        }
-      }
-    },
-    [],
+  const activeTextElement = useMemo(
+    () =>
+      (Array.isArray(activeFormat.elements)
+        ? activeFormat.elements.find((item) => item && item.type !== "barcode")
+        : null) || null,
+    [activeFormat],
   );
 
-  const handlePreviewPrintNow = async () => {
-    setPreviewModalVisible(false);
-    setTesting(true);
-    setStatus("");
-    try {
-      await printArticle({ article: previewProduct, formatKey: activeFormat.key, format: activeFormat });
-      setStatus("Prueba de impresión enviada.");
-    } catch (e) {
-      console.log("[PRINT] preview print error", e?.message || e);
-      setStatus("No se pudo imprimir. Revisá la impresora y volvé a intentar.");
-    } finally {
-      setTesting(false);
-    }
-  };
-
-  const toggleFlag = useCallback(
-    (field, value) => {
-      updateActiveFormat((current) => syncElementVisibility(current, field, value));
-    },
-    [updateActiveFormat],
-  );
-
-  const previewPaperInfo = previewLayout
-    ? `${activeFormat.paperWidth === "custom" ? "Personalizado" : `${activeFormat.paperWidth} mm`} • alto estimado ${Math.round(
-        previewLayout.paperHeightPx,
-      )} px`
-    : "";
-
-  const formatActionsDisabled = saving || testing || loading || sqlBusy;
+  const previewPaperInfo = formatPreviewPaperInfo(activeFormat, previewLayout);
+  const formatActionsDisabled = loading || testing || saving;
 
   return (
     <View style={[styles.root, { backgroundColor: theme.background }]}>
@@ -507,24 +473,46 @@ export default function PrintConfigurationScreen() {
         onRequestClose={() => setPreviewModalVisible(false)}
       >
         <View style={styles.modalBackdrop}>
-          <View style={[styles.modalCard, { backgroundColor: theme.surface }, Shadow.md]}>
+          <View
+            style={[
+              styles.modalCard,
+              { backgroundColor: theme.surface },
+              Shadow.md,
+            ]}
+          >
             <View style={styles.modalHeader}>
               <View style={{ flex: 1 }}>
-                <Text style={[styles.modalTitle, { color: theme.text }]}>Vista previa de impresión</Text>
+                <Text style={[styles.modalTitle, { color: theme.text }]}>
+                  Vista previa de impresión
+                </Text>
                 <Text style={[styles.modalSubtitle, { color: theme.muted }]}>
                   Revisá el diseño antes de mandar papel.
                 </Text>
               </View>
               <TouchableOpacity
                 onPress={() => setPreviewModalVisible(false)}
-                style={[styles.modalCloseButton, { backgroundColor: theme.surfaceAlt, borderColor: theme.border }]}
+                style={[
+                  styles.modalCloseButton,
+                  {
+                    backgroundColor: theme.surfaceAlt,
+                    borderColor: theme.border,
+                  },
+                ]}
               >
                 <Ionicons name="close" size={18} color={theme.text} />
               </TouchableOpacity>
             </View>
 
             <ScrollView contentContainerStyle={styles.modalScroll}>
-              <View style={[styles.previewModeWrap, { backgroundColor: theme.surfaceAlt, borderColor: theme.border }]}>
+              <View
+                style={[
+                  styles.previewModeWrap,
+                  {
+                    backgroundColor: theme.surfaceAlt,
+                    borderColor: theme.border,
+                  },
+                ]}
+              >
                 <Text style={[styles.previewModeLabel, { color: theme.text }]}>
                   {previewEnabled ? "Modo: Previsualizar" : "Modo: Imprimir"}
                 </Text>
@@ -534,37 +522,63 @@ export default function PrintConfigurationScreen() {
                 title={`Formato ${activeFormat.name || activeFormat.key}`}
                 format={activeFormat}
                 product={previewProduct}
-                selectedElementKey={null}
-                onSelectElement={null}
-                onMoveElement={null}
                 editable={false}
+                showGrid={false}
+                showHint={false}
                 theme={theme}
               />
             </ScrollView>
 
             <View style={styles.modalActions}>
               <TouchableOpacity
-                style={[styles.modalActionButton, { backgroundColor: theme.surfaceAlt, borderColor: theme.border }]}
+                style={[
+                  styles.modalActionButton,
+                  {
+                    backgroundColor: theme.surfaceAlt,
+                    borderColor: theme.border,
+                  },
+                ]}
                 onPress={() => setPreviewModalVisible(false)}
               >
-                <Text style={[styles.modalActionText, { color: theme.text }]}>Cerrar</Text>
+                <Text style={[styles.modalActionText, { color: theme.text }]}>
+                  Cerrar
+                </Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.modalActionButton, { backgroundColor: theme.accent }]}
+                style={[
+                  styles.modalActionButton,
+                  { backgroundColor: theme.accent },
+                ]}
                 onPress={handlePreviewPrintNow}
               >
-                <Text style={[styles.modalActionText, { color: Colors.WHITE }]}>Imprimir ahora</Text>
+                <Text style={[styles.modalActionText, { color: Colors.WHITE }]}>
+                  Imprimir ahora
+                </Text>
               </TouchableOpacity>
             </View>
           </View>
         </View>
       </Modal>
 
-      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: 28 + insets.bottom }]}>
-        <View style={[styles.headerCard, { backgroundColor: theme.surface }, Shadow.md]}>
-          <Text style={[styles.title, { color: theme.text }]}>Configurar impresión</Text>
+      <ScrollView
+        contentContainerStyle={[
+          styles.content,
+          { paddingBottom: 28 + insets.bottom },
+        ]}
+      >
+        <View
+          style={[
+            styles.headerCard,
+            { backgroundColor: theme.surface },
+            Shadow.md,
+          ]}
+        >
+          <Text style={[styles.title, { color: theme.text }]}>
+            Configurar impresión
+          </Text>
           <Text style={[styles.subtitle, { color: theme.muted }]}>
-            Diseñá la etiqueta, tocá un elemento para moverlo y guardá el layout completo por formato.
+            EditorScan define el diseño. En AlfaScan sólo ajustás tamaño,
+            negrita, itálica, alineación y preview.
           </Text>
 
           <View style={styles.headerActions}>
@@ -573,32 +587,12 @@ export default function PrintConfigurationScreen() {
               onPress={printTest}
               disabled={formatActionsDisabled}
             >
-              {testing ? <ActivityIndicator color={Colors.WHITE} /> : <Ionicons name="print-outline" size={18} color={Colors.WHITE} />}
+              {testing ? (
+                <ActivityIndicator color={Colors.WHITE} />
+              ) : (
+                <Ionicons name="print-outline" size={18} color={Colors.WHITE} />
+              )}
               <Text style={styles.actionButtonText}>Imprimir prueba</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.actionButton, { backgroundColor: theme.accentDark }]}
-              onPress={save}
-              disabled={formatActionsDisabled}
-            >
-              {saving ? <ActivityIndicator color={Colors.WHITE} /> : <Ionicons name="save-outline" size={18} color={Colors.WHITE} />}
-              <Text style={styles.actionButtonText}>Guardar local</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.actionButton, { backgroundColor: "#1F8B4C" }]}
-              onPress={saveToSql}
-              disabled={formatActionsDisabled}
-            >
-              {sqlBusy ? <ActivityIndicator color={Colors.WHITE} /> : <Ionicons name="cloud-upload-outline" size={18} color={Colors.WHITE} />}
-              <Text style={styles.actionButtonText}>Guardar en SQL</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.actionButton, { backgroundColor: "#6B5AED" }]}
-              onPress={loadFromSql}
-              disabled={formatActionsDisabled}
-            >
-              {sqlBusy ? <ActivityIndicator color={Colors.WHITE} /> : <Ionicons name="cloud-download-outline" size={18} color={Colors.WHITE} />}
-              <Text style={styles.actionButtonText}>Cargar desde SQL</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.actionButton, { backgroundColor: "#D64545" }]}
@@ -616,235 +610,155 @@ export default function PrintConfigurationScreen() {
               onValueChange={handlePreviewToggle}
               color={darkMode ? "#8FC3FF" : Colors.DBLUE}
             />
-            <Text style={[styles.previewToggleText, { color: theme.text }]}>Previsualizar</Text>
+            <Text style={[styles.previewToggleText, { color: theme.text }]}>
+              Previsualizar antes de imprimir
+            </Text>
           </View>
 
-          <FormatTabs formats={formatList} activeIndex={activeIndex} onChange={setActiveIndex} theme={theme} />
-          <Text style={[styles.paperInfo, { color: theme.muted }]}>{previewPaperInfo}</Text>
-        </View>
+          <View style={styles.statusRow}>
+            <Text style={[styles.statusText, { color: theme.muted }]}>
+              {status || previewPaperInfo}
+            </Text>
+          </View>
 
-        <View style={[styles.card, { backgroundColor: theme.surface }, Shadow.sm]}>
-          {loading ? (
-            <View style={styles.loadingState}>
-              <ActivityIndicator size="large" color={theme.accent} />
-              <Text style={[styles.loadingText, { color: theme.muted }]}>Cargando formatos...</Text>
-            </View>
-          ) : (
-            <PrintSectionErrorBoundary
-              theme={theme}
-              fallback={
-                <View style={[styles.sectionErrorBox, { backgroundColor: theme.surfaceAlt, borderColor: theme.border }]}>
-                  <Text style={[styles.sectionErrorTitle, { color: theme.text }]}>No se pudo cargar la vista previa</Text>
-                  <Text style={[styles.sectionErrorText, { color: theme.muted }]}>
-                    Usando configuración básica.
+          <View style={styles.tabsRow}>
+            {formatList.map((item, index) => {
+              const active = index === activeIndex;
+              return (
+                <TouchableOpacity
+                  key={item.key}
+                  onPress={() => setActiveIndex(index)}
+                  style={[
+                    styles.tabChip,
+                    {
+                      backgroundColor: active ? theme.accent : theme.surfaceAlt,
+                      borderColor: active ? theme.accent : theme.border,
+                    },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.tabText,
+                      { color: active ? Colors.WHITE : theme.text },
+                    ]}
+                  >
+                    {item.name}
                   </Text>
-                </View>
-              }
-            >
-              <PrintPreview
-                title="Vista previa editable"
-                format={activeFormat}
-                product={previewProduct}
-                selectedElementKey={selectedElementKey}
-                onSelectElement={setSelectedElementKey}
-                onMoveElement={moveElement}
-                editable
-                theme={theme}
-              />
-            </PrintSectionErrorBoundary>
-          )}
-        </View>
-
-        <View style={[styles.card, { backgroundColor: theme.surface }, Shadow.sm]}>
-          <SectionTitle theme={theme}>Editor de elementos</SectionTitle>
-          <PrintSectionErrorBoundary
-            theme={theme}
-            fallback={
-              <View style={[styles.sectionErrorBox, { backgroundColor: theme.surfaceAlt, borderColor: theme.border }]}>
-                <Text style={[styles.sectionErrorTitle, { color: theme.text }]}>No se pudo cargar el editor</Text>
-                <Text style={[styles.sectionErrorText, { color: theme.muted }]}>
-                  Se mantiene la configuración guardada.
-                </Text>
-              </View>
-            }
-          >
-            <PrintPropertiesPanel
-              element={selectedElement}
-              onChange={updateElementField}
-              onQuickAction={handleQuickAction}
-              onToggleVisible={(value) => updateElementField("visible", value)}
-              theme={theme}
-              darkMode={darkMode}
-            />
-          </PrintSectionErrorBoundary>
-        </View>
-
-        <View style={[styles.card, { backgroundColor: theme.surface }, Shadow.sm]}>
-          <SectionTitle theme={theme}>Configuración tradicional</SectionTitle>
-          <ConfigItem
-            type="input"
-            title="Nombre del formato"
-            field="name"
-            placeholder="Góndola"
-            value={activeFormat.name}
-            handleChange={updateFormatField}
-            darkMode={darkMode}
-          />
-          <ConfigItem
-            type="select"
-            title="Ancho papel"
-            field="paperWidth"
-            value={activeFormat.paperWidth}
-            options={[
-              { label: "58 mm", value: "58" },
-              { label: "80 mm", value: "80" },
-              { label: "Personalizado", value: "custom" },
-            ]}
-            handleChange={updateFormatField}
-            darkMode={darkMode}
-          />
-          {String(activeFormat.paperWidth) === "custom" ? (
-            <>
-              <ConfigItem
-                type="input"
-                title="Ancho personalizado"
-                field="customPaperWidth"
-                placeholder="320"
-                value={activeFormat.customPaperWidth || ""}
-                keyboardType="numeric"
-                handleChange={updateFormatField}
-                darkMode={darkMode}
-              />
-              <ConfigItem
-                type="input"
-                title="Alto personalizado"
-                field="customPaperHeight"
-                placeholder="360"
-                value={activeFormat.customPaperHeight || ""}
-                keyboardType="numeric"
-                handleChange={updateFormatField}
-                darkMode={darkMode}
-              />
-            </>
-          ) : null}
-          <ConfigItem
-            type="input"
-            title="Cantidad de copias"
-            field="copies"
-            placeholder="1"
-            value={activeFormat.copies}
-            keyboardType="numeric"
-            handleChange={updateFormatField}
-            darkMode={darkMode}
-          />
-          <ConfigItem
-            type="input"
-            title="Margen superior"
-            field="marginTop"
-            placeholder="0"
-            value={activeFormat.marginTop}
-            keyboardType="numeric"
-            handleChange={updateFormatField}
-            darkMode={darkMode}
-          />
-          <ConfigItem
-            type="input"
-            title="Margen inferior"
-            field="marginBottom"
-            placeholder="0"
-            value={activeFormat.marginBottom}
-            keyboardType="numeric"
-            handleChange={updateFormatField}
-            darkMode={darkMode}
-          />
-          <ConfigItem
-            type="select"
-            title="Alineación general"
-            field="alignment"
-            value={activeFormat.alignment}
-            options={GENERAL_ALIGNMENT_OPTIONS}
-            handleChange={updateFormatField}
-            darkMode={darkMode}
-          />
-          <ConfigItem
-            type="checkbox"
-            title="Mostrar descripción"
-            field="showDescription"
-            value={activeFormat.showDescription}
-            handleChange={(field, value) => toggleFlag(field, value)}
-            darkMode={darkMode}
-          />
-          <ConfigItem
-            type="checkbox"
-            title="Mostrar precio"
-            field="showPrice"
-            value={activeFormat.showPrice}
-            handleChange={(field, value) => toggleFlag(field, value)}
-            darkMode={darkMode}
-          />
-          <ConfigItem
-            type="checkbox"
-            title="Mostrar código de barra"
-            field="showBarcode"
-            value={activeFormat.showBarcode}
-            handleChange={(field, value) => toggleFlag(field, value)}
-            darkMode={darkMode}
-          />
-          <ConfigItem
-            type="checkbox"
-            title="Mostrar código interno"
-            field="showInternalCode"
-            value={activeFormat.showInternalCode}
-            handleChange={(field, value) => toggleFlag(field, value)}
-            darkMode={darkMode}
-          />
-          <ConfigItem
-            type="checkbox"
-            title="Mostrar stock"
-            field="showStock"
-            value={activeFormat.showStock}
-            handleChange={(field, value) => toggleFlag(field, value)}
-            darkMode={darkMode}
-          />
-          <ConfigItem
-            type="checkbox"
-            title="Mostrar fecha"
-            field="showDate"
-            value={activeFormat.showDate}
-            handleChange={(field, value) => toggleFlag(field, value)}
-            darkMode={darkMode}
-          />
-          <ConfigItem
-            type="checkbox"
-            title="Mostrar empresa"
-            field="showCompanyName"
-            value={activeFormat.showCompanyName}
-            handleChange={(field, value) => toggleFlag(field, value)}
-            darkMode={darkMode}
-          />
-          <ConfigItem
-            type="checkbox"
-            title="Mostrar logo"
-            field="showLogo"
-            value={activeFormat.showLogo}
-            handleChange={(field, value) => toggleFlag(field, value)}
-            darkMode={darkMode}
-          />
-          <ConfigItem
-            type="checkbox"
-            title="Vista previa antes de imprimir"
-            field="previewBeforePrint"
-            value={activeFormat.previewBeforePrint}
-            handleChange={updateFormatField}
-            darkMode={darkMode}
-          />
-        </View>
-
-        {!!status ? (
-          <View style={[styles.statusCard, { backgroundColor: theme.surface }, Shadow.sm]}>
-            <Text style={[styles.statusText, { color: theme.text }]}>{status}</Text>
+                </TouchableOpacity>
+              );
+            })}
           </View>
-        ) : null}
+        </View>
+
+        <View
+          style={[styles.card, { backgroundColor: theme.surface }, Shadow.sm]}
+        >
+          <View style={styles.sectionHeader}>
+            <Text style={[styles.sectionTitle, { color: theme.text }]}>
+              Ajustes rápidos
+            </Text>
+            <Text style={[styles.sectionCaption, { color: theme.muted }]}>
+              Sólo texto. El layout completo vive en EditorScan.
+            </Text>
+          </View>
+
+          <Text style={[styles.controlLabel, { color: theme.text }]}>
+            Tamaño de letra
+          </Text>
+          <View style={styles.sizeRow}>
+            {SIZE_PRESETS.map((preset) => (
+              <TouchableOpacity
+                key={preset.label}
+                style={[
+                  styles.sizeChip,
+                  {
+                    backgroundColor: theme.surfaceAlt,
+                    borderColor: theme.border,
+                  },
+                ]}
+                onPress={() => applySizePreset(preset.factor)}
+                disabled={formatActionsDisabled}
+              >
+                <Text style={[styles.sizeChipText, { color: theme.text }]}>
+                  {preset.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          <View style={styles.switchRow}>
+            <CheckBox
+              value={String(activeTextElement?.fontWeight ?? "400") === "700"}
+              onValueChange={applyBold}
+              color={darkMode ? "#8FC3FF" : Colors.DBLUE}
+            />
+            <Text style={[styles.switchLabel, { color: theme.text }]}>
+              Negrita
+            </Text>
+          </View>
+
+          <View style={styles.switchRow}>
+            <CheckBox
+              value={Boolean(activeTextElement?.italic)}
+              onValueChange={applyItalic}
+              color={darkMode ? "#8FC3FF" : Colors.DBLUE}
+            />
+            <Text style={[styles.switchLabel, { color: theme.text }]}>
+              Itálica
+            </Text>
+          </View>
+
+          <Text style={[styles.controlLabel, { color: theme.text }]}>
+            Alineación
+          </Text>
+          <View style={styles.alignmentRow}>
+            {ALIGNMENT_OPTIONS.map((option) => {
+              const active =
+                String(
+                  activeTextElement?.align ??
+                    activeFormat.alignment ??
+                    "center",
+                ) === option.value;
+              return (
+                <TouchableOpacity
+                  key={option.value}
+                  style={[
+                    styles.alignmentChip,
+                    {
+                      backgroundColor: active ? theme.accent : theme.surfaceAlt,
+                      borderColor: active ? theme.accent : theme.border,
+                    },
+                  ]}
+                  onPress={() => applyAlignment(option.value)}
+                  disabled={formatActionsDisabled}
+                >
+                  <Text
+                    style={[
+                      styles.alignmentChipText,
+                      { color: active ? Colors.WHITE : theme.text },
+                    ]}
+                  >
+                    {option.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
+
+        <View
+          style={[styles.card, { backgroundColor: theme.surface }, Shadow.sm]}
+        >
+          <PrintPreview
+            title="Vista previa"
+            format={activeFormat}
+            product={previewProduct}
+            editable={false}
+            showGrid={false}
+            showHint={false}
+            theme={theme}
+          />
+        </View>
       </ScrollView>
     </View>
   );
@@ -855,133 +769,152 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   content: {
-    padding: 16,
-    paddingBottom: 28,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    gap: 14,
   },
   headerCard: {
-    borderRadius: Radii.xl,
-    padding: 18,
-    marginBottom: 14,
+    borderRadius: Radii.lg,
+    padding: 16,
+  },
+  card: {
+    borderRadius: Radii.lg,
+    padding: 16,
   },
   title: {
-    fontSize: 24,
+    fontSize: 28,
     fontFamily: Fonts.display,
-    marginBottom: 8,
+    marginBottom: 6,
   },
   subtitle: {
     fontSize: 14,
-    lineHeight: 20,
     fontFamily: Fonts.body,
-    marginBottom: 14,
+    lineHeight: 20,
   },
   headerActions: {
     flexDirection: "row",
     flexWrap: "wrap",
+    gap: 10,
+    marginTop: 16,
+  },
+  actionButton: {
+    flexDirection: "row",
+    alignItems: "center",
     gap: 8,
-    marginBottom: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 14,
+  },
+  actionButtonText: {
+    color: Colors.WHITE,
+    fontFamily: Fonts.medium,
+    fontSize: 14,
   },
   previewToggleRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
-    marginBottom: 10,
-    marginTop: 2,
+    marginTop: 14,
   },
   previewToggleText: {
-    fontSize: 13,
+    fontFamily: Fonts.medium,
+    fontSize: 14,
+  },
+  statusRow: {
+    marginTop: 10,
+    minHeight: 20,
+  },
+  statusText: {
     fontFamily: Fonts.body,
-  },
-  actionButton: {
-    minHeight: 42,
-    borderRadius: 16,
-    paddingHorizontal: 12,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-  },
-  actionButtonText: {
-    color: Colors.WHITE,
-    fontFamily: Fonts.display,
-    fontSize: 13,
+    fontSize: 12,
+    lineHeight: 18,
   },
   tabsRow: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 8,
-    marginTop: 4,
+    marginTop: 12,
   },
   tabChip: {
-    minHeight: 40,
     paddingHorizontal: 14,
+    paddingVertical: 10,
     borderRadius: 999,
     borderWidth: 1,
-    justifyContent: "center",
   },
   tabText: {
-    fontFamily: Fonts.display,
+    fontFamily: Fonts.medium,
     fontSize: 13,
   },
-  paperInfo: {
-    marginTop: 10,
-    fontSize: 12,
-    fontFamily: Fonts.body,
-  },
-  card: {
-    borderRadius: Radii.xl,
-    padding: 16,
+  sectionHeader: {
     marginBottom: 14,
   },
   sectionTitle: {
+    fontFamily: Fonts.display,
     fontSize: 18,
-    fontFamily: Fonts.display,
-    marginBottom: 10,
-  },
-  loadingState: {
-    paddingVertical: 34,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  loadingText: {
-    marginTop: 10,
-    fontSize: 13,
-    fontFamily: Fonts.body,
-  },
-  sectionErrorBox: {
-    borderWidth: 1,
-    borderRadius: Radii.xl,
-    padding: 16,
-  },
-  sectionErrorTitle: {
-    fontSize: 16,
-    fontFamily: Fonts.display,
     marginBottom: 4,
   },
-  sectionErrorText: {
-    fontSize: 13,
-    lineHeight: 18,
+  sectionCaption: {
     fontFamily: Fonts.body,
+    fontSize: 12,
   },
-  statusCard: {
-    borderRadius: Radii.xl,
-    padding: 16,
-    marginBottom: 14,
+  controlLabel: {
+    fontFamily: Fonts.medium,
+    fontSize: 14,
+    marginBottom: 8,
+    marginTop: 4,
   },
-  statusText: {
+  sizeRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginBottom: 10,
+  },
+  sizeChip: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  sizeChipText: {
+    fontFamily: Fonts.medium,
     fontSize: 13,
-    lineHeight: 18,
-    fontFamily: Fonts.body,
+  },
+  switchRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginTop: 10,
+  },
+  switchLabel: {
+    fontFamily: Fonts.medium,
+    fontSize: 14,
+  },
+  alignmentRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 2,
+  },
+  alignmentChip: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  alignmentChipText: {
+    fontFamily: Fonts.medium,
+    fontSize: 13,
   },
   modalBackdrop: {
     flex: 1,
-    backgroundColor: "rgba(8, 15, 24, 0.72)",
-    padding: 16,
+    backgroundColor: "rgba(9,15,23,0.56)",
     justifyContent: "center",
+    padding: 16,
   },
   modalCard: {
-    borderRadius: Radii.xl,
+    maxHeight: "90%",
+    borderRadius: 24,
     padding: 16,
-    maxHeight: "92%",
   },
   modalHeader: {
     flexDirection: "row",
@@ -990,19 +923,18 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   modalTitle: {
-    fontSize: 20,
+    fontSize: 22,
     fontFamily: Fonts.display,
-    marginBottom: 2,
+    marginBottom: 4,
   },
   modalSubtitle: {
-    fontSize: 13,
     fontFamily: Fonts.body,
-    lineHeight: 18,
+    fontSize: 13,
   },
   modalCloseButton: {
     width: 36,
     height: 36,
-    borderRadius: 999,
+    borderRadius: 18,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
@@ -1012,30 +944,29 @@ const styles = StyleSheet.create({
   },
   previewModeWrap: {
     borderWidth: 1,
-    borderRadius: Radii.md,
+    borderRadius: 14,
     paddingHorizontal: 12,
     paddingVertical: 10,
     marginBottom: 12,
   },
   previewModeLabel: {
+    fontFamily: Fonts.medium,
     fontSize: 13,
-    fontFamily: Fonts.display,
   },
   modalActions: {
     flexDirection: "row",
     gap: 10,
-    marginTop: 12,
+    marginTop: 10,
   },
   modalActionButton: {
     flex: 1,
-    minHeight: 44,
-    borderRadius: 16,
+    borderRadius: 14,
     borderWidth: 1,
+    paddingVertical: 12,
     alignItems: "center",
-    justifyContent: "center",
   },
   modalActionText: {
+    fontFamily: Fonts.medium,
     fontSize: 14,
-    fontFamily: Fonts.display,
   },
 });
