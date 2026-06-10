@@ -76,6 +76,13 @@ const normalizeSqlContractType = (value = "") => {
     return "codigobarra";
   }
   if (
+    normalized === "codigobarratexto" ||
+    normalized === "barcode text" ||
+    normalized === "barcodetext"
+  ) {
+    return "texto";
+  }
+  if (
     normalized === "linea" ||
     normalized === "line" ||
     normalized === "separator" ||
@@ -93,11 +100,17 @@ const normalizeSqlContractCampo = (tipoElemento = "", campo = "") => {
   const normalizedCampo = normalizeContractText(campo);
 
   if (tipo === "Dato") return "Empresa";
-  if (tipo === "texto") return "Descripcion";
   if (tipo === "precio") return "Precio";
   if (tipo === "codigobarra") return "CodigoBarra";
   if (tipo === "linea") return "TextoFijo";
 
+  if (
+    normalizedCampo === "codigobarra" ||
+    normalizedCampo === "codigobarras" ||
+    normalizedCampo === "barcode"
+  ) {
+    return "CodigoBarra";
+  }
   if (normalizedCampo === "empresa" || normalizedCampo === "companyname") {
     return "Empresa";
   }
@@ -106,13 +119,6 @@ const normalizeSqlContractCampo = (tipoElemento = "", campo = "") => {
   }
   if (normalizedCampo === "precio" || normalizedCampo === "price") {
     return "Precio";
-  }
-  if (
-    normalizedCampo === "codigobarra" ||
-    normalizedCampo === "codigobarras" ||
-    normalizedCampo === "barcode"
-  ) {
-    return "CodigoBarra";
   }
   if (
     normalizedCampo === "codigoarticulo" ||
@@ -125,6 +131,10 @@ const normalizeSqlContractCampo = (tipoElemento = "", campo = "") => {
     return "TextoFijo";
   }
 
+  if (tipo === "texto") {
+    return campo ? String(campo).trim() : "Descripcion";
+  }
+
   return campo ? String(campo).trim() : "TextoFijo";
 };
 
@@ -133,6 +143,13 @@ const normalizeSqlContractValueKey = (campo = "", tipoElemento = "") => {
   const tipo = normalizeSqlContractType(tipoElemento);
 
   if (
+    normalizedCampo === "codigobarra" ||
+    normalizedCampo === "codigobarras" ||
+    normalizedCampo === "barcode"
+  ) {
+    return "barcode";
+  }
+  if (
     tipo === "Dato" ||
     normalizedCampo === "empresa" ||
     normalizedCampo === "companyname"
@@ -140,9 +157,9 @@ const normalizeSqlContractValueKey = (campo = "", tipoElemento = "") => {
     return "companyName";
   }
   if (
-    tipo === "texto" ||
     normalizedCampo === "descripcion" ||
-    normalizedCampo === "description"
+    normalizedCampo === "description" ||
+    tipo === "texto"
   ) {
     return "description";
   }
@@ -154,10 +171,7 @@ const normalizeSqlContractValueKey = (campo = "", tipoElemento = "") => {
     return "price";
   }
   if (
-    tipo === "codigobarra" ||
-    normalizedCampo === "codigobarra" ||
-    normalizedCampo === "codigobarras" ||
-    normalizedCampo === "barcode"
+    tipo === "codigobarra"
   ) {
     return "barcode";
   }
@@ -388,14 +402,27 @@ const mapSqlDetailToElement = (row = {}, index = 0) => {
   const textoFijo = toStringValue(row.TextoFijo ?? row.textoFijo ?? "");
   const campo = normalizeSqlContractCampo(tipoElemento, rawField);
   const isLine = tipoElemento === "linea";
+  const isBarcodeGraphic = tipoElemento === "codigobarra";
+  const isBarcodeText =
+    tipoElemento === "texto" &&
+    ["codigobarra", "codigobarras", "barcode"].includes(
+      normalizeContractText(rawField),
+    );
   const type = isLine
     ? "separator"
-    : tipoElemento === "codigobarra"
+    : isBarcodeGraphic
       ? "barcode"
       : "text";
   const valueKey = isLine
     ? "separator"
     : normalizeSqlContractValueKey(campo, tipoElemento);
+  const key = isLine
+    ? "separator"
+    : isBarcodeGraphic
+      ? "barcode"
+      : isBarcodeText
+        ? "barcodeText"
+        : valueKey || `element_${index + 1}`;
   const fontSize = toInt(
     row.TamanoFuente ?? row.tamanoFuente ?? row.FontSize,
     16,
@@ -412,7 +439,7 @@ const mapSqlDetailToElement = (row = {}, index = 0) => {
   const tipoFuente = rawTipoFuente || "Default";
 
   return {
-    key: valueKey || `element_${index + 1}`,
+    key,
     campo,
     Campo: campo,
     tipoElemento,
@@ -737,20 +764,8 @@ export const loadPrintFormatsFromSql = async () => {
       if (__DEV__) {
         console.log(`[PRINT_SQL] ${code} details ${detailRows.length}`);
         detailRows.forEach((row) => {
-          const fieldName = toStringValue(
-            row.Campo ?? row.campo ?? row.ValueKey ?? row.Valuekey,
-            "",
-          );
-          const tipoElemento = toStringValue(
-            row.TipoElemento ?? row.tipoElemento ?? "",
-            "texto",
-          );
-          const tipoFuente = toStringValue(
-            row.TipoFuente ?? row.tipoFuente ?? "",
-            "Default",
-          );
           console.log(
-            `[PRINT_SQL] item Campo ${fieldName || "Item"} TipoElemento ${tipoElemento || "texto"} TipoFuente ${tipoFuente || "Default"} Visible ${toBool(row.Visible ?? row.visible, true) ? 1 : 0}`,
+            `[PRINT_SQL] item Campo ${String(row.Campo ?? row.campo ?? row.ValueKey ?? row.Valuekey ?? "Item").trim() || "Item"} TipoElemento ${String(row.TipoElemento ?? row.tipoElemento ?? "texto").trim() || "texto"} type ${String(row.type ?? "text").trim() || "text"} key ${String(row.key ?? row.valueKey ?? "item").trim() || "item"} TipoFuente ${String(row.TipoFuente ?? row.tipoFuente ?? "Default").trim() || "Default"} Visible ${toBool(row.Visible ?? row.visible, true) ? 1 : 0}`,
           );
         });
       }

@@ -1450,11 +1450,11 @@ export const renderPrintLayout = (
         "[APP_LAYOUT] raw item",
         `Campo ${campo}`,
         `TipoElemento ${String(element.TipoElemento ?? element.tipoElemento ?? element.type ?? "text")}`,
+        `type ${String(element.type ?? "text")}`,
         `key ${String(element.key ?? "")}`,
         `visible ${Boolean(element.visible)}`,
         `align ${rawAlign || "left"}`,
         `tipoFuente ${rawTipoFuente || "Default"}`,
-        `type ${String(element.type ?? "text")}`,
       );
     });
     mappedElements.forEach((item) => {
@@ -1465,11 +1465,11 @@ export const renderPrintLayout = (
         "[APP_LAYOUT] normalized item",
         `Campo ${campo}`,
         `TipoElemento ${String(item.TipoElemento ?? item.tipoElemento ?? item.type ?? "text")}`,
+        `type ${String(item.type ?? "")}`,
         `key ${String(item.key ?? "")}`,
         `visible ${Boolean(item.visible)}`,
         `align ${String(item.renderedAlign ?? item.align ?? "left")}`,
         `tipoFuente ${String(item.tipoFuente ?? "Default")}`,
-        `type ${String(item.type ?? "")}`,
       );
     });
     mappedElements.forEach((item) => {
@@ -1482,6 +1482,7 @@ export const renderPrintLayout = (
         `Campo ${campo}`,
         `TipoElemento ${String(item.TipoElemento ?? item.tipoElemento ?? item.type ?? "text")}`,
         `type ${String(item.type ?? "")}`,
+        `key ${String(item.key ?? "")}`,
         `visible ${Boolean(item.visible)}`,
         `align ${finalAlign}`,
         `tipoFuente ${String(item.tipoFuente ?? "Default")}`,
