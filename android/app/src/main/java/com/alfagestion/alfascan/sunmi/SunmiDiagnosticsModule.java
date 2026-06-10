@@ -569,6 +569,7 @@ public class SunmiDiagnosticsModule extends ReactContextBaseJavaModule {
         String type = getStringSafe(item, "type");
         String value = getStringSafe(item, "value");
         String align = getStringSafe(item, "align");
+        boolean italic = getBooleanSafe(item, "italic", false);
         int fontSize = Math.max(10, getIntSafe(item, "fontSize", 16));
 
         if ("barcode".equalsIgnoreCase(type)) {
@@ -587,8 +588,12 @@ public class SunmiDiagnosticsModule extends ReactContextBaseJavaModule {
           if (!text.isEmpty()) {
             Log.i(TAG, "[SUNMI] print text type=" + type);
             callPrinterCommand(callback -> service.setAlignment(resolveAlignmentValue(align), callback));
-            callPrinterCommand(callback -> service.setFontSize((float) fontSize, callback));
-            callPrinterCommand(callback -> service.printText(text + "\n", callback));
+            if (italic) {
+              callPrinterCommand(callback -> service.printTextWithFont(text + "\n", "serif", (float) fontSize, callback));
+            } else {
+              callPrinterCommand(callback -> service.setFontSize((float) fontSize, callback));
+              callPrinterCommand(callback -> service.printText(text + "\n", callback));
+            }
           }
         }
 

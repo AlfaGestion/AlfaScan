@@ -28,6 +28,14 @@ const toBool = (value, fallback = false) => {
 
 const toStringValue = (value, fallback = "") => String(value ?? fallback).trim();
 
+const readSqlRows = (result) => {
+  if (Array.isArray(result)) {
+    return result;
+  }
+
+  return result?.rows || result?.recordset || [];
+};
+
 const normalizeCode = (value, index = 0) => {
   const normalized = String(value ?? "").trim().toLowerCase();
   if (PRINT_CODES.includes(normalized)) {
@@ -91,6 +99,7 @@ const mapSqlDetailToElement = (row = {}, index = 0) => {
   const key = field || (type === "barcode" ? "barcode" : type === "logo" ? "logo" : `element_${index + 1}`);
   const fontSize = toInt(row.TamanoFuente ?? row.tamanoFuente ?? row.FontSize, 16);
   const maxLines = Math.max(1, toInt(row.MaxLineas ?? row.maxLineas ?? row.MaxLines, 1));
+  const italic = toBool(row.Italica ?? row.italica ?? row.Italic ?? row.italic, false);
 
   return {
     key,
@@ -103,6 +112,8 @@ const mapSqlDetailToElement = (row = {}, index = 0) => {
     height: toInt(row.Alto ?? row.alto, 0),
     fontSize,
     fontWeight: toBool(row.Negrita ?? row.negrita, false) ? "700" : "400",
+    italic,
+    fontStyle: italic ? "italic" : "normal",
     align: toStringValue(row.Alineacion ?? row.alineacion, "left").toLowerCase(),
     uppercase: toBool(row.Mayuscula ?? row.mayuscula, false),
     maxLines,
@@ -190,9 +201,16 @@ const ensurePrintSqlSchema = async () => {
         Orden INT NOT NULL CONSTRAINT DF_Scan_ReporteDetalle_Orden DEFAULT (0),
         MaxLineas INT NOT NULL CONSTRAINT DF_Scan_ReporteDetalle_MaxLineas DEFAULT (1),
         Mayuscula BIT NOT NULL CONSTRAINT DF_Scan_ReporteDetalle_Mayuscula DEFAULT (0),
+        Italica BIT NOT NULL CONSTRAINT DF_Scan_ReporteDetalle_Italica DEFAULT (0),
         FechaModificacion DATETIME NULL,
         CONSTRAINT FK_Scan_ReporteDetalle_Reporte FOREIGN KEY (IdReporte) REFERENCES dbo.Scan_Reporte(IdReporte)
       );
+    END;
+
+    IF COL_LENGTH('dbo.Scan_ReporteDetalle', 'Italica') IS NULL
+    BEGIN
+      ALTER TABLE dbo.Scan_ReporteDetalle
+        ADD Italica BIT NOT NULL CONSTRAINT DF_Scan_ReporteDetalle_Italica DEFAULT (0) WITH VALUES;
     END;
   `;
 
@@ -220,7 +238,12 @@ const rowsToSqlFormat = (rows = []) => {
     const detailRows = byCode.get(code) || [];
     const elements = detailRows
       .slice()
-      .sort((a, b) => toInt(a.Orden ?? a.orden, 0) - toInt(b.Orden ?? b.orden, 0))
+      .sort((a, b) =>
+        toInt(a.Orden ?? a.orden, 0) - toInt(b.Orden ?? b.orden, 0) ||
+        toInt(a.Y ?? a.y, 0) - toInt(b.Y ?? b.y, 0) ||
+        toInt(a.X ?? a.x, 0) - toInt(b.X ?? b.x, 0) ||
+        toInt(a.IdDetalle ?? a.idDetalle, 0) - toInt(b.IdDetalle ?? b.idDetalle, 0),
+      )
       .map((row, index) => mapSqlDetailToElement(row, index));
     const header = detailRows[0] || {};
     const format = mapSqlHeaderToFormat(header, i, elements);
@@ -236,6 +259,16 @@ export const loadPrintFormatsFromSql = async () => {
     await connectPrintSql();
     connected = true;
 
+    const italicColumnRows = readSqlRows(
+      await executeSql(`
+        SELECT CASE
+          WHEN COL_LENGTH('dbo.Scan_ReporteDetalle', 'Italica') IS NULL THEN 0
+          ELSE 1
+        END AS HasItalica
+      `),
+    );
+    const hasItalicColumn = Boolean(italicColumnRows[0]?.HasItalica ?? italicColumnRows[0]?.hasItalicColumn ?? 0);
+
     const loadRows = async (activeOnly = true) => {
       const activeClause = activeOnly ? "AND ISNULL(r.Activo, 1) = 1" : "";
       const headerRows = await executeSql(`
@@ -244,6 +277,10 @@ export const loadPrintFormatsFromSql = async () => {
         WHERE r.Codigo IN (${PRINT_CODES.map(sqlLiteral).join(", ")})
         ${activeClause}
       `);
+
+      const detailItalicColumn = hasItalicColumn
+        ? "d.Italica"
+        : "CAST(0 AS BIT) AS Italica";
 
       const detailRows = await executeSql(`
         SELECT
@@ -262,16 +299,17 @@ export const loadPrintFormatsFromSql = async () => {
           d.Visible,
           d.Orden,
           d.MaxLineas,
-          d.Mayuscula
+          d.Mayuscula,
+          ${detailItalicColumn}
         FROM dbo.Scan_ReporteDetalle d
         INNER JOIN dbo.Scan_Reporte r ON r.IdReporte = d.IdReporte
         WHERE r.Codigo IN (${PRINT_CODES.map(sqlLiteral).join(", ")})
         ${activeClause}
-        ORDER BY r.Codigo, d.Orden, d.IdDetalle
+        ORDER BY r.Codigo, d.Orden, d.Y, d.X, d.IdDetalle
       `);
 
-      const headers = Array.isArray(headerRows) ? headerRows : headerRows?.rows || headerRows?.recordset || [];
-      const details = Array.isArray(detailRows) ? detailRows : detailRows?.rows || detailRows?.recordset || [];
+      const headers = readSqlRows(headerRows);
+      const details = readSqlRows(detailRows);
 
       return { headers, details };
     };
@@ -305,7 +343,12 @@ export const loadPrintFormatsFromSql = async () => {
 
       const elements = details
         .filter((row) => normalizeCode(row.Codigo ?? row.codigo, i) === code)
-        .sort((a, b) => toInt(a.Orden ?? a.orden, 0) - toInt(b.Orden ?? b.orden, 0))
+        .sort((a, b) =>
+          toInt(a.Orden ?? a.orden, 0) - toInt(b.Orden ?? b.orden, 0) ||
+          toInt(a.Y ?? a.y, 0) - toInt(b.Y ?? b.y, 0) ||
+          toInt(a.X ?? a.x, 0) - toInt(b.X ?? b.x, 0) ||
+          toInt(a.IdDetalle ?? a.idDetalle, 0) - toInt(b.IdDetalle ?? b.idDetalle, 0),
+        )
         .map((row, index) => mapSqlDetailToElement(row, index));
       loaded[code] = mapSqlHeaderToFormat(header, i, elements);
     }
@@ -340,7 +383,7 @@ export const savePrintFormatsToSql = async (formats = {}) => {
       FROM dbo.Scan_Reporte
       WHERE Codigo IN (${codesToSave.map(sqlLiteral).join(", ")})
     `);
-    const existingReports = Array.isArray(reportIds) ? reportIds : reportIds?.rows || reportIds?.recordset || [];
+    const existingReports = readSqlRows(reportIds);
     const existingCodes = existingReports.map((row) => normalizeCode(row.Codigo ?? row.codigo)).filter(Boolean);
     if (existingCodes.length > 0) {
       await executeSql(`DELETE FROM dbo.Scan_ReporteDetalle WHERE IdReporte IN (
@@ -394,7 +437,7 @@ export const savePrintFormatsToSql = async (formats = {}) => {
         const maxLines = Math.max(1, toInt(element.maxLines, 1));
         await executeSql(`
           INSERT INTO dbo.Scan_ReporteDetalle (
-            IdReporte, TipoElemento, Campo, TextoFijo, X, Y, Ancho, Alto, TamanoFuente, Negrita, Alineacion, Visible, Orden, MaxLineas, Mayuscula, FechaModificacion
+            IdReporte, TipoElemento, Campo, TextoFijo, X, Y, Ancho, Alto, TamanoFuente, Negrita, Alineacion, Visible, Orden, MaxLineas, Mayuscula, Italica, FechaModificacion
           ) VALUES (
             ${insertedId},
             ${sqlLiteral(String(element.type ?? "text"))},
@@ -411,6 +454,7 @@ export const savePrintFormatsToSql = async (formats = {}) => {
             ${toInt(element.zIndex, elementIndex + 1)},
             ${maxLines},
             ${uppercase},
+            ${toBool(element.italic ?? element.italica, false) ? 1 : 0},
             NULL
           )
         `);

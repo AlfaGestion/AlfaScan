@@ -113,7 +113,7 @@ const syncElementVisibility = (format, flagKey, visible) => {
 };
 
 const normalizeElementValue = (field, value) => {
-  if (["visible", "uppercase", "showSymbol", "thousandSeparator", "showNumber"].includes(field)) {
+  if (["visible", "uppercase", "italic", "showSymbol", "thousandSeparator", "showNumber"].includes(field)) {
     return Boolean(value);
   }
   if (["fontSize", "x", "y", "width", "height", "decimals", "maxLines", "zIndex"].includes(field)) {

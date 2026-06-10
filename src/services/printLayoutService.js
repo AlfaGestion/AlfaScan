@@ -38,6 +38,7 @@ const createElement = (element = {}) => ({
   align: "left",
   color: "#111827",
   uppercase: false,
+  italic: false,
   maxLines: 2,
   zIndex: 1,
   sampleText: "",
@@ -349,6 +350,7 @@ const normalizeElement = (element = {}, fallback = {}) => {
   next.align = String(element.align ?? fallback.align ?? base.align ?? "left");
   next.color = String(element.color ?? fallback.color ?? base.color ?? "#111827");
   next.uppercase = normalizeBoolean(element.uppercase, fallback.uppercase ?? false);
+  next.italic = normalizeBoolean(element.italic ?? element.italica, fallback.italic ?? false);
   next.maxLines = Math.max(1, parseInt(String(element.maxLines ?? fallback.maxLines ?? 1), 10) || 1);
   next.zIndex = Number.isFinite(Number(element.zIndex)) ? Number(element.zIndex) : Number(base.zIndex ?? 1);
   next.sampleText = String(element.sampleText ?? fallback.sampleText ?? base.sampleText ?? "").trim();
@@ -492,17 +494,24 @@ export const loadPrintFormats = async () => {
     console.log("[PRINT_CONFIG] load mode", isOnlineMode ? "ONLINE" : "LOCAL");
   }
 
+  const raw = await Configuration.getConfigValue("PRINT_FORMATS_JSON");
+  const localFormats = raw ? normalizePrintConfig(raw) : null;
+
   if (isOnlineMode) {
     const sqlFormats = await loadPrintFormatsFromSql().catch(() => null);
     if (sqlFormats) {
       return normalizePrintConfig(sqlFormats);
     }
 
-    return null;
+    if (localFormats) {
+      if (__DEV__) {
+        console.log("[PRINT_CONFIG] using local fallback");
+      }
+      return localFormats;
+    }
   }
 
-  const raw = await Configuration.getConfigValue("PRINT_FORMATS_JSON");
-  return normalizePrintConfig(raw);
+  return localFormats || normalizePrintConfig(DEFAULT_PRINT_FORMATS);
 };
 
 export const savePrintFormats = async (formats) => {
@@ -627,12 +636,19 @@ export const renderPrintLayout = (formatConfig = {}, product = {}, options = {})
         width: Math.round(item.width * scale),
         height: Math.round(item.height * scale),
         fontSize: Math.max(8, Math.round(item.fontSize * scale)),
+        italic: Boolean(item.italic),
+        fontStyle: item.italic ? "italic" : "normal",
         value: formatFieldValue(item, product, options.fallbackText || ""),
         barcodeSymbology: resolveBarcodeType(item.barcodeType),
       };
     })
     .filter((item) => item.visible)
-    .sort((a, b) => (a.zIndex === b.zIndex ? a.y - b.y : a.zIndex - b.zIndex));
+    .sort((a, b) =>
+      a.zIndex - b.zIndex ||
+      a.y - b.y ||
+      a.x - b.x ||
+      String(a.key || "").localeCompare(String(b.key || "")),
+    );
 
   return {
     format,

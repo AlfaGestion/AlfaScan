@@ -330,11 +330,15 @@ export const printText = async (text, options = {}) => {
   }
 
   await setPrinterAlignment(options.align || "left");
-  await setPrinterFontSize(options.fontSize || 16);
-  if (typeof module.printText === "function") {
-    await module.printText(`${body}\n`);
+  if (options.italic && typeof module.printTextWithFont === "function") {
+    await module.printTextWithFont(`${body}\n`, "serif", Math.max(10, Number(options.fontSize) || 16));
   } else {
-    await module.printString(`${body}\n`);
+    await setPrinterFontSize(options.fontSize || 16);
+    if (typeof module.printText === "function") {
+      await module.printText(`${body}\n`);
+    } else {
+      await module.printString(`${body}\n`);
+    }
   }
   return { printed: true, text: body };
 };
@@ -432,11 +436,16 @@ export const printLabel = async (formatConfig = {}, product = {}, options = {}) 
         showNumber: item.showNumber,
       });
     } else if (item.type === "logo") {
-      await printText(item.value || item.sampleText || "", { align: item.align, fontSize: item.fontSize });
+      await printText(item.value || item.sampleText || "", {
+        align: item.align,
+        fontSize: item.fontSize,
+        italic: item.italic,
+      });
     } else {
       await printText(item.value || item.sampleText || "", {
         align: item.align,
         fontSize: item.fontSize,
+        italic: item.italic,
       });
     }
 

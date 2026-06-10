@@ -172,6 +172,12 @@ export default function PrintPropertiesPanel({
           darkMode={darkMode}
         />
         <ToggleRow
+          label="Itálica"
+          value={Boolean(element.italic)}
+          onChange={(value) => onChange("italic", value)}
+          darkMode={darkMode}
+        />
+        <ToggleRow
           label="Mayúsculas"
           value={Boolean(element.uppercase)}
           onChange={(value) => onChange("uppercase", value)}

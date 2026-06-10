@@ -142,6 +142,7 @@ function PrintElement({
             color: element.color || "#111827",
             fontSize: Math.max(10, element.fontSize),
             fontWeight: element.fontWeight === "700" ? "700" : "400",
+            fontStyle: element.italic ? "italic" : "normal",
             textAlign: element.align || "left",
             textTransform: element.uppercase ? "uppercase" : "none",
             lineHeight: Math.max(12, element.fontSize * 1.18),
