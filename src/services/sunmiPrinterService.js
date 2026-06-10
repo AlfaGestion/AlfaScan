@@ -800,8 +800,8 @@ export const printSimpleProductLabel = async (
         if (String(item?.type ?? "").trim() === "barcode") {
           return {
             ...item,
-            type: "text",
-            key: "barcodeText",
+            type: "barcode",
+            key: item?.key || "barcode",
             value: barcodeValue,
             barcode: barcodeValue,
             internalCode: payload.internalCode,

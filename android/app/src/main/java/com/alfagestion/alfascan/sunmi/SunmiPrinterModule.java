@@ -47,7 +47,12 @@ public class SunmiPrinterModule extends SunmiV2PrinterModule {
       return;
     }
 
-    super.printString("Barra: " + value + "\n", promise);
+    int symbology = value.matches("\\d{8}")
+      ? 3
+      : value.matches("\\d{13}")
+        ? 2
+        : 8;
+    super.printBarCode(value, symbology, 120, 2, 2, promise);
   }
 
   @ReactMethod
