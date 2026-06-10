@@ -2,7 +2,9 @@ import { memo, useMemo, useRef } from "react";
 import { Image, PanResponder, StyleSheet, Text, View } from "react-native";
 
 import { Fonts } from "@styles/Theme";
-import { resolvePreviewFontFamily } from "@services/printFontService";
+import {
+  resolveEffectivePreviewFontFamily,
+} from "@services/printFontService";
 
 import alfaLogo from "../../../assets/alfa_logo.png";
 
@@ -129,6 +131,18 @@ function PrintElement({
     const barcodeHeight = Math.max(1, element.height * scale);
     const barcodeInnerWidth = Math.max(1, barcodeWidth - 2);
     const barcodeInnerHeight = Math.max(1, barcodeHeight - 2);
+    const showNumber = element.showNumber !== false;
+    const barcodeNumberFontSize = Math.max(
+      9,
+      Math.round(barcodeInnerHeight * 0.18),
+    );
+    const barcodeNumberHeight = showNumber
+      ? Math.max(12, Math.round(barcodeNumberFontSize * 1.35))
+      : 0;
+    const barcodeBarsHeight = Math.max(
+      1,
+      barcodeInnerHeight - barcodeNumberHeight - (showNumber ? 2 : 0),
+    );
     const bars = buildBarcodeBars(element.value, barcodeInnerWidth);
     return (
       <View
@@ -146,7 +160,9 @@ function PrintElement({
         <View
           style={[styles.barcodeContainer, { height: barcodeInnerHeight }]}
         >
-          <View style={styles.barcodeBarsRow}>
+          <View
+            style={[styles.barcodeBarsRow, { height: barcodeBarsHeight }]}
+          >
             {bars.map((bar, index) => (
               <View
                 key={`${element.key}-bar-${index}`}
@@ -154,14 +170,31 @@ function PrintElement({
                   styles.barcodeBar,
                   {
                     width: bar.width,
-                    height: barcodeInnerHeight,
+                    height: barcodeBarsHeight,
                     backgroundColor: "#111827",
                     opacity: bar.isBar ? 1 : 0,
                   },
                 ]}
-              />
-            ))}
+                />
+              ))}
           </View>
+          {showNumber ? (
+            <Text
+              style={[
+                styles.barcodeNumber,
+                {
+                  fontSize: barcodeNumberFontSize,
+                  lineHeight: barcodeNumberHeight,
+                  fontFamily: Fonts.body,
+                  fontWeight: "400",
+                },
+              ]}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+            >
+              {String(element.value ?? "").trim()}
+            </Text>
+          ) : null}
         </View>
         {selected ? (
           <Text style={styles.selectionLabel}>{element.label}</Text>
@@ -189,9 +222,10 @@ function PrintElement({
                 fontSize: Math.max(10, element.fontSize * 0.85),
                 textAlign: element.align || "center",
                 color: element.color || "#111827",
-                fontFamily: resolvePreviewFontFamily(
-                  element.tipoFuente || element.fontFamily || "Default",
-                ),
+                fontFamily: resolveEffectivePreviewFontFamily({
+                  fontFamily: element.fontFamily,
+                  tipoFuente: element.tipoFuente,
+                }),
               },
             ]}
             numberOfLines={1}
@@ -254,9 +288,10 @@ function PrintElement({
             fontWeight: element.fontWeight === "700" ? "700" : "400",
             fontStyle:
               element.fontStyle || (element.italic ? "italic" : "normal"),
-            fontFamily: resolvePreviewFontFamily(
-              element.tipoFuente || element.fontFamily || "Default",
-            ),
+            fontFamily: resolveEffectivePreviewFontFamily({
+              fontFamily: element.fontFamily,
+              tipoFuente: element.tipoFuente,
+            }),
             textAlign: element.align || "left",
             textTransform: element.uppercase ? "uppercase" : "none",
             lineHeight: Math.max(12, element.fontSize * 1.18),
@@ -318,6 +353,12 @@ const styles = StyleSheet.create({
   },
   barcodeBar: {
     borderRadius: 0,
+  },
+  barcodeNumber: {
+    marginTop: 1,
+    color: "#111827",
+    textAlign: "center",
+    includeFontPadding: false,
   },
   barcodeWrapper: {
     padding: 0,

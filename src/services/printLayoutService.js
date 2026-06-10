@@ -5,7 +5,9 @@ import {
   savePrintFormatsToSql,
   syncPrintFormatsFromSql,
 } from "@services/printSqlService";
-import { resolvePreviewFontFamily } from "@services/printFontService";
+import {
+  resolveEffectivePreviewFontFamily,
+} from "@services/printFontService";
 
 export const PRINT_FORMAT_KEYS = ["gondola", "product", "small", "custom"];
 
@@ -665,9 +667,10 @@ const normalizeElement = (element = {}, fallback = {}) => {
       "Default",
   ).trim();
   next.fontFamily = String(
-    element.fontFamily ||
-      fallback.fontFamily ||
-      resolvePreviewFontFamily(next.tipoFuente),
+    resolveEffectivePreviewFontFamily({
+      fontFamily: element.fontFamily || fallback.fontFamily || base.fontFamily,
+      tipoFuente: next.tipoFuente,
+    }),
   ).trim();
   next.maxLines = Math.max(
     1,
@@ -740,8 +743,10 @@ const normalizeSqlElement = (element = {}) => {
     tipoFuente: String(element.tipoFuente ?? element.TipoFuente ?? "Default"),
     TipoFuente: String(element.TipoFuente ?? element.tipoFuente ?? "Default"),
     fontFamily: String(
-      element.fontFamily ||
-        resolvePreviewFontFamily(element.tipoFuente ?? element.TipoFuente ?? "Default"),
+      resolveEffectivePreviewFontFamily({
+        fontFamily: element.fontFamily,
+        tipoFuente: element.tipoFuente ?? element.TipoFuente ?? "Default",
+      }),
     ).trim(),
     align: ["left", "center", "right"].includes(
       String(element.align ?? "").toLowerCase(),
@@ -1332,7 +1337,10 @@ export const renderPrintLayout = (
             "Default",
         ).trim();
         item.fontFamily = String(
-          item.fontFamily || resolvePreviewFontFamily(item.tipoFuente),
+          resolveEffectivePreviewFontFamily({
+            fontFamily: item.fontFamily,
+            tipoFuente: item.tipoFuente,
+          }),
         ).trim();
       }
       const rawAlign = String(
@@ -1373,7 +1381,10 @@ export const renderPrintLayout = (
         fontStyle: item.italic ? "italic" : "normal",
         tipoFuente: normalizedTipoFuente,
         fontFamily: String(
-          item.fontFamily || resolvePreviewFontFamily(normalizedTipoFuente),
+          resolveEffectivePreviewFontFamily({
+            fontFamily: item.fontFamily,
+            tipoFuente: normalizedTipoFuente,
+          }),
         ).trim(),
         separatorThickness: Math.max(
           1,

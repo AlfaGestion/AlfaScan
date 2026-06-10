@@ -926,59 +926,63 @@ export default function ConfigurationScreen({ navigation }) {
             </>
           )}
 
-          <View style={styles.inlineActions}>
-            <TouchableOpacity
-              style={[
-                styles.smallButton,
-                { backgroundColor: theme.accent },
-                testing && styles.buttonDisabled,
-              ]}
-              onPress={testConnection}
-              disabled={testing}
-            >
-              {testing ? (
-                <ActivityIndicator color={Colors.WHITE} />
-              ) : (
-                <Ionicons
-                  name="checkmark-circle-outline"
-                  size={18}
-                  color={Colors.WHITE}
+          {activeTab === "CONNECTION" ? (
+            <>
+              <View style={styles.inlineActions}>
+                <TouchableOpacity
+                  style={[
+                    styles.smallButton,
+                    { backgroundColor: theme.accent },
+                    testing && styles.buttonDisabled,
+                  ]}
+                  onPress={testConnection}
+                  disabled={testing}
+                >
+                  {testing ? (
+                    <ActivityIndicator color={Colors.WHITE} />
+                  ) : (
+                    <Ionicons
+                      name="checkmark-circle-outline"
+                      size={18}
+                      color={Colors.WHITE}
+                    />
+                  )}
+                  <Text style={styles.smallButtonText}>{testButtonLabel}</Text>
+                </TouchableOpacity>
+
+                {activeMode === "LOCAL" ? (
+                  <TouchableOpacity
+                    style={[
+                      styles.smallButton,
+                      { backgroundColor: theme.success },
+                      syncing && styles.buttonDisabled,
+                    ]}
+                    onPress={syncNow}
+                    disabled={syncing}
+                  >
+                    {syncing ? (
+                      <ActivityIndicator color={Colors.WHITE} />
+                    ) : (
+                      <Ionicons
+                        name="cloud-upload-outline"
+                        size={18}
+                        color={Colors.WHITE}
+                      />
+                    )}
+                    <Text style={styles.smallButtonText}>Sincronizar ahora</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+
+              <View style={{ marginTop: 12 }}>
+                <ConnectionStatusCard
+                  result={connectionResult}
+                  theme={theme}
+                  darkMode={darkMode}
                 />
-              )}
-              <Text style={styles.smallButtonText}>{testButtonLabel}</Text>
-            </TouchableOpacity>
-
-            {activeMode === "LOCAL" ? (
-              <TouchableOpacity
-                style={[
-                  styles.smallButton,
-                  { backgroundColor: theme.success },
-                  syncing && styles.buttonDisabled,
-                ]}
-                onPress={syncNow}
-                disabled={syncing}
-              >
-                {syncing ? (
-                  <ActivityIndicator color={Colors.WHITE} />
-                ) : (
-                  <Ionicons
-                    name="cloud-upload-outline"
-                    size={18}
-                    color={Colors.WHITE}
-                  />
-                )}
-                <Text style={styles.smallButtonText}>Sincronizar ahora</Text>
-              </TouchableOpacity>
-            ) : null}
-          </View>
-
-          <View style={{ marginTop: 12 }}>
-            <ConnectionStatusCard
-              result={connectionResult}
-              theme={theme}
-              darkMode={darkMode}
-            />
-          </View>
+              </View>
+            </>
+          ) : null}
         </View>
 
         <View
