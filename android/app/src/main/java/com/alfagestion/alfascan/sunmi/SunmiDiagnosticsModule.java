@@ -595,8 +595,9 @@ public class SunmiDiagnosticsModule extends ReactContextBaseJavaModule {
               if (PRINT_BARCODE_AS_TEXT) {
                 Log.i(TAG, "[SUNMI_LAYOUT] barcode printed as text value=" + barcodeValue);
                 callPrinterCommand(callback -> service.setAlignment(resolveAlignmentValue(align), callback));
-                callPrinterCommand(callback -> service.setFontSize((float) Math.max(18, sunmiFontSize), callback));
+                callPrinterCommand(callback -> service.setFontSize(18f, callback));
                 callPrinterCommand(callback -> service.printText(barcodeText + "\n", callback));
+                continue;
               }
             } else {
               Log.i(TAG, "[SUNMI_LAYOUT] barcode skipped empty value");

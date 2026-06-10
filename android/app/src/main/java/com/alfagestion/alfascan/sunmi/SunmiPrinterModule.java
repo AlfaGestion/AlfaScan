@@ -41,7 +41,13 @@ public class SunmiPrinterModule extends SunmiV2PrinterModule {
 
   @ReactMethod
   public void printBarcode(String code, Promise promise) {
-    super.printBarCode(code, 2, 162, 2, 2, promise);
+    String value = code == null ? "" : String.valueOf(code).trim();
+    if (value.isEmpty()) {
+      promise.resolve(Boolean.FALSE);
+      return;
+    }
+
+    super.printString("Barra: " + value + "\n", promise);
   }
 
   @ReactMethod
