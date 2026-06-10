@@ -213,9 +213,10 @@ public class SunmiDiagnosticsModule extends ReactContextBaseJavaModule {
       String internalCode = getStringSafe(payload, "internalCode");
       String companyName = getStringSafe(payload, "companyName");
       int copies = Math.max(1, getIntSafe(payload, "copies", 1));
+      int postPrintFeedLines = Math.max(0, getIntSafe(payload, "postPrintFeedLines", 3));
       ReadableArray items = payload.hasKey("items") && !payload.isNull("items") ? payload.getArray("items") : null;
       if (items != null && items.size() > 0) {
-        printLayoutItemsInternal(printerService, items, copies);
+        printLayoutItemsInternal(printerService, items, copies, postPrintFeedLines);
       } else {
         throw new Exception("El layout de impresión no contiene items.");
       }
@@ -545,8 +546,9 @@ public class SunmiDiagnosticsModule extends ReactContextBaseJavaModule {
     callPrinterCommand(callback -> service.lineWrap(2, callback));
   }
 
-  private void printLayoutItemsInternal(IWoyouService service, ReadableArray items, int copies) throws Exception {
+  private void printLayoutItemsInternal(IWoyouService service, ReadableArray items, int copies, int postPrintFeedLines) throws Exception {
     int totalCopies = Math.max(1, copies);
+    int finalFeedLines = Math.max(0, postPrintFeedLines);
     Log.i(TAG, "[SUNMI_LAYOUT] received items " + items.size());
     Log.i(TAG, "[SUNMI_LAYOUT] PRINT_BARCODE_AS_BITMAP=" + PRINT_BARCODE_AS_BITMAP);
     callPrinterCommand(callback -> service.printerInit(callback));
@@ -701,6 +703,9 @@ public class SunmiDiagnosticsModule extends ReactContextBaseJavaModule {
       }
 
       callPrinterCommand(callback -> service.lineWrap(1, callback));
+    }
+    if (finalFeedLines > 0) {
+      callPrinterCommand(callback -> service.lineWrap(finalFeedLines, callback));
     }
     Log.i(TAG, "[SUNMI] print layout done");
   }

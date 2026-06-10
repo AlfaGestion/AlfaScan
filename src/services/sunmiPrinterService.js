@@ -31,6 +31,8 @@ const BARCODE_SYMBOLOGY = {
   CODE128: 8,
 };
 
+const DEFAULT_POST_PRINT_FEED_LINES = 3;
+
 const DEFAULT_STATUS = {
   hasModule: false,
   isSunmiDevice: false,
@@ -90,6 +92,18 @@ const firstNonEmptyText = (...values) => {
     }
   }
   return "";
+};
+
+const getPostPrintFeedLines = () => {
+  const rawValue =
+    Constants?.expoConfig?.extra?.print?.postPrintFeedLines ??
+    Constants?.expoConfig?.extra?.postPrintFeedLines ??
+    DEFAULT_POST_PRINT_FEED_LINES;
+  const parsedValue = Math.round(Number(rawValue));
+  if (!Number.isFinite(parsedValue)) {
+    return DEFAULT_POST_PRINT_FEED_LINES;
+  }
+  return Math.max(0, Math.min(10, parsedValue));
 };
 
 const callNativeAsync = async (module, methodName, ...args) => {
@@ -589,7 +603,7 @@ export const printLabel = async (
   }
 
   if (typeof module.lineWrap === "function") {
-    await module.lineWrap(2);
+    await module.lineWrap(getPostPrintFeedLines());
   }
 
   return { printed: true, layout };
@@ -826,6 +840,7 @@ export const printSimpleProductLabel = async (
     companyName,
     copies: Math.max(1, Number(input?.copies ?? 1) || 1),
     items: itemsToNative,
+    postPrintFeedLines: getPostPrintFeedLines(),
   });
   console.log("[PRINT] success");
 
@@ -997,7 +1012,7 @@ export const printSunmiDiagnosticTest = async () => {
   for (const line of lines) {
     await module.printString(`${line}\n`);
   }
-  await module.lineWrap(2);
+  await module.lineWrap(getPostPrintFeedLines());
   return { printed: true };
 };
 

@@ -41,6 +41,9 @@
       "favicon": "./assets/icon.png"
     },
     "extra": {
+      "print": {
+        "postPrintFeedLines": 3
+      },
       "eas": {
         "projectId": "1449bcd3-b8db-4693-a147-a2e3774bed9c"
       }
