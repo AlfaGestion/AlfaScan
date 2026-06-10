@@ -25,6 +25,17 @@ const BASE_DESIGN_WIDTH = 320;
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
 
+const normalizeContractText = (value = "") =>
+  String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[áäàâ]/g, "a")
+    .replace(/[éëèê]/g, "e")
+    .replace(/[íïìî]/g, "i")
+    .replace(/[óöòô]/g, "o")
+    .replace(/[úüùû]/g, "u")
+    .replace(/[\s_-]+/g, "");
+
 const createElement = (element = {}) => ({
   key: "",
   type: "text",
