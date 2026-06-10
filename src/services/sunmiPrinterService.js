@@ -117,17 +117,18 @@ const feedPaperLines = async (module, lines) => {
     return;
   }
 
-  const blankFeed = "\n".repeat(safeLines);
-  if (typeof module.printText === "function") {
-    await module.printText(blankFeed);
-    return;
-  }
-  if (typeof module.printString === "function") {
-    await module.printString(blankFeed);
-    return;
-  }
-  if (typeof module.lineWrap === "function") {
-    await module.lineWrap(safeLines);
+  for (let index = 0; index < safeLines; index += 1) {
+    if (typeof module.printString === "function") {
+      await module.printString("\n");
+      continue;
+    }
+    if (typeof module.printText === "function") {
+      await module.printText("\n");
+      continue;
+    }
+    if (typeof module.lineWrap === "function") {
+      await module.lineWrap(1);
+    }
   }
 };
 
