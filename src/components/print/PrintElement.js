@@ -85,8 +85,9 @@ function PrintElement({
                 style={[
                   styles.barcodeBar,
                   {
-                    width: bar * 1.4,
-                    height: index % 4 === 0 ? 34 : index % 3 === 0 ? 28 : 22,
+                    flexGrow: bar,
+                    flexBasis: 0,
+                    height: index % 4 === 0 ? 42 : index % 3 === 0 ? 36 : 30,
                     backgroundColor: "#111827",
                   },
                 ]}
@@ -250,18 +251,22 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   barcodeContainer: {
+    width: "100%",
     alignItems: "center",
     justifyContent: "center",
     flex: 1,
+    paddingHorizontal: 0,
   },
   barcodeBarsRow: {
+    width: "100%",
     flexDirection: "row",
-    alignItems: "flex-end",
-    justifyContent: "center",
-    gap: 1,
+    alignItems: "stretch",
+    justifyContent: "stretch",
+    gap: 0,
+    minHeight: 42,
   },
   barcodeBar: {
-    borderRadius: 1,
+    borderRadius: 0,
   },
   barcodeText: {
     marginTop: 4,

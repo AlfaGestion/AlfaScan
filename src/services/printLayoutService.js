@@ -758,9 +758,10 @@ const normalizeSqlElement = (element = {}) => {
     showSymbol:
       String(element.key ?? "").trim() === "price" ||
       normalizeContractText(element.campo ?? element.Campo ?? "") === "precio",
-    showNumber: String(element.key ?? "").trim() === "barcode"
-      ? element.showNumber !== false
-      : true,
+    showNumber:
+      String(element.key ?? "").trim() === "barcode"
+        ? element.showNumber === true
+        : true,
     barcodeType: String(element.barcodeType ?? element.BarcodeType ?? "EAN13")
       .trim()
       .toUpperCase(),

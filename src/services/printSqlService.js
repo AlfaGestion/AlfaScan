@@ -447,7 +447,7 @@ const mapSqlDetailToElement = (row = {}, index = 0) => {
     showSymbol: valueKey === "price",
     showNumber:
       valueKey === "barcode"
-        ? toBool(row.ShowNumber ?? row.showNumber, true)
+        ? toBool(row.ShowNumber ?? row.showNumber, false)
         : true,
     barcodeType: "EAN13",
   };
