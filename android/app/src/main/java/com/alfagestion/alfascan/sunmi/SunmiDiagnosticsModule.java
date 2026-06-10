@@ -581,6 +581,11 @@ public class SunmiDiagnosticsModule extends ReactContextBaseJavaModule {
           int editorFontSize = Math.max(10, getIntSafe(item, "fontSize", 16));
           int sunmiFontSize = Math.max(10, getIntSafe(item, "sunmiFontSize", editorFontSize));
           int maxLines = Math.max(1, getIntSafe(item, "maxLines", 1));
+          String textFontFamily = firstNonEmpty(
+            getStringSafe(item, "fontFamily"),
+            getStringSafe(item, "tipoFuente"),
+            getStringSafe(item, "TipoFuente")
+          );
           String normalizedCampo = firstNonEmpty(
             getStringSafe(item, "Campo"),
             getStringSafe(item, "campo"),
@@ -645,12 +650,14 @@ public class SunmiDiagnosticsModule extends ReactContextBaseJavaModule {
 
               final String textToPrint = printableText;
               final float fontSizeToPrint = (float) Math.max(18, sunmiFontSize);
+              boolean wantsMonospace = isMonospaceFont(textFontFamily);
               Log.i(TAG, "[SUNMI_LAYOUT] text campo=" + getStringSafe(item, "Campo") + " valueLength=" + text.length());
               Log.i(TAG, "[PRINT_LAYOUT] item=" + type + " campo=" + getStringSafe(item, "key") + " editorFontSize=" + editorFontSize + " sunmiFontSize=" + sunmiFontSize);
               Log.i(TAG, "[SUNMI] print text type=" + type);
               callPrinterCommand(callback -> service.setAlignment(resolveAlignmentValue(align), callback));
-              if (italic) {
-                callPrinterCommand(callback -> service.printTextWithFont(textToPrint + "\n", "serif", fontSizeToPrint, callback));
+              if (italic || wantsMonospace) {
+                String nativeFont = wantsMonospace ? "monospace" : "serif";
+                callPrinterCommand(callback -> service.printTextWithFont(textToPrint + "\n", nativeFont, fontSizeToPrint, callback));
               } else {
                 callPrinterCommand(callback -> service.setFontSize(fontSizeToPrint, callback));
                 callPrinterCommand(callback -> service.printText(textToPrint + "\n", callback));
@@ -818,6 +825,20 @@ public class SunmiDiagnosticsModule extends ReactContextBaseJavaModule {
     }
 
     return "";
+  }
+
+  private boolean isMonospaceFont(String fontFamily) {
+    String normalized = String.valueOf(fontFamily == null ? "" : fontFamily)
+      .trim()
+      .toLowerCase(Locale.ROOT);
+    return "monospace".equals(normalized)
+      || "barcode".equals(normalized)
+      || "codigodebarra".equals(normalized)
+      || "codigo de barra".equals(normalized)
+      || "courier".equals(normalized)
+      || "courier new".equals(normalized)
+      || "couriernew".equals(normalized)
+      || "consolas".equals(normalized);
   }
 
   private int resolveAlignmentValue(String alignment) {

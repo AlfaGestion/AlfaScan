@@ -802,7 +802,7 @@ export const printSimpleProductLabel = async (
             ...item,
             type: "text",
             key: "barcodeText",
-            value: `Barra: ${barcodeValue}`,
+            value: barcodeValue,
             barcode: barcodeValue,
             internalCode: payload.internalCode,
             code: payload.internalCode || payload.barcode,
