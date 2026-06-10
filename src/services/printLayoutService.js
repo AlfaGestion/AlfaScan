@@ -49,6 +49,7 @@ const createElement = (element = {}) => ({
   thousandSeparator: true,
   barcodeType: "EAN13",
   showNumber: true,
+  separatorThickness: 2,
   ...element,
 });
 
@@ -361,6 +362,7 @@ const normalizeElement = (element = {}, fallback = {}) => {
   next.thousandSeparator = normalizeBoolean(element.thousandSeparator, fallback.thousandSeparator ?? true);
   next.barcodeType = String(element.barcodeType ?? fallback.barcodeType ?? "EAN13").trim().toUpperCase();
   next.showNumber = normalizeBoolean(element.showNumber, fallback.showNumber ?? true);
+  next.separatorThickness = Math.max(1, parseInt(String(element.separatorThickness ?? fallback.separatorThickness ?? 2), 10) || 1);
   return next;
 };
 
@@ -427,6 +429,10 @@ const migrateLegacyFormat = (raw = {}, fallbackTemplate = DEFAULT_PRINT_FORMATS[
     }
     if (fallbackElement.key === "logo") {
       normalized.visible = result.showLogo;
+    }
+    if (fallbackElement.type === "separator" || fallbackElement.key === "separator") {
+      normalized.visible = true;
+      normalized.maxLines = 1;
     }
 
     return normalized;
@@ -638,6 +644,7 @@ export const renderPrintLayout = (formatConfig = {}, product = {}, options = {})
         fontSize: Math.max(8, Math.round(item.fontSize * scale)),
         italic: Boolean(item.italic),
         fontStyle: item.italic ? "italic" : "normal",
+        separatorThickness: Math.max(1, Math.round((Number(item.separatorThickness ?? 2) || 2) * scale)),
         value: formatFieldValue(item, product, options.fallbackText || ""),
         barcodeSymbology: resolveBarcodeType(item.barcodeType),
       };

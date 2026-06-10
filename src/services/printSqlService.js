@@ -87,6 +87,17 @@ const normalizeSqlElementType = (value) => {
   if (normalized === "barcode" || normalized === "codigo_barra" || normalized === "codigo de barra") {
     return "barcode";
   }
+  if (
+    normalized === "separator" ||
+    normalized === "separador" ||
+    normalized === "line" ||
+    normalized === "linea" ||
+    normalized === "línea" ||
+    normalized === "linea_separadora" ||
+    normalized === "separator_line"
+  ) {
+    return "separator";
+  }
   if (normalized === "logo") {
     return "logo";
   }
@@ -150,6 +161,9 @@ const normalizeSqlFieldKey = (value, type = "text", fallback = "") => {
   if (compact === "logo") {
     return "logo";
   }
+  if (compact === "separador" || compact === "separator" || compact === "linea" || compact === "line") {
+    return "separator";
+  }
 
   return raw;
 };
@@ -160,7 +174,7 @@ const mapSqlDetailToElement = (row = {}, index = 0) => {
   const key = normalizeSqlFieldKey(
     field,
     type,
-    type === "barcode" ? "barcode" : type === "logo" ? "logo" : `element_${index + 1}`,
+    type === "barcode" ? "barcode" : type === "logo" ? "logo" : type === "separator" ? `separator_${index + 1}` : `element_${index + 1}`,
   );
   const fontSize = toInt(row.TamanoFuente ?? row.tamanoFuente ?? row.FontSize, 16);
   const maxLines = Math.max(1, toInt(row.MaxLineas ?? row.maxLineas ?? row.MaxLines, 1));
@@ -187,7 +201,7 @@ const mapSqlDetailToElement = (row = {}, index = 0) => {
     valueKey: normalizeSqlFieldKey(field, type, key) || key,
     formatAsPrice: key === "price",
     showSymbol: key === "price",
-    showNumber: type !== "barcode" ? true : toBool(row.ShowNumber ?? row.showNumber, true),
+    showNumber: type === "barcode" ? toBool(row.ShowNumber ?? row.showNumber, true) : true,
     barcodeType: "EAN13",
   };
 };

@@ -133,6 +133,24 @@ function PrintElement({
     );
   }
 
+  if (element.type === "separator") {
+    const thickness = Math.max(1, Math.round(Number(element.separatorThickness ?? 2) || 2));
+    return (
+      <View style={wrapperStyle} {...(editable ? panResponder.panHandlers : {})}>
+        <View
+          style={[
+            styles.separatorLine,
+            {
+              height: thickness,
+              backgroundColor: element.color || "#111827",
+            },
+          ]}
+        />
+        {selected ? <Text style={styles.selectionLabel}>{element.label || "Separador"}</Text> : null}
+      </View>
+    );
+  }
+
   return (
     <View style={wrapperStyle} {...(editable ? panResponder.panHandlers : {})}>
       <Text
@@ -214,5 +232,9 @@ const styles = StyleSheet.create({
   logoText: {
     marginTop: 2,
     fontFamily: Fonts.display,
+  },
+  separatorLine: {
+    width: "100%",
+    borderRadius: 999,
   },
 });

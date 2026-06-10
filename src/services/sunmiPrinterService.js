@@ -315,6 +315,11 @@ const setPrinterFontSize = async (size = 16) => {
   await module.setFontSize(Math.max(10, Number(size) || 16));
 };
 
+const buildSeparatorText = (item = {}) => {
+  const width = Math.max(12, Math.min(48, Math.round(Number(item.width || 0) / 8) || 24));
+  return "-".repeat(width);
+};
+
 export const printText = async (text, options = {}) => {
   const status = await ensureInitialized();
   const module = getLabelModule();
@@ -438,6 +443,11 @@ export const printLabel = async (formatConfig = {}, product = {}, options = {}) 
         height: item.height,
         width: item.width,
         showNumber: item.showNumber,
+      });
+    } else if (item.type === "separator") {
+      await printText(buildSeparatorText(item), {
+        align: "center",
+        fontSize: Math.max(10, Number(item.fontSize || 16)),
       });
     } else if (item.type === "logo") {
       await printText(item.value || item.sampleText || "", {

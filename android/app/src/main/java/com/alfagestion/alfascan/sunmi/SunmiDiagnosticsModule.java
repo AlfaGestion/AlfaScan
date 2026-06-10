@@ -583,6 +583,12 @@ public class SunmiDiagnosticsModule extends ReactContextBaseJavaModule {
             callPrinterCommand(callback -> service.setAlignment(1, callback));
             callPrinterCommand(callback -> service.printBarCode(code, symbology, height, width, textposition, callback));
           }
+        } else if ("separator".equalsIgnoreCase(type)) {
+          int separatorWidth = Math.max(12, Math.min(48, Math.round(getIntSafe(item, "width", 240) / 8f)));
+          String separator = repeatChar('-', separatorWidth);
+          Log.i(TAG, "[SUNMI] print separator");
+          callPrinterCommand(callback -> service.setAlignment(1, callback));
+          callPrinterCommand(callback -> service.printText(separator + "\n", callback));
         } else {
           String text = value.trim();
           if (!text.isEmpty()) {
@@ -646,6 +652,15 @@ public class SunmiDiagnosticsModule extends ReactContextBaseJavaModule {
     }
 
     return out.toString();
+  }
+
+  private String repeatChar(char ch, int count) {
+    int safeCount = Math.max(0, count);
+    StringBuilder builder = new StringBuilder(safeCount);
+    for (int i = 0; i < safeCount; i++) {
+      builder.append(ch);
+    }
+    return builder.toString();
   }
 
   private String getStringSafe(ReadableMap map, String key) {
