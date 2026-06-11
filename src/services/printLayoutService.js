@@ -606,6 +606,10 @@ export const mapEditorFontSizeToSunmi = (
     return Math.max(18, Math.round(baseSize * widthFactor));
   }
 
+  if (normalizedField === "barcodetext") {
+    return Math.max(12, Math.round((editorSize <= 12 ? 14 : 16) * widthFactor));
+  }
+
   if (normalizedField === "description") {
     return Math.max(22, Math.round(baseSize * widthFactor));
   }

@@ -565,6 +565,18 @@ public class SunmiDiagnosticsModule extends ReactContextBaseJavaModule {
           continue;
         }
 
+        boolean hasBarcodeTextCompanion = false;
+        if (i + 1 < items.size()) {
+          ReadableMap nextItem = items.getMap(i + 1);
+          if (nextItem != null) {
+            String nextKey = firstNonEmpty(
+              getStringSafe(nextItem, "key"),
+              getStringSafe(nextItem, "valueKey")
+            ).toLowerCase(Locale.ROOT);
+            hasBarcodeTextCompanion = "barcodetext".equals(nextKey);
+          }
+        }
+
         int targetTop = getIntSafe(item, "y", 0);
         int itemHeight = Math.max(1, getIntSafe(item, "height", 24));
         int gap = Math.max(0, Math.round((targetTop - lastBottom) / 18f));
@@ -609,7 +621,9 @@ public class SunmiDiagnosticsModule extends ReactContextBaseJavaModule {
           if ("barcode".equalsIgnoreCase(type)) {
             Log.i(TAG, "[SUNMI_LAYOUT] barcode bitmap mode");
             if (!barcodeValue.isEmpty()) {
-              boolean showNumber = getBooleanSafe(item, "showNumber", true);
+              boolean showNumber = hasBarcodeTextCompanion
+                ? false
+                : getBooleanSafe(item, "showNumber", true);
               try {
                 Bitmap barcodeBitmap = createBarcodeBitmap(
                   barcodeValue,
@@ -626,6 +640,9 @@ public class SunmiDiagnosticsModule extends ReactContextBaseJavaModule {
                   callPrinterCommand(callback -> service.setAlignment(resolveAlignmentValue(align), callback));
                   callPrinterCommand(callback -> service.setFontSize((float) Math.max(18, sunmiFontSize), callback));
                   callPrinterCommand(callback -> service.printText(barcodeValue + "\n", callback));
+                }
+                if (hasBarcodeTextCompanion) {
+                  callPrinterCommand(callback -> service.lineWrap(1, callback));
                 }
               } catch (Exception barcodeError) {
                 Log.e(TAG, "[SUNMI_LAYOUT] barcode bitmap failed fallback text", barcodeError);

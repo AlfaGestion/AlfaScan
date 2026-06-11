@@ -484,10 +484,10 @@ export const printBarcode = async (code, options = {}) => {
   const width = Math.max(2, Math.min(6, Number(options.width) || 2));
   const textposition = options.showNumber === false ? 0 : 2;
   await setPrinterAlignment("center");
-  if (typeof module.printBarcode === "function") {
-    await module.printBarcode(value);
-  } else {
+  if (typeof module.printBarCode === "function") {
     await module.printBarCode(value, symbology, height, width, textposition);
+  } else if (typeof module.printBarcode === "function") {
+    await module.printBarcode(value);
   }
   return { printed: true, code: value };
 };
@@ -568,7 +568,12 @@ export const printLabel = async (
   }
 
   let lastBottom = 0;
-  for (const item of layout.items) {
+  for (let index = 0; index < layout.items.length; index += 1) {
+    const item = layout.items[index];
+    const nextItem = layout.items[index + 1] || null;
+    const hasBarcodeTextCompanion =
+      String(item?.type ?? "").trim() === "barcode" &&
+      String(nextItem?.key ?? "").trim() === "barcodeText";
     const targetTop = Number(item.y || 0);
     const gap = Math.max(0, Math.round((targetTop - lastBottom) / 18));
     if (gap > 0 && typeof module.lineWrap === "function") {
@@ -580,8 +585,11 @@ export const printLabel = async (
         barcodeType: item.barcodeType,
         height: item.height,
         width: item.width,
-        showNumber: item.showNumber,
+        showNumber: hasBarcodeTextCompanion ? false : item.showNumber,
       });
+      if (hasBarcodeTextCompanion && typeof module.lineWrap === "function") {
+        await module.lineWrap(1);
+      }
     } else if (item.type === "separator") {
       await printText(buildSeparatorText(item), {
         align: "center",
