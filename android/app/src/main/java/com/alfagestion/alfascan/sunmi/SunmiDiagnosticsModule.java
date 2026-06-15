@@ -372,11 +372,7 @@ public class SunmiDiagnosticsModule extends ReactContextBaseJavaModule {
   }
 
   private void bindPrinterServiceInternal(final Promise promise, final boolean validateReady) {
-    if (!isInnerPrinterAvailableInternal()) {
-      lastError = "Servicio no encontrado.";
-      promise.reject("SERVICE_NOT_FOUND", "Servicio no encontrado");
-      return;
-    }
+    boolean innerPrinterVisible = isInnerPrinterAvailableInternal();
 
     synchronized (stateLock) {
       if (bound && printerService != null) {
@@ -416,7 +412,7 @@ public class SunmiDiagnosticsModule extends ReactContextBaseJavaModule {
       synchronized (stateLock) {
         binding = false;
       }
-      lastError = "Error de bind.";
+      lastError = innerPrinterVisible ? "Error de bind." : "Servicio no encontrado.";
       promise.reject("BIND_FAILED", "Error de bind.");
       return;
     }

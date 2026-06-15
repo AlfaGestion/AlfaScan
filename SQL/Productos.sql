@@ -1,0 +1,44 @@
+
+
+/****** Object:  View [dbo].[Productos]    Script Date: 11/06/2026 17:50:49 ******/
+SET ANSI_NULLS ON
+GO
+
+SET QUOTED_IDENTIFIER ON
+GO
+
+
+CREATE VIEW [dbo].[Productos]
+AS
+
+SELECT
+    LTRIM(RTRIM(A.IDARTICULO)) AS CodigoArticulo,
+    LTRIM(RTRIM(CB.CodigoBarra)) AS CodigoBarra,
+    LTRIM(RTRIM(A.DESCRIPCION)) AS Descripcion,
+    A.PRECIO1 AS Precio,
+    A.PRECIO2,
+    A.PRECIO3,
+    A.PRECIO4,
+    A.PRECIO5,
+    A.PRECIO6,
+    A.PRECIO7,
+    A.PRECIO8,
+    A.ID AS IdRegistro
+FROM dbo.V_MA_ARTICULOS A
+CROSS APPLY
+(
+    SELECT A.CODIGOBARRA AS CodigoBarra
+    UNION ALL SELECT A.CODIGOBARRA1
+    UNION ALL SELECT A.CODIGOBARRA2
+    UNION ALL SELECT A.CODIGOBARRA3
+    UNION ALL SELECT A.CODIGOBARRA4
+    UNION ALL SELECT A.CodigoBarraDun
+) CB
+WHERE
+    ISNULL(A.SUSPENDIDO, 0) = 0
+    AND ISNULL(A.SuspendidoV, 0) = 0
+    AND CB.CodigoBarra IS NOT NULL
+    AND LTRIM(RTRIM(CB.CodigoBarra)) <> ''
+GO
+
+

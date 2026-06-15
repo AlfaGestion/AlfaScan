@@ -39,6 +39,7 @@ public class SunmiPrinterModule extends ReactContextBaseJavaModule {
   private volatile boolean bound = false;
   private volatile boolean binding = false;
   private volatile boolean innerPrinterAvailable = false;
+  private volatile String lastError = "";
   private volatile String printerVersion = "";
   private volatile String printerModal = "";
   private volatile String printerSerialNo = "";
@@ -305,9 +306,7 @@ public class SunmiPrinterModule extends ReactContextBaseJavaModule {
   }
 
   private WritableMap bindPrinterServiceInternal() {
-    if (!isInnerPrinterAvailableInternal()) {
-      return buildPrinterInfoMap();
-    }
+    boolean innerPrinterVisible = isInnerPrinterAvailableInternal();
 
     synchronized (stateLock) {
       if (bound && printerService != null) {
@@ -337,6 +336,7 @@ public class SunmiPrinterModule extends ReactContextBaseJavaModule {
       synchronized (stateLock) {
         binding = false;
       }
+      lastError = innerPrinterVisible ? "Error de bind." : "Servicio no encontrado.";
       return buildPrinterInfoMap();
     }
 
@@ -442,6 +442,7 @@ public class SunmiPrinterModule extends ReactContextBaseJavaModule {
     map.putString("printerModal", printerModal);
     map.putString("printerSerialNo", printerSerialNo);
     map.putString("serviceVersion", serviceVersion);
+    map.putString("lastError", lastError);
     map.putString("mode", printerReady ? "NATIVE" : "UNAVAILABLE");
     return map;
   }

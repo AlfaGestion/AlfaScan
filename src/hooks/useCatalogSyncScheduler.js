@@ -1,3 +1,4 @@
+import { InteractionManager } from "react-native";
 import { useEffect, useRef } from "react";
 import { AppState } from "react-native";
 
@@ -49,6 +50,7 @@ export default function useCatalogSyncScheduler() {
   const runningRef = useRef(false);
   const startupSyncDoneRef = useRef(false);
   const syncTimerRef = useRef(null);
+  const startupTaskRef = useRef(null);
 
   useEffect(() => {
     let mounted = true;
@@ -118,8 +120,10 @@ export default function useCatalogSyncScheduler() {
       }
     };
 
-    runSyncIfNeeded({ isStartup: true });
-    startupSyncDoneRef.current = true;
+    startupTaskRef.current = InteractionManager.runAfterInteractions(() => {
+      runSyncIfNeeded({ isStartup: true });
+      startupSyncDoneRef.current = true;
+    });
 
     const subscription = AppState.addEventListener("change", handleAppStateChange);
 
@@ -130,6 +134,9 @@ export default function useCatalogSyncScheduler() {
     return () => {
       mounted = false;
       subscription.remove();
+      if (startupTaskRef.current && typeof startupTaskRef.current.cancel === "function") {
+        startupTaskRef.current.cancel();
+      }
       if (syncTimerRef.current) {
         clearInterval(syncTimerRef.current);
       }

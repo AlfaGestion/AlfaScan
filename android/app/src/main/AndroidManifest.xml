@@ -11,6 +11,10 @@
   <uses-permission android:name="android.permission.WAKE_LOCK"/>
   <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>
   <queries>
+    <package android:name="woyou.aidlservice.jiuiv5"/>
+    <intent>
+      <action android:name="woyou.aidlservice.jiuiv5.IWoyouService"/>
+    </intent>
     <intent>
       <action android:name="android.intent.action.VIEW"/>
       <category android:name="android.intent.category.BROWSABLE"/>
