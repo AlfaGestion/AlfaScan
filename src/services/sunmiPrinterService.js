@@ -2,8 +2,10 @@ import { NativeModules, Platform } from "react-native";
 import Constants from "expo-constants";
 
 import {
+  getArticleDecimalsFromSqlConfig,
   buildPrintableLayout,
   getDefaultPrintFormat,
+  loadPrintDeviceConfig,
   loadPrintFormats,
   mapEditorFontSizeToSunmi,
 } from "@services/printLayoutService";
@@ -33,6 +35,7 @@ const BARCODE_SYMBOLOGY = {
 };
 
 const DEFAULT_POST_PRINT_FEED_LINES = 3;
+const MIN_LABEL_EXTRA_BOTTOM_FEED_PX = 80;
 
 const DEFAULT_STATUS = {
   hasModule: false,
@@ -590,7 +593,7 @@ export const printLabel = async (
       if (hasBarcodeTextCompanion && typeof module.lineWrap === "function") {
         await module.lineWrap(1);
       }
-    } else if (item.type === "separator") {
+    } else if (item.type === "separator" || item.type === "linea") {
       await printText(buildSeparatorText(item), {
         align: "center",
         fontSize: Math.max(10, Number(item.fontSize || 16)),
@@ -641,20 +644,21 @@ export const printLabel = async (
   return { printed: true, layout };
 };
 
-const formatSimpleCurrency = (value) => {
+const formatSimpleCurrency = (value, decimals = 2) => {
   const amount = Number(value ?? 0);
+  const safeDecimals = Math.max(0, Math.round(Number(decimals) || 0));
   return Number.isFinite(amount)
     ? amount.toLocaleString("es-AR", {
         style: "currency",
         currency: "ARS",
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
+        minimumFractionDigits: safeDecimals,
+        maximumFractionDigits: safeDecimals,
       })
     : (0).toLocaleString("es-AR", {
         style: "currency",
         currency: "ARS",
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
+        minimumFractionDigits: safeDecimals,
+        maximumFractionDigits: safeDecimals,
       });
 };
 
@@ -761,7 +765,7 @@ export const printSimpleProductLabel = async (
     formatKey: key,
     companyName: companyName || "",
     descripcionLength: payload.description.length,
-    precioTexto: formatSimpleCurrency(payload.price),
+    precioTexto: formatSimpleCurrency(payload.price, articlePriceDecimals),
     codigo: safeCode,
   });
 
@@ -786,20 +790,95 @@ export const printSimpleProductLabel = async (
     companyName,
   };
 
+  const printerConfig = await loadPrintDeviceConfig().catch(() => null);
+  const articlePriceDecimals =
+    Number.isFinite(Number(input?.priceDecimals))
+      ? Math.max(0, Math.round(Number(input.priceDecimals)))
+      : await getArticleDecimalsFromSqlConfig().catch(() => 2);
+  const extraBottomFeedPx = Math.max(
+    MIN_LABEL_EXTRA_BOTTOM_FEED_PX,
+    Math.max(0, Number(printerConfig?.extraBottomFeedPx) || 0),
+  );
   const layout = buildPrintableLayout(formatConfig, printProduct, {
     companyName,
     fallbackText: "",
+    priceDecimals: articlePriceDecimals,
   });
   if (!Array.isArray(layout.items) || layout.items.length === 0) {
     throw new Error(EMPTY_LAYOUT_MESSAGE);
   }
+
+  const templateFormat = layout.format || formatConfig || {};
+  const marginLeftMm = Math.max(
+    0,
+    Number(
+      templateFormat.marginLeft ??
+        templateFormat.MargenIzq ??
+        templateFormat.MargenIzqMm ??
+        0,
+    ) || 0,
+  );
+  const marginTopMm = Math.max(
+    0,
+    Number(
+      templateFormat.marginTop ??
+        templateFormat.MargenSub ??
+        templateFormat.MargenSupMm ??
+        0,
+    ) || 0,
+  );
+  const marginRightMm = Math.max(
+    0,
+    Number(
+      templateFormat.marginRight ??
+        templateFormat.MargenDer ??
+        templateFormat.MargenDerMm ??
+        0,
+    ) || 0,
+  );
+  const marginBottomMm = Math.max(
+    0,
+    Number(
+      templateFormat.marginBottom ??
+        templateFormat.MargenInf ??
+        templateFormat.MargenInfMm ??
+        0,
+    ) || 0,
+  );
+  const mmToPx = 4;
+  const marginLeftPx = Math.round(marginLeftMm * mmToPx);
+  const marginTopPx = Math.round(marginTopMm * mmToPx);
+  const marginRightPx = Math.round(marginRightMm * mmToPx);
+  const marginBottomPx = Math.round(marginBottomMm * mmToPx);
 
   if (__DEV__) {
     console.log(
       "[PRINT_LAYOUT] paperWidthMm",
       layout.paperWidthMm || formatConfig?.paperWidth || 80,
     );
+    console.log("[PRINT_LAYOUT] templateBitmap", {
+      width: layout.paperWidthPx,
+      height: layout.paperHeightPx,
+    });
+    console.log("[PRINT_LAYOUT] printConfig", {
+      printableWidthPx: printerConfig?.printableWidthPx,
+      offsetX: printerConfig?.offsetX,
+      offsetY: printerConfig?.offsetY,
+      scalePercent: printerConfig?.scalePercent,
+      testMode: printerConfig?.testMode,
+    });
+    console.log("[PRINT_LAYOUT] templateMargins", {
+      marginLeftMm,
+      marginTopMm,
+      marginRightMm,
+      marginBottomMm,
+      marginLeftPx,
+      marginTopPx,
+      marginRightPx,
+      marginBottomPx,
+    });
     console.log("[PRINT_LAYOUT] items to native", layout.items.length);
+    console.log("IMPRIMIENDO ELEMENTOS:");
     layout.items.forEach((item) => {
       if (!item) {
         return;
@@ -807,11 +886,19 @@ export const printSimpleProductLabel = async (
       const campo = String(
         item.Campo ?? item.campo ?? item.valueKey ?? item.key ?? "Item",
       ).trim();
+      const textoFinal = String(item.value ?? item.sampleText ?? "").trim();
       console.log(
-        "[PRINT_LAYOUT] native item",
-        `Campo ${campo}`,
-        `type ${String(item.type ?? "")}`,
-        `visible ${Boolean(item.visible)}`,
+        [
+          String(item.Orden ?? item.orden ?? item.zIndex ?? 0),
+          String(item.TipoElemento ?? item.tipoElemento ?? item.type ?? "text"),
+          campo,
+          String(item.TextoFijo ?? item.textoFijo ?? ""),
+          String(item.x ?? 0),
+          String(item.y ?? 0),
+          String(item.width ?? 0),
+          String(item.height ?? 0),
+          textoFinal,
+        ].join(" | "),
       );
     });
   }
@@ -866,13 +953,34 @@ export const printSimpleProductLabel = async (
   const result = await module.printSimpleProductLabel({
     formatKey: key,
     description: payload.description,
-    price: formatSimpleCurrency(payload.price),
+    price: formatSimpleCurrency(payload.price, articlePriceDecimals),
     barcode: payload.barcode,
     internalCode: payload.internalCode,
     companyName,
     copies: Math.max(1, Number(input?.copies ?? 1) || 1),
     items: itemsToNative,
-    postPrintFeedLines: await getPostPrintFeedLines(),
+    paperWidthPx: layout.paperWidthPx,
+    paperHeightPx: layout.paperHeightPx,
+    paperWidthMm: layout.paperWidthMm,
+    printableWidthPx: printerConfig?.printableWidthPx,
+    printOffsetX: printerConfig?.offsetX,
+    printOffsetY: printerConfig?.offsetY,
+    printScalePercent: printerConfig?.scalePercent,
+    printMarginLeftPx: marginLeftPx,
+    printMarginTopPx: marginTopPx,
+    printMarginRightPx: marginRightPx,
+    printMarginBottomPx: marginBottomPx,
+    printTestMode: Boolean(
+      printerConfig?.testMode ||
+        input?.printTestMode ||
+        input?.calibrationMode,
+    ),
+    printAutoCenter: Boolean(printerConfig?.autoCenter),
+    printRemoveSystemMargin: Boolean(printerConfig?.removeSystemMargin),
+    printExtraTopFeedPx: Math.max(0, Number(printerConfig?.extraTopFeedPx) || 0),
+    printExtraBottomFeedPx: extraBottomFeedPx,
+    printEdgeToEdge: true,
+    postPrintFeedLines: 0,
   });
   console.log("[PRINT] success");
 
@@ -895,6 +1003,20 @@ export const printAlfaScanSmokeTest = async () => {
   console.log("[PRINT] calling printAlfaScanSmokeTest");
   const result = await module.printAlfaScanSmokeTest();
   console.log("[PRINT] smoke test success");
+  return result;
+};
+
+export const printCalibrationTestPage = async (payload = {}) => {
+  const module = getDiagnosticsModule();
+  if (!module || typeof module.printCalibrationTestPage !== "function") {
+    throw new Error(
+      "SunmiDiagnostics existe pero no expone printCalibrationTestPage. Recompilá la app con npx expo run:android.",
+    );
+  }
+
+  console.log("[PRINT] calling printCalibrationTestPage");
+  const result = await module.printCalibrationTestPage(payload);
+  console.log("[PRINT] calibration test success");
   return result;
 };
 
@@ -1072,6 +1194,7 @@ export default {
   printLabel,
   printSimpleProductLabel,
   printAlfaScanSmokeTest,
+  printCalibrationTestPage,
   getPrinterStatus,
   getPrinterInfo,
   getSunmiDiagnostics,

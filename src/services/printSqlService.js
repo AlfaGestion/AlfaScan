@@ -30,6 +30,9 @@ const toBool = (value, fallback = false) => {
 const toStringValue = (value, fallback = "") =>
   String(value ?? fallback).trim();
 
+const toNonNegativeInt = (value, fallback = 0) =>
+  Math.max(0, toInt(value, fallback));
+
 const readSqlRows = (result) => {
   if (Array.isArray(result)) {
     return result;
@@ -68,20 +71,38 @@ const normalizeSqlContractType = (value = "") => {
   if (
     normalized === "texto" ||
     normalized === "text" ||
-    normalized === "descripcion"
+    normalized === "descripcion" ||
+    normalized === "description"
   )
     return "texto";
-  if (normalized === "precio") return "precio";
-  if (normalized === "codigobarra" || normalized === "barcode") {
+  if (
+    normalized === "precio" ||
+    normalized === "price" ||
+    normalized === "valor"
+  ) {
+    return "precio";
+  }
+  if (
+    normalized === "codigobarra" ||
+    normalized === "codigobarras" ||
+    normalized === "barcode" ||
+    normalized === "barra" ||
+    normalized === "barras"
+  ) {
     return "codigobarra";
   }
   if (
-    normalized === "codigobarratexto" ||
-    normalized === "barcode text" ||
-    normalized === "barcodetext"
+    normalized === "codigoarticulo" ||
+    normalized === "codigointerno" ||
+    normalized === "internalcode" ||
+    normalized === "code" ||
+    normalized === "codigo"
   ) {
-    return "texto";
+    return "codigoarticulo";
   }
+  if (normalized === "stock") return "stock";
+  if (normalized === "textofijo" || normalized === "fixedtext")
+    return "textoFijo";
   if (
     normalized === "linea" ||
     normalized === "line" ||
@@ -90,8 +111,16 @@ const normalizeSqlContractType = (value = "") => {
   ) {
     return "linea";
   }
-  if (normalized === "logo") return "Dato";
-  if (normalized === "price") return "precio";
+  if (
+    normalized === "rectangulo" ||
+    normalized === "rectangle" ||
+    normalized === "cuadro" ||
+    normalized === "box"
+  ) {
+    return "rectangulo";
+  }
+  if (normalized === "logo") return "logo";
+  if (normalized === "fecha" || normalized === "date") return "texto";
   return "texto";
 };
 
@@ -102,7 +131,11 @@ const normalizeSqlContractCampo = (tipoElemento = "", campo = "") => {
   if (tipo === "Dato") return "Empresa";
   if (tipo === "precio") return "Precio";
   if (tipo === "codigobarra") return "CodigoBarra";
+  if (tipo === "codigoarticulo") return "CodigoArticulo";
+  if (tipo === "stock") return "Stock";
   if (tipo === "linea") return "TextoFijo";
+  if (tipo === "textoFijo") return "TextoFijo";
+  if (tipo === "rectangulo" || tipo === "logo") return null;
 
   if (
     normalizedCampo === "codigobarra" ||
@@ -127,12 +160,14 @@ const normalizeSqlContractCampo = (tipoElemento = "", campo = "") => {
   ) {
     return "CodigoArticulo";
   }
+  if (normalizedCampo === "stock") return "Stock";
+  if (normalizedCampo === "fecha" || normalizedCampo === "date") return "Fecha";
   if (normalizedCampo === "textofijo" || normalizedCampo === "fixedtext") {
     return "TextoFijo";
   }
 
   if (tipo === "texto") {
-    return campo ? String(campo).trim() : "Descripcion";
+    return campo ? String(campo).trim() : null;
   }
 
   return campo ? String(campo).trim() : "TextoFijo";
@@ -156,11 +191,7 @@ const normalizeSqlContractValueKey = (campo = "", tipoElemento = "") => {
   ) {
     return "companyName";
   }
-  if (
-    normalizedCampo === "descripcion" ||
-    normalizedCampo === "description" ||
-    tipo === "texto"
-  ) {
+  if (normalizedCampo === "descripcion" || normalizedCampo === "description") {
     return "description";
   }
   if (
@@ -171,23 +202,39 @@ const normalizeSqlContractValueKey = (campo = "", tipoElemento = "") => {
     return "price";
   }
   if (
-    tipo === "codigobarra"
+    tipo === "codigobarra" ||
+    normalizedCampo === "codigobarra" ||
+    normalizedCampo === "codigobarras" ||
+    normalizedCampo === "barcode"
   ) {
     return "barcode";
   }
   if (
+    tipo === "codigoarticulo" ||
     normalizedCampo === "codigoarticulo" ||
     normalizedCampo === "codigointerno" ||
     normalizedCampo === "internalcode"
   ) {
     return "internalCode";
   }
-  if (normalizedCampo === "stock") return "stock";
+  if (tipo === "stock" || normalizedCampo === "stock") return "stock";
   if (normalizedCampo === "fecha" || normalizedCampo === "date") return "date";
-  if (normalizedCampo === "logo") return "logo";
+  if (
+    tipo === "textoFijo" ||
+    normalizedCampo === "textofijo" ||
+    normalizedCampo === "fixedtext"
+  ) {
+    return "text";
+  }
   if (tipo === "linea") return "separator";
-  if (normalizedCampo === "textofijo" || normalizedCampo === "fixedtext") {
-    return "separator";
+  if (tipo === "rectangulo") return "rectangulo";
+  if (tipo === "logo") return "logo";
+  if (
+    normalizedCampo === "codigoarticulo" ||
+    normalizedCampo === "codigointerno" ||
+    normalizedCampo === "internalcode"
+  ) {
+    return "internalCode";
   }
 
   return normalizeSqlFieldKey(campo, tipoElemento || "text", campo);
@@ -292,40 +339,11 @@ const closePrintSql = async () => {
 };
 
 const normalizeSqlElementType = (value) => {
-  const normalized = String(value ?? "")
-    .trim()
-    .toLowerCase();
-  if (
-    normalized === "barcode" ||
-    normalized === "codigobarra" ||
-    normalized === "codigobarras" ||
-    normalized === "codigo_barra" ||
-    normalized === "codigo de barra"
-  ) {
-    return "barcode";
-  }
-  if (
-    normalized === "separator" ||
-    normalized === "separador" ||
-    normalized === "line" ||
-    normalized === "linea" ||
-    normalized === "línea" ||
-    normalized === "linea_separadora" ||
-    normalized === "separator_line"
-  ) {
-    return "separator";
-  }
-  if (normalized === "logo") {
-    return "logo";
-  }
-  if (
-    normalized === "dato" ||
-    normalized === "texto" ||
-    normalized === "text" ||
-    normalized === "precio"
-  ) {
-    return "text";
-  }
+  const tipo = normalizeSqlContractType(value);
+  if (tipo === "linea") return "separator";
+  if (tipo === "rectangulo") return "rectangulo";
+  if (tipo === "logo") return "logo";
+  if (tipo === "codigobarra") return "barcode";
   return "text";
 };
 
@@ -339,6 +357,7 @@ const normalizeSqlFieldKey = (value, type = "text", fallback = "") => {
     if (type === "barcode") return "barcode";
     if (type === "logo") return "logo";
     if (type === "separator") return "separator";
+    if (type === "rectangulo") return "rectangulo";
     return "";
   }
 
@@ -386,6 +405,9 @@ const normalizeSqlFieldKey = (value, type = "text", fallback = "") => {
   if (compact === "fecha" || compact === "date") {
     return "date";
   }
+  if (compact === "textofijo" || compact === "fixedtext") {
+    return "text";
+  }
   if (compact === "logo") {
     return "logo";
   }
@@ -397,44 +419,65 @@ const normalizeSqlFieldKey = (value, type = "text", fallback = "") => {
   ) {
     return "separator";
   }
+  if (
+    compact === "rectangulo" ||
+    compact === "rectangle" ||
+    compact === "cuadro" ||
+    compact === "box"
+  ) {
+    return "rectangulo";
+  }
 
   return raw;
 };
 
-const mapSqlDetailToElement = (row = {}, index = 0) => {
+export const sqlDetalleToEditorElement = (row = {}, index = 0) => {
   const tipoElemento = normalizeSqlContractType(
-    row.TipoElemento ?? row.tipoElemento,
+    row.TipoElemento ?? row.tipoElemento ?? row.type,
   );
   const rawField = toStringValue(
     row.Campo ?? row.campo ?? row.ValueKey ?? row.Valuekey,
   );
-  const textoFijo = toStringValue(row.TextoFijo ?? row.textoFijo ?? "");
+  const textoFijo =
+    row.TextoFijo === null || row.TextoFijo === undefined
+      ? null
+      : toStringValue(row.TextoFijo);
   const campo = normalizeSqlContractCampo(tipoElemento, rawField);
+  const isLegacyRectangle =
+    tipoElemento === "texto" &&
+    normalizeContractText(rawField) === "textofijo" &&
+    !textoFijo &&
+    toInt(row.Ancho ?? row.ancho, 0) >= 80 &&
+    toInt(row.Alto ?? row.alto, 0) >= 20;
   const rawTipoFuente = toStringValue(row.TipoFuente ?? row.tipoFuente ?? "");
   const isLine = tipoElemento === "linea";
-  const isCodigoBarraCampo =
-    normalizeContractText(rawField) === "codigobarra" ||
-    normalizeContractText(campo) === "codigobarra" ||
-    normalizeContractText(campo) === "barcode";
-  const isBarcodeGraphic = isCodigoBarraCampo && isBarcodeFont(rawTipoFuente);
-  const isBarcodeText = isCodigoBarraCampo && !isBarcodeFont(rawTipoFuente);
+  const isRectangle = tipoElemento === "rectangulo" || isLegacyRectangle;
+  const isLogo = tipoElemento === "logo";
+  const isBarcode =
+    tipoElemento === "codigobarra" ||
+    normalizeContractText(campo) === "codigobarra";
+  const valueKey = normalizeSqlContractValueKey(
+    campo,
+    isRectangle ? "rectangulo" : tipoElemento,
+  );
   const type = isLine
     ? "separator"
-    : isBarcodeGraphic
-      ? "barcode"
-      : "text";
-  const valueKey = isLine
-    ? "separator"
-    : isCodigoBarraCampo
-      ? "barcode"
-      : normalizeSqlContractValueKey(campo, tipoElemento);
+    : isRectangle
+      ? "rectangulo"
+      : isLogo
+        ? "logo"
+        : isBarcode
+          ? "barcode"
+          : "text";
   const key = isLine
-    ? "separator"
-    : isBarcodeGraphic
-      ? "barcode"
-      : isBarcodeText
-        ? "barcodeText"
-        : valueKey || `element_${index + 1}`;
+    ? `separator_${index + 1}`
+    : isRectangle
+      ? `rectangulo_${index + 1}`
+      : isLogo
+        ? `logo_${index + 1}`
+        : tipoElemento === "textoFijo"
+          ? `textoFijo_${index + 1}`
+          : valueKey || `element_${index + 1}`;
   const fontSize = toInt(
     row.TamanoFuente ?? row.tamanoFuente ?? row.FontSize,
     16,
@@ -448,13 +491,17 @@ const mapSqlDetailToElement = (row = {}, index = 0) => {
     false,
   );
   const tipoFuente = rawTipoFuente || "Default";
+  const normalizedAlign = toStringValue(
+    row.Alineacion ?? row.alineacion,
+    "left",
+  ).toLowerCase();
 
   return {
     key,
     campo,
-    Campo: campo,
-    tipoElemento,
-    TipoElemento: tipoElemento,
+    Campo: isRectangle ? null : campo,
+    tipoElemento: isRectangle ? "rectangulo" : tipoElemento,
+    TipoElemento: isRectangle ? "rectangulo" : tipoElemento,
     type,
     label:
       textoFijo ||
@@ -472,24 +519,35 @@ const mapSqlDetailToElement = (row = {}, index = 0) => {
     tipoFuente,
     TipoFuente: tipoFuente,
     fontFamily: resolvePreviewFontFamily(rawTipoFuente || "Default"),
-    align: toStringValue(
-      row.Alineacion ?? row.alineacion,
-      "left",
-    ).toLowerCase(),
+    align: ["left", "center", "right"].includes(normalizedAlign)
+      ? normalizedAlign
+      : "left",
     uppercase: toBool(row.Mayuscula ?? row.mayuscula, false),
     maxLines,
     zIndex: toInt(row.Orden ?? row.orden, index + 1),
-    sampleText: textoFijo,
+    sampleText: isLine
+      ? textoFijo || "------------"
+      : isRectangle
+        ? ""
+        : (textoFijo ?? ""),
+    TextoFijo: isLine
+      ? textoFijo || "------------"
+      : isRectangle
+        ? null
+        : textoFijo,
     valueKey,
-    formatAsPrice: valueKey === "price",
-    showSymbol: valueKey === "price",
+    formatAsPrice: valueKey === "price" || tipoElemento === "precio",
+    showSymbol: valueKey === "price" || tipoElemento === "precio",
     showNumber:
-      valueKey === "barcode"
+      type === "barcode"
         ? toBool(row.ShowNumber ?? row.showNumber, false)
         : true,
     barcodeType: "EAN13",
   };
 };
+
+const mapSqlDetailToElement = (row = {}, index = 0) =>
+  sqlDetalleToEditorElement(row, index);
 
 const mapSqlHeaderToFormat = (row = {}, index = 0, elements = []) => {
   const code = normalizeCode(row.Codigo ?? row.codigo, index);
@@ -523,15 +581,37 @@ const mapSqlHeaderToFormat = (row = {}, index = 0, elements = []) => {
     customPaperHeight: heightMm > 0 ? String(heightMm) : "",
     paperHeight: heightMm > 0 ? "custom" : "auto",
     copies: "1",
-    marginTop: "0",
-    marginBottom: "0",
+    marginLeft: String(
+      toNonNegativeInt(
+        row.MargenIzq ?? row.MargenIzqMm ?? row.margenIzq ?? row.margenIzqMm,
+        0,
+      ),
+    ),
+    marginTop: String(
+      toNonNegativeInt(
+        row.MargenSub ?? row.MargenSupMm ?? row.margenSub ?? row.margenSupMm,
+        0,
+      ),
+    ),
+    marginRight: String(
+      toNonNegativeInt(
+        row.MargenDer ?? row.MargenDerMm ?? row.margenDer ?? row.margenDerMm,
+        0,
+      ),
+    ),
+    marginBottom: String(
+      toNonNegativeInt(
+        row.MargenInf ?? row.MargenInfMm ?? row.margenInf ?? row.margenInfMm,
+        0,
+      ),
+    ),
     alignment: "center",
     showDescription:
       visibleKeys.has("descripcion") || visibleKeys.has("description"),
     showPrice: visibleKeys.has("precio") || visibleKeys.has("price"),
     showBarcode: visibleKeys.has("codigobarra") || visibleKeys.has("barcode"),
     showStock: visibleKeys.has("stock"),
-    showDate: visibleKeys.has("date"),
+    showDate: visibleKeys.has("date") || visibleKeys.has("fecha"),
     showCompanyName:
       visibleKeys.has("empresa") || visibleKeys.has("companyname"),
     showInternalCode:
@@ -547,6 +627,70 @@ const mapSqlHeaderToFormat = (row = {}, index = 0, elements = []) => {
   };
 };
 
+export const editorElementToSqlDetalle = (element = {}, index = 0) => {
+  const rawType = String(
+    element.TipoElemento ?? element.tipoElemento ?? element.type ?? "",
+  )
+    .trim()
+    .toLowerCase();
+  const rawKey = String(
+    element.Campo ?? element.campo ?? element.valueKey ?? element.key ?? "",
+  ).trim();
+  const rawSampleText = String(
+    element.TextoFijo ?? element.textoFijo ?? element.sampleText ?? "",
+  ).trim();
+  const isLegacyLine =
+    rawType === "separator" ||
+    rawType === "line" ||
+    rawType === "linea" ||
+    rawKey.toLowerCase().startsWith("separator") ||
+    /^-+$/.test(rawSampleText.replace(/\s+/g, ""));
+  const isLegacyRectangle =
+    rawType === "texto" &&
+    normalizeContractText(rawKey) === "textofijo" &&
+    !rawSampleText &&
+    toInt(element.width, 0) >= 80 &&
+    toInt(element.height, 0) >= 20;
+
+  const tipoElemento = isLegacyLine
+    ? "linea"
+    : isLegacyRectangle
+      ? "rectangulo"
+      : normalizeSqlContractType(
+          element.TipoElemento ?? element.tipoElemento ?? element.type,
+        );
+  const campo = normalizeSqlContractCampo(tipoElemento, rawKey);
+  const textoFijo =
+    tipoElemento === "linea"
+      ? rawSampleText || "------------"
+      : tipoElemento === "rectangulo" || tipoElemento === "logo"
+        ? null
+        : rawSampleText || null;
+
+  return {
+    TipoElemento: tipoElemento,
+    Campo: tipoElemento === "rectangulo" ? null : campo,
+    TextoFijo: textoFijo,
+    X: toInt(element.x, 0),
+    Y: toInt(element.y, 0),
+    Ancho: toInt(element.width, 0),
+    Alto: toInt(element.height, 0),
+    TamanoFuente: toInt(element.fontSize, 16),
+    Negrita: String(element.fontWeight ?? "400").trim() === "700" ? 1 : 0,
+    Alineacion: String(element.align ?? "left")
+      .trim()
+      .toLowerCase(),
+    TipoFuente: String(
+      element.TipoFuente ?? element.tipoFuente ?? element.fontFamily ?? "",
+    ).trim(),
+    Visible: element.visible === false ? 0 : 1,
+    Orden: toInt(element.zIndex, index + 1),
+    MaxLineas: Math.max(1, toInt(element.maxLines, 1)),
+    Mayuscula: element.uppercase ? 1 : 0,
+    Italica: toBool(element.italic ?? element.italica, false) ? 1 : 0,
+  };
+};
+
 const ensurePrintSqlSchema = async () => {
   const createHeader = `
     IF OBJECT_ID(N'dbo.Scan_Reporte', N'U') IS NULL
@@ -558,6 +702,10 @@ const ensurePrintSqlSchema = async () => {
         Descripcion NVARCHAR(250) NULL,
         AnchoPapelMm INT NOT NULL CONSTRAINT DF_Scan_Reporte_AnchoPapelMm DEFAULT (80),
         AltoMm INT NULL,
+        MargenIzq INT NOT NULL CONSTRAINT DF_Scan_Reporte_MargenIzq DEFAULT (0),
+        MargenSub INT NOT NULL CONSTRAINT DF_Scan_Reporte_MargenSub DEFAULT (0),
+        MargenDer INT NOT NULL CONSTRAINT DF_Scan_Reporte_MargenDer DEFAULT (0),
+        MargenInf INT NOT NULL CONSTRAINT DF_Scan_Reporte_MargenInf DEFAULT (0),
         Activo BIT NOT NULL CONSTRAINT DF_Scan_Reporte_Activo DEFAULT (1),
         EsPredeterminado BIT NOT NULL CONSTRAINT DF_Scan_Reporte_EsPredeterminado DEFAULT (0),
         FechaAlta DATETIME NOT NULL CONSTRAINT DF_Scan_Reporte_FechaAlta DEFAULT (GETDATE()),
@@ -567,6 +715,30 @@ const ensurePrintSqlSchema = async () => {
   `;
 
   const createDetail = `
+    IF COL_LENGTH('dbo.Scan_Reporte', 'MargenIzq') IS NULL
+    BEGIN
+      ALTER TABLE dbo.Scan_Reporte
+        ADD MargenIzq INT NOT NULL CONSTRAINT DF_Scan_Reporte_MargenIzq DEFAULT (0) WITH VALUES;
+    END;
+
+    IF COL_LENGTH('dbo.Scan_Reporte', 'MargenSub') IS NULL
+    BEGIN
+      ALTER TABLE dbo.Scan_Reporte
+        ADD MargenSub INT NOT NULL CONSTRAINT DF_Scan_Reporte_MargenSub DEFAULT (0) WITH VALUES;
+    END;
+
+    IF COL_LENGTH('dbo.Scan_Reporte', 'MargenDer') IS NULL
+    BEGIN
+      ALTER TABLE dbo.Scan_Reporte
+        ADD MargenDer INT NOT NULL CONSTRAINT DF_Scan_Reporte_MargenDer DEFAULT (0) WITH VALUES;
+    END;
+
+    IF COL_LENGTH('dbo.Scan_Reporte', 'MargenInf') IS NULL
+    BEGIN
+      ALTER TABLE dbo.Scan_Reporte
+        ADD MargenInf INT NOT NULL CONSTRAINT DF_Scan_Reporte_MargenInf DEFAULT (0) WITH VALUES;
+    END;
+
     IF OBJECT_ID(N'dbo.Scan_ReporteDetalle', N'U') IS NULL
     BEGIN
       CREATE TABLE dbo.Scan_ReporteDetalle (
@@ -669,8 +841,30 @@ export const loadPrintFormatsFromSql = async () => {
 
     const loadRows = async (activeOnly = true) => {
       const activeClause = activeOnly ? "AND ISNULL(r.Activo, 1) = 1" : "";
+      const marginColumnRows = readSqlRows(
+        await executeSql(`
+          SELECT
+            CASE WHEN COL_LENGTH('dbo.Scan_Reporte', 'MargenIzq') IS NULL THEN 0 ELSE 1 END AS HasMargenIzq,
+            CASE WHEN COL_LENGTH('dbo.Scan_Reporte', 'MargenSub') IS NULL THEN 0 ELSE 1 END AS HasMargenSub,
+            CASE WHEN COL_LENGTH('dbo.Scan_Reporte', 'MargenDer') IS NULL THEN 0 ELSE 1 END AS HasMargenDer,
+            CASE WHEN COL_LENGTH('dbo.Scan_Reporte', 'MargenInf') IS NULL THEN 0 ELSE 1 END AS HasMargenInf
+        `),
+      );
+      const marginColumns = marginColumnRows[0] || {};
+      const marginIzqColumn = Boolean(marginColumns.HasMargenIzq)
+        ? "r.MargenIzq"
+        : "CAST(0 AS INT) AS MargenIzq";
+      const marginSubColumn = Boolean(marginColumns.HasMargenSub)
+        ? "r.MargenSub"
+        : "CAST(0 AS INT) AS MargenSub";
+      const marginDerColumn = Boolean(marginColumns.HasMargenDer)
+        ? "r.MargenDer"
+        : "CAST(0 AS INT) AS MargenDer";
+      const marginInfColumn = Boolean(marginColumns.HasMargenInf)
+        ? "r.MargenInf"
+        : "CAST(0 AS INT) AS MargenInf";
       const headerRows = await executeSql(`
-        SELECT r.IdReporte, r.Codigo, r.Nombre, r.Descripcion, r.AnchoPapelMm, r.AltoMm, r.Activo, r.EsPredeterminado
+        SELECT r.IdReporte, r.Codigo, r.Nombre, r.Descripcion, r.AnchoPapelMm, r.AltoMm, ${marginIzqColumn}, ${marginSubColumn}, ${marginDerColumn}, ${marginInfColumn}, r.Activo, r.EsPredeterminado
         FROM dbo.Scan_Reporte r
         WHERE r.Codigo IN (${PRINT_CODES.map(sqlLiteral).join(", ")})
         ${activeClause}
@@ -785,10 +979,10 @@ export const loadPrintFormatsFromSql = async () => {
     }
 
     if (__DEV__) {
-      console.log("[PRINT_SQL] loaded codes", Object.keys(loaded));
+      console.log("[PRINT_SQL] loaded codes", Object.keys(loaded || {}));
     }
 
-    return Object.keys(loaded).length ? loaded : null;
+    return Object.keys(loaded || {}).length ? loaded : null;
   } catch (error) {
     if (__DEV__) {
       console.log("[PRINT_SQL] load failed", error?.message || error);
@@ -838,15 +1032,23 @@ export const savePrintFormatsToSql = async (formats = {}) => {
           ? toInt(format.customPaperWidth, index === 0 || index === 3 ? 80 : 58)
           : toInt(format.paperWidth, index === 0 || index === 3 ? 80 : 58);
       const heightMm = toInt(format.customPaperHeight, 0);
+      const marginLeft = toNonNegativeInt(format.marginLeft, 0);
+      const marginTop = toNonNegativeInt(format.marginTop, 0);
+      const marginRight = toNonNegativeInt(format.marginRight, 0);
+      const marginBottom = toNonNegativeInt(format.marginBottom, 0);
 
       await executeSql(`
-        INSERT INTO dbo.Scan_Reporte (Codigo, Nombre, Descripcion, AnchoPapelMm, AltoMm, Activo, EsPredeterminado, FechaAlta, FechaModificacion)
+        INSERT INTO dbo.Scan_Reporte (Codigo, Nombre, Descripcion, AnchoPapelMm, AltoMm, MargenIzq, MargenSub, MargenDer, MargenInf, Activo, EsPredeterminado, FechaAlta, FechaModificacion)
         VALUES (
           ${sqlLiteral(code)},
           ${sqlLiteral(format.name || DISPLAY_NAMES[code] || code)},
           ${sqlLiteral(format.description || "")},
           ${Number.isFinite(widthMm) ? widthMm : 80},
           ${heightMm > 0 ? heightMm : "NULL"},
+          ${marginLeft},
+          ${marginTop},
+          ${marginRight},
+          ${marginBottom},
           1,
           ${index === 0 ? 1 : 0},
           GETDATE(),
@@ -876,57 +1078,28 @@ export const savePrintFormatsToSql = async (formats = {}) => {
         elementIndex += 1
       ) {
         const element = elements[elementIndex] || {};
-        const rawSampleText = String(element.sampleText ?? "").trim();
-        const isVisualLine =
-          String(element.type ?? "")
-            .trim()
-            .toLowerCase() === "separator" ||
-          String(element.key ?? "")
-            .trim()
-            .toLowerCase()
-            .startsWith("separator") ||
-          /^-+$/.test(rawSampleText.replace(/\s+/g, ""));
-        const sqlTipoElemento = normalizeSqlContractType(
-          isVisualLine
-            ? "linea"
-            : (element.TipoElemento ?? element.tipoElemento ?? element.type),
-        );
-        const sqlCampo = normalizeSqlContractCampo(
-          sqlTipoElemento,
-          element.Campo ?? element.campo ?? element.valueKey ?? element.key,
-        );
-        const sqlTextoFijo = isVisualLine
-          ? rawSampleText || "------------"
-          : String(element.sampleText ?? "");
-        const visible = element.visible === false ? 0 : 1;
-        const fontWeight =
-          String(element.fontWeight ?? "400").trim() === "700" ? 1 : 0;
-        const uppercase = element.uppercase ? 1 : 0;
-        const maxLines = Math.max(1, toInt(element.maxLines, 1));
-        const tipoFuente = String(
-          element.TipoFuente ?? element.tipoFuente ?? element.fontFamily ?? "",
-        ).trim();
+        const sqlDetalle = editorElementToSqlDetalle(element, elementIndex);
         await executeSql(`
           INSERT INTO dbo.Scan_ReporteDetalle (
             IdReporte, TipoElemento, Campo, TextoFijo, X, Y, Ancho, Alto, TamanoFuente, Negrita, Alineacion, TipoFuente, Visible, Orden, MaxLineas, Mayuscula, Italica, FechaModificacion
           ) VALUES (
             ${insertedId},
-            ${sqlLiteral(sqlTipoElemento)},
-            ${sqlLiteral(sqlCampo)},
-            ${sqlLiteral(sqlTextoFijo)},
-            ${toInt(element.x, 0)},
-            ${toInt(element.y, 0)},
-            ${toInt(element.width, 0)},
-            ${toInt(element.height, 0)},
-            ${toInt(element.fontSize, 16)},
-            ${fontWeight},
-            ${sqlLiteral(String(element.align ?? "left"))},
-            ${sqlLiteral(tipoFuente)},
-            ${visible},
-            ${toInt(element.zIndex, elementIndex + 1)},
-            ${maxLines},
-            ${uppercase},
-            ${toBool(element.italic ?? element.italica, false) ? 1 : 0},
+            ${sqlLiteral(sqlDetalle.TipoElemento)},
+            ${sqlDetalle.Campo == null ? "NULL" : sqlLiteral(sqlDetalle.Campo)},
+            ${sqlDetalle.TextoFijo == null ? "NULL" : sqlLiteral(sqlDetalle.TextoFijo)},
+            ${sqlDetalle.X},
+            ${sqlDetalle.Y},
+            ${sqlDetalle.Ancho},
+            ${sqlDetalle.Alto},
+            ${sqlDetalle.TamanoFuente},
+            ${sqlDetalle.Negrita},
+            ${sqlLiteral(sqlDetalle.Alineacion)},
+            ${sqlDetalle.TipoFuente ? sqlLiteral(sqlDetalle.TipoFuente) : "NULL"},
+            ${sqlDetalle.Visible},
+            ${sqlDetalle.Orden},
+            ${sqlDetalle.MaxLineas},
+            ${sqlDetalle.Mayuscula},
+            ${sqlDetalle.Italica},
             NULL
           )
         `);

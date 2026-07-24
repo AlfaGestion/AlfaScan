@@ -31,7 +31,10 @@ import Product from "@db/Product";
 import Colors from "@styles/Colors";
 import { Fonts, Radii, Shadow } from "@styles/Theme";
 import Configuration from "@db/Configuration";
-import { getCompanyNameFromSqlConfig } from "@services/catalogService";
+import {
+  getArticleDecimalsFromSqlConfig,
+  getCompanyNameFromSqlConfig,
+} from "@services/catalogService";
 import { appendPrintHistory } from "@services/printHistory";
 import { searchArticle, scanSearchArticle } from "@services/articleService";
 import {
@@ -107,20 +110,21 @@ const loadConfigMap = (rows) =>
     return acc;
   }, {});
 
-const formatCurrency = (value) => {
+const formatCurrency = (value, decimals = 2) => {
   const amount = Number(value ?? 0);
+  const safeDecimals = Math.max(0, Math.round(Number(decimals) || 0));
   return Number.isFinite(amount)
     ? amount.toLocaleString("es-AR", {
         style: "currency",
         currency: "ARS",
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
+        minimumFractionDigits: safeDecimals,
+        maximumFractionDigits: safeDecimals,
       })
     : (0).toLocaleString("es-AR", {
         style: "currency",
         currency: "ARS",
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
+        minimumFractionDigits: safeDecimals,
+        maximumFractionDigits: safeDecimals,
       });
 };
 
@@ -196,6 +200,7 @@ export default function HomeScreen({ navigation }) {
     useProductImage: false,
     productImageHomeSize: "MEDIUM",
   });
+  const [articlePriceDecimals, setArticlePriceDecimals] = useState(2);
   const [permission, requestPermission] = useCameraPermissions();
 
   const latestArticleRef = useRef(null);
@@ -205,7 +210,8 @@ export default function HomeScreen({ navigation }) {
   const cameraWarningTimerRef = useRef(null);
   const cameraOpenRequestedAtRef = useRef(0);
   const searchInProgressRef = useRef(false);
-  const { darkMode } = useThemeConfig();
+  const themeConfig = useThemeConfig() || {};
+  const darkMode = Boolean(themeConfig.darkMode);
   const insets = useSafeAreaInsets();
 
   const loadHomeConfig = useCallback(async () => {
@@ -242,6 +248,9 @@ export default function HomeScreen({ navigation }) {
         productImageHomeSize,
       });
       setLastSyncAt(String(map.LAST_SYNC_AT ?? "").trim());
+      setArticlePriceDecimals(
+        await getArticleDecimalsFromSqlConfig().catch(() => 2),
+      );
     } catch (e) {
       setLastSyncAt("");
       setScreenConfig((current) => ({
@@ -252,6 +261,7 @@ export default function HomeScreen({ navigation }) {
         useProductImage: false,
         productImageHomeSize: "MEDIUM",
       }));
+      setArticlePriceDecimals(2);
     }
   }, []);
 
@@ -346,6 +356,16 @@ export default function HomeScreen({ navigation }) {
   const productImageSize =
     IMAGE_SIZE_MAP[screenConfig.productImageHomeSize] || IMAGE_SIZE_MAP.MEDIUM;
   const syncLabel = useMemo(() => formatRelativeSync(lastSyncAt), [lastSyncAt]);
+  const scanPreviewProduct = useMemo(() => {
+    if (!article) {
+      return null;
+    }
+
+    return {
+      ...article,
+      companyName: String(article?.companyName ?? "").trim(),
+    };
+  }, [article]);
 
   const handleSearch = useCallback(async (rawValue, source = "manual") => {
     if (searchInProgressRef.current) {
@@ -497,6 +517,7 @@ export default function HomeScreen({ navigation }) {
         setPreviewFormat(format);
         const layout = buildPrintableLayout(format, previewArticle, {
           companyName,
+          priceDecimals: articlePriceDecimals,
         });
         console.log("[PRINT_PREVIEW] enabled", true);
         console.log("[PRINT_PREVIEW] format", key);
@@ -511,6 +532,7 @@ export default function HomeScreen({ navigation }) {
         setPreviewFormat(fallbackFormat);
         const layout = buildPrintableLayout(fallbackFormat, previewArticle, {
           companyName,
+          priceDecimals: articlePriceDecimals,
         });
         console.log("[PRINT_PREVIEW] enabled", true);
         console.log("[PRINT_PREVIEW] format", key);
@@ -522,7 +544,7 @@ export default function HomeScreen({ navigation }) {
       }
       setPreviewModalVisible(true);
     },
-    [article, loadPreviewFormat],
+    [article, loadPreviewFormat, articlePriceDecimals],
   );
 
   const refreshPreviewDesign = useCallback(async () => {
@@ -539,22 +561,16 @@ export default function HomeScreen({ navigation }) {
 
     setRefreshingDesign(true);
     try {
-      const sqlFormats = await syncPrintFormatsFromSql();
-      const key = String(previewFormatKey ?? "product")
-        .trim()
-        .toLowerCase();
+      if (__DEV__) {
+        console.time?.("actualizarDiseno");
+      }
       const companyName = await resolvePreviewCompanyName(printableArticle);
       const previewArticle = {
         ...printableArticle,
         companyName,
       };
-      const nextFormat =
-        sqlFormats?.[key] ||
-        (await loadPreviewFormat(key)) ||
-        getDefaultPrintFormat(key);
-
-      setPreviewFormat(nextFormat);
       setPreviewProduct(previewArticle);
+      setMessage("Diseño actualizado");
       console.log("[PRINT_SYNC] preview refreshed");
     } catch (error) {
       console.log("[PRINT_SYNC] refresh failed", error?.message || error);
@@ -563,12 +579,13 @@ export default function HomeScreen({ navigation }) {
         "No se pudieron sincronizar los diseños desde SQL.",
       );
     } finally {
+      if (__DEV__) {
+        console.timeEnd?.("actualizarDiseno");
+      }
       setRefreshingDesign(false);
     }
   }, [
     article,
-    loadPreviewFormat,
-    previewFormatKey,
     previewProduct,
     resolvePreviewCompanyName,
     refreshingDesign,
@@ -805,6 +822,14 @@ export default function HomeScreen({ navigation }) {
     previewFormat || getDefaultPrintFormat(previewFormatKey);
   const previewProductToShow =
     previewProduct || article || latestArticleRef.current;
+  const previewPaperWidthMm = Number(
+    previewFormatToShow?.paperWidthMm ??
+      previewFormatToShow?.AnchoPapelMm ??
+      previewFormatToShow?.anchoPapelMm ??
+      previewFormatToShow?.customPaperWidth ??
+      previewFormatToShow?.paperWidth ??
+      80,
+  );
   const printerStatusLabel =
     printerStatus.mode === "SIMULATION"
       ? "Impresora no detectada. Modo simulación activo."
@@ -1000,7 +1025,7 @@ export default function HomeScreen({ navigation }) {
               <Text
                 style={[styles.previewBadgeText, { color: themeStyles.text }]}
               >
-                Ancho: {String(previewFormatToShow?.paperWidthMm ?? 80)} mm
+                Ancho: {String(previewPaperWidthMm || 80)} mm
               </Text>
             </View>
 
@@ -1012,6 +1037,7 @@ export default function HomeScreen({ navigation }) {
                 title="Vista de etiqueta"
                 format={previewFormatToShow}
                 product={previewProductToShow}
+                priceDecimals={articlePriceDecimals}
                 editable={false}
                 showGrid={false}
                 showHint={false}
@@ -1271,7 +1297,7 @@ export default function HomeScreen({ navigation }) {
                         { color: themeStyles.accentDark },
                       ]}
                     >
-                      {formatCurrency(article.precio)}
+                      {formatCurrency(article.precio, articlePriceDecimals)}
                     </Text>
                   </View>
                 </View>
@@ -1358,6 +1384,44 @@ export default function HomeScreen({ navigation }) {
                     </Text>
                   </View>
                 ) : null}
+              </View>
+
+              <View
+                style={[
+                  styles.scanPreviewCard,
+                  {
+                    backgroundColor: themeStyles.surfaceAlt,
+                    borderColor: themeStyles.border,
+                  },
+                ]}
+              >
+                <View style={styles.scanPreviewHeader}>
+                  <Text
+                    style={[
+                      styles.scanPreviewTitle,
+                      { color: themeStyles.text },
+                    ]}
+                  >
+                    Plantilla predeterminada
+                  </Text>
+                  <Text
+                    style={[
+                      styles.scanPreviewMeta,
+                      { color: themeStyles.muted },
+                    ]}
+                  >
+                    Vista desactivada
+                  </Text>
+                </View>
+
+                <Text
+                  style={[
+                    styles.scanPreviewEmptyText,
+                    { color: themeStyles.muted },
+                  ]}
+                >
+                  Vista previa temporalmente desactivada.
+                </Text>
               </View>
             </View>
           ) : (
@@ -1636,6 +1700,34 @@ const styles = StyleSheet.create({
   },
   detailBlock: {
     marginTop: 6,
+  },
+  scanPreviewCard: {
+    marginTop: 12,
+    borderRadius: Radii.lg,
+    borderWidth: 1,
+    padding: 12,
+    gap: 10,
+  },
+  scanPreviewHeader: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  scanPreviewTitle: {
+    fontFamily: Fonts.display,
+    fontSize: 15,
+    flex: 1,
+  },
+  scanPreviewMeta: {
+    fontFamily: Fonts.body,
+    fontSize: 12,
+    textAlign: "right",
+  },
+  scanPreviewEmptyText: {
+    fontFamily: Fonts.body,
+    fontSize: 13,
+    lineHeight: 18,
   },
   articleRow: {
     flexDirection: "row",

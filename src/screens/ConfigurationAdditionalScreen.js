@@ -168,7 +168,7 @@ export default function ConfigurationAdditionalScreen({ navigation }) {
         PRODUCT_IMAGE_ALLOWED_EXTENSIONS: config.PRODUCT_IMAGE_ALLOWED_EXTENSIONS,
         PRODUCT_IMAGE_HOME_SIZE: config.PRODUCT_IMAGE_HOME_SIZE,
       };
-      for (const [key, value] of Object.entries(payload)) {
+      for (const [key, value] of Object.entries(payload || {})) {
         await Configuration.setConfigValue(key, String(value ?? "").trim());
       }
       await loadConfiguration();

@@ -6,7 +6,9 @@ import PrintCanvas from "@components/print/PrintCanvas";
 export default function PrintPreview({
   title = "Vista previa",
   format,
+  layout,
   product,
+  priceDecimals,
   selectedElementKey,
   onSelectElement,
   onMoveElement,
@@ -17,10 +19,12 @@ export default function PrintPreview({
 }) {
   return (
     <View>
-      <Text style={[styles.title, { color: theme.text }]}>{title}</Text>
+      {title ? <Text style={[styles.title, { color: theme.text }]}>{title}</Text> : null}
       <PrintCanvas
         format={format}
+        layout={layout}
         product={product}
+        priceDecimals={priceDecimals}
         editable={editable}
         selectedElementKey={selectedElementKey}
         onSelectElement={onSelectElement}

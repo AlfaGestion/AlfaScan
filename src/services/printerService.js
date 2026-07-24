@@ -1,6 +1,10 @@
 import { NativeModules } from "react-native";
 
-import { getCatalogConfig, getCompanyNameFromSqlConfig } from "@services/catalogService";
+import {
+  getArticleDecimalsFromSqlConfig,
+  getCatalogConfig,
+  getCompanyNameFromSqlConfig,
+} from "@services/catalogService";
 import {
   getDefaultPrintFormat,
   getPrinterStatus,
@@ -9,6 +13,7 @@ import {
   printLabel,
   printSimpleProductLabel,
 } from "@services/sunmiPrinterService";
+import { getDefaultScanReportTemplate } from "@services/scanReportService";
 
 const FRIENDLY_PRINT_ERROR_MESSAGE = "No se pudo imprimir. Revisá la impresora y volvé a intentar.";
 
@@ -39,15 +44,16 @@ const resolveCompanyName = async ({ article, companyName } = {}) => {
 
 export const printArticle = async ({
   article,
-  formatKey = "product",
+  formatKey = null,
   format = null,
   companyName = "",
+  printTestMode = false,
 } = {}) => {
   if (!article) {
     throw new Error("Buscá un artículo antes de imprimir.");
   }
 
-  const normalizedKey = normalizeFormatKey(formatKey);
+  const normalizedKey = formatKey ? normalizeFormatKey(formatKey) : "";
   const status = await initPrinter();
   const printerAvailable = Boolean(status?.available ?? getPrinterStatus().available);
 
@@ -59,14 +65,23 @@ export const printArticle = async ({
 
   const diagnosticsModule = NativeModules?.SunmiDiagnostics;
   const resolvedCompanyName = await resolveCompanyName({ article, companyName });
+  const articlePriceDecimals = await getArticleDecimalsFromSqlConfig().catch(
+    () => 2,
+  );
+  const defaultScanTemplate =
+    !format && !normalizedKey
+      ? await getDefaultScanReportTemplate().catch(() => null)
+      : null;
 
   if (diagnosticsModule && typeof diagnosticsModule.printSimpleProductLabel === "function") {
     return await printSimpleProductLabel({
-      formatKey: normalizedKey,
+      formatKey: normalizedKey || defaultScanTemplate?.Codigo || "product",
       article,
-      format,
+      format: format || defaultScanTemplate || null,
       companyName: resolvedCompanyName,
       copies: 1,
+      printTestMode: Boolean(printTestMode),
+      priceDecimals: articlePriceDecimals,
     });
   }
 
@@ -76,7 +91,11 @@ export const printArticle = async ({
   const resolvedFormat =
     format && typeof format === "object"
       ? format
-      : (await loadPrintFormats().catch(() => null))?.[normalizedKey] || (!isOnlineMode ? getDefaultPrintFormat(normalizedKey) : null);
+      : defaultScanTemplate ||
+        (normalizedKey
+          ? (await loadPrintFormats().catch(() => null))?.[normalizedKey]
+          : null) ||
+        (!isOnlineMode && normalizedKey ? getDefaultPrintFormat(normalizedKey) : null);
   if (!resolvedFormat) {
     throw new Error("No se pudo cargar el diseño de impresión desde SQL.");
   }
@@ -88,6 +107,7 @@ export const printArticle = async ({
     },
     {
       companyName: resolvedCompanyName,
+      priceDecimals: articlePriceDecimals,
     },
   );
 

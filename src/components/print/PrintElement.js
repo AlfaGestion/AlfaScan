@@ -237,7 +237,40 @@ function PrintElement({
     );
   }
 
-  if (element.type === "separator") {
+  if (element.type === "rectangulo") {
+    return (
+      <View
+        style={[
+          wrapperStyle,
+          styles.rectangleWrapper,
+          {
+            backgroundColor: "transparent",
+          },
+        ]}
+        {...(editable ? panResponder.panHandlers : {})}
+      >
+        <View
+          style={[
+            styles.rectangleBox,
+            {
+              borderColor: element.color || "#111827",
+              borderWidth: Math.max(
+                1,
+                Math.round(Number(element.borderWidth ?? 2) || 2),
+              ),
+            },
+          ]}
+        />
+        {selected ? (
+          <Text style={styles.selectionLabel}>
+            {element.label || "Rectángulo"}
+          </Text>
+        ) : null}
+      </View>
+    );
+  }
+
+  if (element.type === "separator" || element.type === "linea") {
     const thickness = Math.max(
       2,
       Math.round(Number(element.separatorThickness ?? 2) || 2),
@@ -309,12 +342,12 @@ export default memo(PrintElement);
 const styles = StyleSheet.create({
   wrapper: {
     position: "absolute",
-    padding: 4,
     borderRadius: 12,
     backgroundColor: "rgba(255,255,255,0.35)",
     borderWidth: 1,
     borderColor: "transparent",
-    justifyContent: "center",
+    justifyContent: "flex-start",
+    alignItems: "flex-start",
   },
   selected: {
     borderColor: "#1E88E5",
@@ -323,6 +356,9 @@ const styles = StyleSheet.create({
   text: {
     fontFamily: Fonts.display,
     color: "#111827",
+    width: "100%",
+    includeFontPadding: false,
+    textAlignVertical: "top",
   },
   selectionLabel: {
     marginTop: 2,
@@ -355,6 +391,7 @@ const styles = StyleSheet.create({
     color: "#111827",
     textAlign: "center",
     includeFontPadding: false,
+    textAlignVertical: "center",
   },
   barcodeWrapper: {
     padding: 0,
@@ -375,6 +412,16 @@ const styles = StyleSheet.create({
   logoText: {
     marginTop: 2,
     fontFamily: Fonts.display,
+  },
+  rectangleWrapper: {
+    padding: 0,
+    backgroundColor: "transparent",
+  },
+  rectangleBox: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 2,
+    backgroundColor: "transparent",
   },
   separatorLine: {
     width: "100%",

@@ -6,6 +6,7 @@ import AboutScreen from "@screens/AboutScreen";
 import ConfigurationAdditionalScreen from "@screens/ConfigurationAdditionalScreen";
 import ConfigurationScreen from "@screens/configurationScreen";
 import HomeScreen from "@screens/homeScreen";
+import PrintCalibrationScreen from "@screens/PrintCalibrationScreen";
 import PrintConfigurationScreen from "@screens/PrintConfigurationScreen";
 import PrintHistoryScreen from "@screens/PrintHistoryScreen";
 import SunmiDiagnosticsScreen from "@screens/SunmiDiagnosticsScreen";
@@ -37,11 +38,11 @@ const HomeStack = () => {
         }}
       >
         <Stack.Screen name="HomeScreen" component={HomeScreen} options={{ headerShown: false }} />
-        <Stack.Screen name="ConfigurationScreen" component={ConfigurationScreen} options={{ title: "Configuración" }} />
+        <Stack.Screen name="ConfigurationScreen" component={ConfigurationScreen} options={{ title: "ConfiguraciÃ³n" }} />
         <Stack.Screen
           name="ConfigurationAdditionalScreen"
           component={ConfigurationAdditionalScreen}
-          options={{ title: "Configuración adicional" }}
+          options={{ title: "ConfiguraciÃ³n adicional" }}
         />
         <Stack.Screen
           name="PrintConfigurationScreen"
@@ -49,16 +50,21 @@ const HomeStack = () => {
           options={{ title: "Configurar impresión" }}
         />
         <Stack.Screen
+          name="PrintCalibrationScreen"
+          component={PrintCalibrationScreen}
+          options={{ title: "CalibraciÃ³n de impresión" }}
+        />
+        <Stack.Screen
           name="SunmiDiagnosticsScreen"
           component={SunmiDiagnosticsScreen}
-          options={{ title: "Diagnóstico Sunmi" }}
+          options={{ title: "Diagnostico Sunmi" }}
         />
-        <Stack.Screen name="SyncScreen" component={SyncScreen} options={{ title: "Sincronización" }} />
+        <Stack.Screen name="SyncScreen" component={SyncScreen} options={{ title: "SincronizaciÃ³n" }} />
         <Stack.Screen name="ProductsScreen" component={ProductsScreen} options={{ title: "Productos" }} />
-        <Stack.Screen name="ProductScreen" component={ProductScreen} options={{ title: "Ficha de artículo" }} />
+        <Stack.Screen name="ProductScreen" component={ProductScreen} options={{ title: "Ficha de artÃ­culo" }} />
         <Stack.Screen name="ProductStockScreen" component={ProductStockScreen} options={{ title: "Consulta de stock" }} />
         <Stack.Screen name="PrintHistoryScreen" component={PrintHistoryScreen} options={{ title: "Historial de impresiones" }} />
-        <Stack.Screen name="AboutScreen" component={AboutScreen} options={{ title: "Acerca de / versión" }} />
+        <Stack.Screen name="AboutScreen" component={AboutScreen} options={{ title: "Acerca de / versiÃ³n" }} />
       </Stack.Navigator>
     </NavigationContainer>
   );

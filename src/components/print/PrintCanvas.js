@@ -11,7 +11,9 @@ const GRID_STEP = 24;
 
 export default function PrintCanvas({
   format,
+  layout: layoutOverride,
   product,
+  priceDecimals,
   editable = true,
   selectedElementKey = null,
   onSelectElement,
@@ -22,10 +24,18 @@ export default function PrintCanvas({
   theme,
 }) {
   const [availableWidth, setAvailableWidth] = useState(0);
+  const safeFormat = format && typeof format === "object" ? format : {};
+  const safeProduct = product && typeof product === "object" ? product : {};
+  const safeLayoutOverride =
+    layoutOverride && typeof layoutOverride === "object" ? layoutOverride : null;
 
   const layout = useMemo(
-    () => buildPrintableLayout(format, product),
-    [format, product],
+    () =>
+      safeLayoutOverride ||
+      buildPrintableLayout(safeFormat, safeProduct, {
+        priceDecimals,
+      }),
+    [priceDecimals, safeFormat, safeLayoutOverride, safeProduct],
   );
   const fitScale = useMemo(() => {
     if (!availableWidth) {
@@ -39,9 +49,9 @@ export default function PrintCanvas({
 
   useEffect(() => {
     if (__DEV__) {
-      console.log("[PREVIEW] rendered items", layout.items.length);
+      console.log("[PREVIEW] rendered items", Array.isArray(layout.items) ? layout.items.length : 0);
     }
-  }, [layout.items.length]);
+  }, [layout.items]);
 
   const handleMove = (key, nextX, nextY) => {
     if (!onMoveElement) {
@@ -138,15 +148,14 @@ export default function PrintCanvas({
 
 const styles = StyleSheet.create({
   wrap: {
-    alignItems: "center",
-    justifyContent: "center",
+    alignItems: "flex-start",
+    justifyContent: "flex-start",
   },
   paper: {
     position: "relative",
     borderWidth: 1,
     borderRadius: 18,
     overflow: "hidden",
-    padding: 4,
     marginBottom: 10,
   },
   hint: {

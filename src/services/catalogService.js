@@ -735,6 +735,51 @@ export const getCompanyNameFromSqlConfig = async () => {
   }
 };
 
+const parseConfiguredDecimals = (value, fallback = 2) => {
+  const parsed = Math.round(Number(String(value ?? "").trim().replace(",", ".")));
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > 6) {
+    return fallback;
+  }
+  return parsed;
+};
+
+export const getArticleDecimalsFromSqlConfig = async () => {
+  await Configuration.createTable();
+
+  const cached = String(
+    (await Configuration.getConfigValue("CANTIDADDECIMALESARTICULOS").catch(
+      () => "",
+    )) || "",
+  ).trim();
+  if (cached !== "") {
+    return parseConfiguredDecimals(cached, 2);
+  }
+
+  const config = await loadSqlConfig().catch(() => null);
+  if (!config || config.mode !== "ONLINE") {
+    return 2;
+  }
+
+  try {
+    const query = `
+      SELECT TOP 1 LTRIM(RTRIM(ISNULL(Valor, ''))) AS articleDecimals
+      FROM [dbo].[TA_CONFIGURACION]
+      WHERE LTRIM(RTRIM(ISNULL(Clave, ''))) = 'CANTIDADDECIMALESARTICULOS'
+    `;
+    const rows = await executeSqlServerQuery(query, config);
+    const decimals = parseConfiguredDecimals(rows?.[0]?.articleDecimals, 2);
+
+    await Configuration.setConfigValue(
+      "CANTIDADDECIMALESARTICULOS",
+      String(decimals),
+    ).catch(() => {});
+
+    return decimals;
+  } catch (error) {
+    return 2;
+  }
+};
+
 export const findCatalogByCodes = async ({
   codes = [],
   classPrice = 1,
@@ -960,6 +1005,7 @@ const CatalogService = {
   findCatalogByBarcodePrefix,
   syncCatalogToLocal,
   readCatalogConfigSummary,
+  getArticleDecimalsFromSqlConfig,
 };
 
 export default CatalogService;

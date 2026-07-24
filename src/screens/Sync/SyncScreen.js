@@ -8,6 +8,7 @@ import { Fonts, Radii, Shadow } from "@styles/Theme";
 import { useThemeConfig } from "@context/ThemeContext";
 import Configuration from "@db/Configuration";
 import { syncCatalogToLocal } from "@services/catalogService";
+import { syncScanReportsFromSql } from "@services/scanReportService";
 
 const formatDateTime = (value) => {
   if (!value) {
@@ -71,18 +72,53 @@ export default function SyncScreen({ navigation }) {
     setStatus("");
 
     try {
-      const result = await syncCatalogToLocal({
-        onProgress: ({ inserted, page }) => {
-          setStatus(`Sincronizando catalogo... ${inserted} registros importados (lote ${page}).`);
-        },
-      });
+      let catalogSummary = null;
+      let scanSummary = null;
+
+      try {
+        catalogSummary = await syncCatalogToLocal({
+          onProgress: ({ inserted, page }) => {
+            setStatus(`Sincronizando catalogo... ${inserted} registros importados (lote ${page}).`);
+          },
+        });
+      } catch (catalogError) {
+        catalogSummary = null;
+        setStatus(catalogError?.message || "No se pudo sincronizar el catalogo.");
+      }
+
+      try {
+        setStatus("Sincronizando plantillas de etiquetas...");
+        scanSummary = await syncScanReportsFromSql();
+      } catch (scanError) {
+        scanSummary = null;
+        if (!catalogSummary) {
+          throw scanError;
+        }
+      }
 
       const syncValue = new Date().toISOString();
       await Configuration.setConfigValue("LAST_SYNC_AT", syncValue);
       setLastSyncAt(syncValue);
-      setStatus(`Sincronizacion completada. Registros importados: ${result.inserted}.`);
+
+      const defaultName = String(scanSummary?.defaultReport?.Nombre ?? "").trim();
+      const defaultLabel = defaultName || "Sin plantilla predeterminada sincronizada";
+      setStatus(
+        [
+          "Plantillas sincronizadas",
+          `Catalogo importado: ${catalogSummary?.inserted ?? 0}`,
+          `Reportes activos: ${scanSummary?.activeReportsCount ?? 0}`,
+          `Detalles importados: ${scanSummary?.detailsCount ?? 0}`,
+          `Plantilla predeterminada: ${defaultLabel}`,
+          !catalogSummary
+            ? "Aviso: no se pudo sincronizar el catalogo."
+            : null,
+          !scanSummary
+            ? "Aviso: no se pudieron sincronizar las plantillas."
+            : null,
+        ].join("\n"),
+      );
     } catch (e) {
-      setStatus(e?.message || "No se pudo sincronizar el catalogo.");
+      setStatus(e?.message || "No se pudo sincronizar.");
     } finally {
       setSyncing(false);
     }

@@ -1,3 +1,7 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import Constants from "expo-constants";
+import { NativeModules, Platform } from "react-native";
+
 import Configuration from "@db/Configuration";
 import { getCatalogConfig } from "@services/catalogService";
 import {
@@ -5,9 +9,7 @@ import {
   savePrintFormatsToSql,
   syncPrintFormatsFromSql,
 } from "@services/printSqlService";
-import {
-  resolvePreviewFontFamily,
-} from "@services/printFontService";
+import { resolvePreviewFontFamily } from "@services/printFontService";
 
 export const PRINT_FORMAT_KEYS = ["gondola", "product", "small", "custom"];
 
@@ -23,9 +25,205 @@ export const PRINT_ALIGNMENT_OPTIONS = [
   { label: "Derecha", value: "right" },
 ];
 
-const BASE_DESIGN_WIDTH = 320;
+export const PRINTABLE_WIDTH_OPTIONS = [
+  { label: "384 px", value: "384" },
+  { label: "576 px", value: "576" },
+  { label: "Personalizado", value: "custom" },
+];
 
-const clone = (value) => JSON.parse(JSON.stringify(value));
+export const DEFAULT_PRINTABLE_WIDTH_PX = 384;
+export const DEFAULT_PRINT_OFFSET_X_PX = 0;
+export const DEFAULT_PRINT_OFFSET_Y_PX = 0;
+export const DEFAULT_PRINT_SCALE_PERCENT = 100;
+export const DEFAULT_PRINT_EXTRA_TOP_FEED_PX = 0;
+export const DEFAULT_PRINT_EXTRA_BOTTOM_FEED_PX = 0;
+const DEFAULT_ARTICLE_PRICE_DECIMALS = 2;
+const PRINT_DEVICE_CONFIG_STORAGE_PREFIX = "@alfascan/print-device-config";
+
+const BASE_DESIGN_WIDTH = 320;
+const PRINT_DEVICE_CONFIG_KEYS = {
+  printableWidthPx: "PRINTABLE_WIDTH_PX",
+  offsetX: "PRINT_OFFSET_X_PX",
+  offsetY: "PRINT_OFFSET_Y_PX",
+  scalePercent: "PRINT_SCALE_PERCENT",
+  testMode: "PRINT_TEST_MODE",
+  autoCenter: "PRINT_AUTO_CENTER",
+  removeSystemMargin: "PRINT_REMOVE_SYSTEM_MARGIN",
+  extraTopFeedPx: "PRINT_EXTRA_TOP_FEED_PX",
+  extraBottomFeedPx: "PRINT_EXTRA_BOTTOM_FEED_PX",
+};
+
+const clone = (value, fallback = null) => {
+  if (value === undefined || value === null) {
+    return fallback;
+  }
+
+  try {
+    return JSON.parse(JSON.stringify(value));
+  } catch (error) {
+    return fallback;
+  }
+};
+
+let cachedArticlePriceDecimals = DEFAULT_ARTICLE_PRICE_DECIMALS;
+let articlePriceDecimalsPromise = null;
+
+const normalizeStorageKeyPart = (value = "") =>
+  String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+const toInt = (value, fallback = 0) => {
+  const parsed = parseInt(String(value ?? "").trim(), 10);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const normalizePrintableWidthPx = (
+  value,
+  fallback = DEFAULT_PRINTABLE_WIDTH_PX,
+) => {
+  const parsed = toInt(value, fallback);
+  if (parsed === 384 || parsed === 576) {
+    return parsed;
+  }
+  return Math.max(1, parsed || fallback);
+};
+
+const normalizePrintOffsetPx = (value, fallback = 0) =>
+  Math.round(Number.isFinite(Number(value)) ? Number(value) : fallback);
+
+const normalizePrintScalePercent = (
+  value,
+  fallback = DEFAULT_PRINT_SCALE_PERCENT,
+) => {
+  const parsed = Math.round(Number(value));
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  return Math.max(10, Math.min(400, parsed || fallback));
+};
+
+const normalizePrintModeFlag = (value, fallback = false) => {
+  if (value === undefined || value === null || String(value).trim() === "") {
+    return Boolean(fallback);
+  }
+  return Configuration.isTruthyConfigValue(value);
+};
+
+const normalizePrintFeedPx = (value, fallback = 0) => {
+  const parsed = Math.round(Number(value));
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  return Math.max(0, parsed);
+};
+
+const normalizeArticlePriceDecimals = (value, fallback = DEFAULT_ARTICLE_PRICE_DECIMALS) => {
+  const parsed = Math.round(Number(String(value ?? "").trim().replace(",", ".")));
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > 6) {
+    return fallback;
+  }
+  return parsed;
+};
+
+const getFallbackDeviceSignature = () => {
+  const constants = Platform?.constants || {};
+  return [
+    constants.Manufacturer || constants.manufacturer || "",
+    constants.Brand || constants.brand || "",
+    constants.Model || constants.model || "",
+    constants.Device || constants.device || "",
+    constants.Product || constants.product || "",
+    Constants?.expoConfig?.android?.package ||
+      Constants?.manifest2?.android?.package ||
+      Constants?.manifest?.android?.package ||
+      "",
+  ]
+    .map(normalizeStorageKeyPart)
+    .filter(Boolean)
+    .join("-");
+};
+
+const buildPrintDeviceStorageKey = (signature) =>
+  `${PRINT_DEVICE_CONFIG_STORAGE_PREFIX}/${signature || "default"}`;
+
+const normalizePrintDeviceSignature = (...parts) =>
+  parts.map(normalizeStorageKeyPart).filter(Boolean).join("-");
+
+const resolvePrintDeviceStorageKeys = async () => {
+  const diagnostics = NativeModules?.SunmiDiagnostics || null;
+  let deviceInfo = null;
+  let printerInfo = null;
+
+  if (diagnostics && typeof diagnostics.getDeviceInfo === "function") {
+    deviceInfo = await diagnostics.getDeviceInfo().catch(() => null);
+  }
+
+  if (diagnostics && typeof diagnostics.getPrinterStatus === "function") {
+    printerInfo = await diagnostics.getPrinterStatus().catch(() => null);
+  }
+
+  const stableSignature = normalizePrintDeviceSignature(
+    deviceInfo?.manufacturer,
+    deviceInfo?.brand,
+    deviceInfo?.model,
+    deviceInfo?.device,
+    deviceInfo?.product,
+    deviceInfo?.packageName,
+    getFallbackDeviceSignature(),
+  );
+  const specificSignature = normalizePrintDeviceSignature(
+    printerInfo?.printerSerialNo,
+    deviceInfo?.serialNo,
+  );
+
+  const keys = [
+    specificSignature ? buildPrintDeviceStorageKey(specificSignature) : null,
+    stableSignature ? buildPrintDeviceStorageKey(stableSignature) : null,
+    buildPrintDeviceStorageKey("default"),
+  ].filter(Boolean);
+
+  return [...new Set(keys)];
+};
+
+const readLegacyPrintDeviceConfig = async () => {
+  await Configuration.createTable();
+  const [
+    printableWidthPx,
+    offsetX,
+    offsetY,
+    scalePercent,
+    testMode,
+    autoCenter,
+    removeSystemMargin,
+    extraTopFeedPx,
+    extraBottomFeedPx,
+  ] = await Promise.all([
+    Configuration.getConfigValue(PRINT_DEVICE_CONFIG_KEYS.printableWidthPx),
+    Configuration.getConfigValue(PRINT_DEVICE_CONFIG_KEYS.offsetX),
+    Configuration.getConfigValue(PRINT_DEVICE_CONFIG_KEYS.offsetY),
+    Configuration.getConfigValue(PRINT_DEVICE_CONFIG_KEYS.scalePercent),
+    Configuration.getConfigValue(PRINT_DEVICE_CONFIG_KEYS.testMode),
+    Configuration.getConfigValue(PRINT_DEVICE_CONFIG_KEYS.autoCenter),
+    Configuration.getConfigValue(PRINT_DEVICE_CONFIG_KEYS.removeSystemMargin),
+    Configuration.getConfigValue(PRINT_DEVICE_CONFIG_KEYS.extraTopFeedPx),
+    Configuration.getConfigValue(PRINT_DEVICE_CONFIG_KEYS.extraBottomFeedPx),
+  ]);
+
+  return normalizePrintDeviceConfig({
+    printableWidthPx,
+    offsetX,
+    offsetY,
+    scalePercent,
+    testMode,
+    autoCenter,
+    removeSystemMargin,
+    extraTopFeedPx,
+    extraBottomFeedPx,
+  });
+};
 
 const normalizeContractText = (value = "") =>
   String(value ?? "")
@@ -37,6 +235,437 @@ const normalizeContractText = (value = "") =>
     .replace(/[óöòô]/g, "o")
     .replace(/[úüùû]/g, "u")
     .replace(/[\s_-]+/g, "");
+
+const normalizeSqlContractType = (value = "") => {
+  const normalized = normalizeContractText(value);
+  if (!normalized) return "texto";
+  if (normalized === "dato" || normalized === "empresa") return "Dato";
+  if (
+    normalized === "texto" ||
+    normalized === "text" ||
+    normalized === "descripcion" ||
+    normalized === "description"
+  ) {
+    return "texto";
+  }
+  if (
+    normalized === "precio" ||
+    normalized === "price" ||
+    normalized === "valor"
+  ) {
+    return "precio";
+  }
+  if (
+    normalized === "codigobarra" ||
+    normalized === "codigobarras" ||
+    normalized === "barcode" ||
+    normalized === "barra" ||
+    normalized === "barras"
+  ) {
+    return "codigobarra";
+  }
+  if (
+    normalized === "codigoarticulo" ||
+    normalized === "codigointerno" ||
+    normalized === "internalcode" ||
+    normalized === "code" ||
+    normalized === "codigo"
+  ) {
+    return "codigoarticulo";
+  }
+  if (normalized === "stock") return "stock";
+  if (normalized === "textofijo" || normalized === "fixedtext")
+    return "textoFijo";
+  if (
+    normalized === "linea" ||
+    normalized === "line" ||
+    normalized === "separator" ||
+    normalized === "separador"
+  )
+    return "linea";
+  if (
+    normalized === "rectangulo" ||
+    normalized === "rectangle" ||
+    normalized === "cuadro" ||
+    normalized === "box"
+  )
+    return "rectangulo";
+  if (normalized === "logo") return "logo";
+  if (normalized === "fecha" || normalized === "date") return "texto";
+  return "texto";
+};
+
+const normalizeSqlContractCampo = (tipoElemento = "", campo = "") => {
+  const tipo = normalizeSqlContractType(tipoElemento);
+  const normalizedCampo = normalizeContractText(campo);
+
+  if (tipo === "Dato") return "Empresa";
+  if (tipo === "texto") {
+    if (normalizedCampo === "empresa" || normalizedCampo === "companyname")
+      return "Empresa";
+    if (normalizedCampo === "descripcion" || normalizedCampo === "description")
+      return "Descripcion";
+    if (normalizedCampo === "fecha" || normalizedCampo === "date")
+      return "Fecha";
+    if (normalizedCampo === "textofijo" || normalizedCampo === "fixedtext")
+      return "TextoFijo";
+    return campo ? String(campo).trim() : null;
+  }
+  if (tipo === "precio") return "Precio";
+  if (tipo === "codigobarra") return "CodigoBarra";
+  if (tipo === "codigoarticulo") return "CodigoArticulo";
+  if (tipo === "stock") return "Stock";
+  if (tipo === "linea") return "TextoFijo";
+  if (tipo === "textoFijo") return "TextoFijo";
+  if (tipo === "rectangulo" || tipo === "logo") return null;
+
+  if (normalizedCampo === "empresa" || normalizedCampo === "companyname")
+    return "Empresa";
+  if (normalizedCampo === "descripcion" || normalizedCampo === "description")
+    return "Descripcion";
+  if (normalizedCampo === "precio" || normalizedCampo === "price")
+    return "Precio";
+  if (
+    normalizedCampo === "codigobarra" ||
+    normalizedCampo === "codigobarras" ||
+    normalizedCampo === "barcode"
+  ) {
+    return "CodigoBarra";
+  }
+  if (
+    normalizedCampo === "codigoarticulo" ||
+    normalizedCampo === "codigointerno" ||
+    normalizedCampo === "internalcode"
+  ) {
+    return "CodigoArticulo";
+  }
+  if (normalizedCampo === "stock") return "Stock";
+  if (normalizedCampo === "fecha" || normalizedCampo === "date") return "Fecha";
+  if (normalizedCampo === "textofijo" || normalizedCampo === "fixedtext")
+    return "TextoFijo";
+  return campo ? String(campo).trim() : "TextoFijo";
+};
+
+const normalizeSqlContractValueKey = (campo = "", tipoElemento = "") => {
+  const normalizedCampo = normalizeContractText(campo);
+  const tipo = normalizeSqlContractType(tipoElemento);
+
+  if (
+    tipo === "Dato" ||
+    normalizedCampo === "empresa" ||
+    normalizedCampo === "companyname"
+  ) {
+    return "companyName";
+  }
+  if (normalizedCampo === "descripcion" || normalizedCampo === "description") {
+    return "description";
+  }
+  if (
+    tipo === "precio" ||
+    normalizedCampo === "precio" ||
+    normalizedCampo === "price"
+  ) {
+    return "price";
+  }
+  if (
+    tipo === "codigobarra" ||
+    normalizedCampo === "codigobarra" ||
+    normalizedCampo === "barcode"
+  ) {
+    return "barcode";
+  }
+  if (
+    tipo === "codigoarticulo" ||
+    normalizedCampo === "codigoarticulo" ||
+    normalizedCampo === "internalcode"
+  ) {
+    return "internalCode";
+  }
+  if (tipo === "stock" || normalizedCampo === "stock") return "stock";
+  if (normalizedCampo === "fecha" || normalizedCampo === "date") return "date";
+  if (normalizedCampo === "textofijo" || normalizedCampo === "fixedtext")
+    return "text";
+  if (tipo === "linea") return "separator";
+  if (tipo === "rectangulo") return "rectangulo";
+  if (tipo === "logo") return "logo";
+  return campo ? String(campo).trim() : "";
+};
+
+const isBarcodeFont = (value = "") => {
+  const normalized = normalizeContractText(value);
+  return (
+    normalized === "barcode" ||
+    normalized === "codigodebarra" ||
+    normalized === "codigobarra"
+  );
+};
+
+const isBlankText = (value) => String(value ?? "").trim() === "";
+
+const isLegacyRectangleElement = (
+  element = {},
+  tipoElemento = "",
+  campo = "",
+  fixedText = "",
+) => {
+  const normalizedType = normalizeSqlContractType(tipoElemento);
+  const normalizedCampo = normalizeContractText(campo);
+  const width = Number(element.width ?? element.Ancho ?? 0);
+  const height = Number(element.height ?? element.Alto ?? 0);
+
+  return (
+    normalizedType === "texto" &&
+    normalizedCampo === "textofijo" &&
+    isBlankText(fixedText) &&
+    width >= 80 &&
+    height >= 20
+  );
+};
+
+const getElementTextSignature = (element = {}) => {
+  const tipoElemento = normalizeSqlContractType(
+    element.TipoElemento ?? element.tipoElemento ?? element.type ?? "",
+  );
+  const campo = normalizeSqlContractCampo(
+    tipoElemento,
+    element.Campo ?? element.campo ?? element.valueKey ?? element.key,
+  );
+  const fixedText = String(
+    element.TextoFijo ?? element.textoFijo ?? element.sampleText ?? "",
+  ).trim();
+
+  return {
+    tipoElemento,
+    campo,
+    fixedText,
+    normalizedCampo: normalizeContractText(campo),
+    normalizedText: normalizeContractText(fixedText),
+  };
+};
+
+const getDuplicateTextElementReason = (element, index, allElements) => {
+  if (!element || !element.visible) {
+    return null;
+  }
+
+  const tipoElemento = String(
+    element.TipoElemento ?? element.tipoElemento ?? element.type ?? "",
+  )
+    .trim()
+    .toLowerCase();
+  if (tipoElemento !== "texto" && tipoElemento !== "text") {
+    return null;
+  }
+
+  const { fixedText, normalizedCampo, normalizedText } =
+    getElementTextSignature(element);
+  const isBlankFixedText = String(fixedText ?? "").trim() === "";
+  const isDescriptionField =
+    normalizedCampo === "descripcion" || normalizedCampo === "description";
+  const isOldFixedDescription =
+    normalizedCampo === "textofijo" &&
+    (normalizedText === "descripcion" ||
+      normalizedText === "description" ||
+      normalizedText === "{descripcion}" ||
+      normalizedText === "{description}");
+  const hasNewDescription = allElements.some((candidate, candidateIndex) => {
+    if (!candidate || candidateIndex === index || !candidate.visible) {
+      return false;
+    }
+
+    const candidateType = String(
+      candidate.TipoElemento ?? candidate.tipoElemento ?? candidate.type ?? "",
+    )
+      .trim()
+      .toLowerCase();
+    if (candidateType !== "texto" && candidateType !== "text") {
+      return false;
+    }
+
+    const candidateSignature = getElementTextSignature(candidate);
+    return (
+      candidateSignature.normalizedCampo === "descripcion" ||
+      candidateSignature.normalizedCampo === "description"
+    );
+  });
+
+  if (isOldFixedDescription && hasNewDescription) {
+    return "contrato viejo duplicado de descripcion";
+  }
+
+  if (normalizedCampo === "textofijo" && isBlankFixedText) {
+    return "textoFijo vacio o null";
+  }
+
+  return null;
+};
+
+export const replacePlaceholders = (
+  source = "",
+  product = {},
+  element = {},
+  options = {},
+) => {
+  const template = String(source ?? "").trim();
+  if (!template) return "";
+  const explicitPriceSymbol = templateHasExplicitPriceSymbol(template);
+
+  const companyName = String(
+    product.companyName ?? product.empresa ?? "",
+  ).trim();
+  const description = String(
+    product.descripcion ?? product.description ?? product.name ?? "",
+  ).trim();
+  const priceValue = product.precio ?? product.price1 ?? product.price ?? 0;
+  const barcodeValue = String(
+    product.codigoBarra ??
+      product.CodigoBarra ??
+      product.codigoBarras ??
+      product.CodigoBarras ??
+      product.barcode ??
+      product.codigo ??
+      product.Codigo ??
+      product.code ??
+      "",
+  ).trim();
+  const internalCodeValue = String(
+    product.codigoArticulo ??
+      product.CodigoArticulo ??
+      product.codigoInterno ??
+      product.CodigoInterno ??
+      product.internalCode ??
+      product.codigo ??
+      product.Codigo ??
+      product.code ??
+      "",
+  ).trim();
+  const stockValue = String(product.stock ?? product.Stock ?? "").trim();
+  const dateValue = formatDateValue(
+    product.fechaActualizacion ??
+      product.FechaActualizacion ??
+      product.date ??
+      "",
+  );
+
+  const replacements = {
+    empresa: companyName,
+    companyname: companyName,
+    descripcion: description,
+    description: description,
+    precio: formatCurrencyValue(
+      priceValue,
+      {
+        ...element,
+        showSymbol: explicitPriceSymbol ? false : element.showSymbol,
+      },
+      options,
+    ),
+    price: formatCurrencyValue(
+      priceValue,
+      {
+        ...element,
+        showSymbol: explicitPriceSymbol ? false : element.showSymbol,
+      },
+      options,
+    ),
+    codigobarra: barcodeValue || internalCodeValue,
+    codigobarras: barcodeValue || internalCodeValue,
+    barcode: barcodeValue || internalCodeValue,
+    barra: barcodeValue || internalCodeValue,
+    barras: barcodeValue || internalCodeValue,
+    codigoarticulo: internalCodeValue || barcodeValue,
+    codigointerno: internalCodeValue || barcodeValue,
+    internalcode: internalCodeValue || barcodeValue,
+    stock: stockValue,
+    fecha: dateValue,
+    date: dateValue,
+  };
+
+  return template.replace(/\{([^}]+)\}/g, (match, token) => {
+    const normalized = normalizeContractText(token);
+    if (Object.prototype.hasOwnProperty.call(replacements, normalized)) {
+      return String(replacements[normalized] ?? "");
+    }
+    return match;
+  });
+};
+
+export const renderElementValue = (
+  element = {},
+  product = {},
+  fallback = "",
+  options = {},
+) => {
+  const tipoElemento = normalizeSqlContractType(
+    element.TipoElemento ?? element.tipoElemento ?? element.type,
+  );
+  const campo = normalizeSqlContractCampo(
+    tipoElemento,
+    element.Campo ?? element.campo ?? element.valueKey ?? element.key,
+  );
+  const fixedText = String(
+    element.TextoFijo ?? element.textoFijo ?? element.sampleText ?? "",
+  ).trim();
+  if (tipoElemento === "textoFijo") {
+    if (fixedText && /\{[^}]+\}/.test(fixedText)) {
+      const rendered = replacePlaceholders(fixedText, product, element, options);
+      return String(rendered ?? "").trim();
+    }
+    return fixedText;
+  }
+  const baseValue =
+    campo === "Empresa"
+      ? (product.companyName ?? product.empresa ?? "")
+      : campo === "Descripcion"
+        ? (product.descripcion ?? product.description ?? product.name ?? "")
+        : campo === "Precio"
+          ? (product.precio ?? product.price1 ?? product.price ?? 0)
+          : campo === "CodigoBarra"
+            ? (product.codigoBarra ??
+              product.CodigoBarra ??
+              product.codigoBarras ??
+              product.CodigoBarras ??
+              product.barcode ??
+              product.codigo ??
+              product.code ??
+              "")
+            : campo === "CodigoArticulo"
+              ? (product.codigoArticulo ??
+                product.CodigoArticulo ??
+                product.codigoInterno ??
+                product.CodigoInterno ??
+                product.internalCode ??
+                product.codigo ??
+                product.code ??
+                "")
+              : campo === "Stock"
+                ? (product.stock ?? product.Stock ?? "")
+                : campo === "Fecha"
+                  ? (product.fechaActualizacion ??
+                    product.FechaActualizacion ??
+                    product.date ??
+                    "")
+                  : "";
+
+  if (tipoElemento === "rectangulo") return "";
+  if (tipoElemento === "logo") return String(fallback ?? "").trim();
+  if (tipoElemento === "linea") return fixedText || "------------";
+
+  const templateSource = fixedText;
+  if (templateSource && /\{[^}]+\}/.test(templateSource)) {
+    const rendered = replacePlaceholders(templateSource, product, element, options);
+    return String(rendered ?? "").trim();
+  }
+
+  const raw = baseValue === undefined || baseValue === null ? "" : baseValue;
+  if (campo === "Precio") {
+    return formatCurrencyValue(raw, element, options);
+  }
+  if (campo === "Fecha") {
+    return formatDateValue(raw);
+  }
+  return String(raw ?? fallback ?? "").trim();
+};
 
 const createElement = (element = {}) => ({
   key: "",
@@ -79,7 +708,9 @@ const buildFormat = (format = {}) => ({
   customPaperHeight: "",
   paperHeight: "auto",
   copies: "1",
+  marginLeft: "0",
   marginTop: "0",
+  marginRight: "0",
   marginBottom: "0",
   alignment: "center",
   showDescription: true,
@@ -520,8 +1151,8 @@ const getPaperWidthPx = (format = {}) => {
   if (String(format.paperWidth) === "80") return 320;
 
   const custom = parseInt(String(format.customPaperWidth ?? "").trim(), 10);
-  if (Number.isFinite(custom) && custom >= 200) {
-    return Math.min(custom, 420);
+  if (Number.isFinite(custom) && custom > 0) {
+    return Math.max(1, Math.round(custom * 4));
   }
 
   return 320;
@@ -539,10 +1170,19 @@ const getPaperWidthMm = (format = {}) => {
   return 80;
 };
 
+const getPaperHeightMm = (format = {}) => {
+  const explicit = parseInt(String(format.customPaperHeight ?? "").trim(), 10);
+  if (Number.isFinite(explicit) && explicit > 0) {
+    return explicit;
+  }
+
+  return 0;
+};
+
 const getPaperHeightPx = (format = {}, paperWidthPx = 320) => {
   const explicit = parseInt(String(format.customPaperHeight ?? "").trim(), 10);
-  if (Number.isFinite(explicit) && explicit >= 120) {
-    return explicit;
+  if (Number.isFinite(explicit) && explicit > 0) {
+    return Math.max(1, Math.round(explicit * 4));
   }
 
   const maxElementBottom = (
@@ -627,172 +1267,296 @@ export const mapEditorFontSizeToSunmi = (
 };
 
 const normalizeElement = (element = {}, fallback = {}) => {
-  const base = createElement(fallback);
-  const next = createElement({ ...base, ...element });
-  next.key = String(next.key ?? fallback.key ?? "").trim();
-  next.label = String(next.label ?? fallback.label ?? next.key).trim();
-  next.type = String(next.type ?? fallback.type ?? "text").trim();
-  next.visible = normalizeBoolean(element.visible, fallback.visible ?? true);
-  next.x = Number.isFinite(Number(element.x))
-    ? Number(element.x)
+  const safeElement =
+    element && typeof element === "object" && !Array.isArray(element)
+      ? element
+      : {};
+  const safeFallback =
+    fallback && typeof fallback === "object" && !Array.isArray(fallback)
+      ? fallback
+      : {};
+  const base = createElement(safeFallback);
+  const next = createElement({ ...base, ...safeElement });
+  next.key = String(next.key ?? safeFallback.key ?? "").trim();
+  next.label = String(next.label ?? safeFallback.label ?? next.key).trim();
+  next.type = String(next.type ?? safeFallback.type ?? "text").trim();
+  next.visible = normalizeBoolean(
+    safeElement.visible,
+    safeFallback.visible ?? true,
+  );
+  next.x = Number.isFinite(Number(safeElement.x))
+    ? Number(safeElement.x)
     : Number(base.x ?? 0);
-  next.y = Number.isFinite(Number(element.y))
-    ? Number(element.y)
+  next.y = Number.isFinite(Number(safeElement.y))
+    ? Number(safeElement.y)
     : Number(base.y ?? 0);
-  next.width = Number.isFinite(Number(element.width))
-    ? Number(element.width)
+  next.width = Number.isFinite(Number(safeElement.width))
+    ? Number(safeElement.width)
     : Number(base.width ?? 120);
-  next.height = Number.isFinite(Number(element.height))
-    ? Number(element.height)
+  next.height = Number.isFinite(Number(safeElement.height))
+    ? Number(safeElement.height)
     : Number(base.height ?? 36);
-  next.fontSize = Number.isFinite(Number(element.fontSize))
-    ? Number(element.fontSize)
+  next.fontSize = Number.isFinite(Number(safeElement.fontSize))
+    ? Number(safeElement.fontSize)
     : Number(base.fontSize ?? 16);
   next.fontWeight = String(
-    element.fontWeight ?? fallback.fontWeight ?? base.fontWeight ?? "400",
+    safeElement.fontWeight ??
+      safeFallback.fontWeight ??
+      base.fontWeight ??
+      "400",
   );
-  next.align = String(element.align ?? fallback.align ?? base.align ?? "left");
+  next.align = String(
+    safeElement.align ?? safeFallback.align ?? base.align ?? "left",
+  );
   next.color = String(
-    element.color ?? fallback.color ?? base.color ?? "#111827",
+    safeElement.color ?? safeFallback.color ?? base.color ?? "#111827",
   );
   next.uppercase = normalizeBoolean(
-    element.uppercase,
-    fallback.uppercase ?? false,
+    safeElement.uppercase,
+    safeFallback.uppercase ?? false,
   );
   next.italic = normalizeBoolean(
-    element.italic ?? element.italica,
-    fallback.italic ?? false,
+    safeElement.italic ?? safeElement.italica,
+    safeFallback.italic ?? false,
   );
   next.tipoFuente = String(
-    element.tipoFuente ||
-      element.TipoFuente ||
-      fallback.tipoFuente ||
+    safeElement.tipoFuente ||
+      safeElement.TipoFuente ||
+      safeFallback.tipoFuente ||
       base.tipoFuente ||
       "Default",
   ).trim();
   next.tipoElemento = String(
-    element.tipoElemento || element.TipoElemento || element.type || base.type,
+    safeElement.tipoElemento ||
+      safeElement.TipoElemento ||
+      safeElement.type ||
+      base.type,
   ).trim();
+  const legacyRectangle = isLegacyRectangleElement(
+    safeElement,
+    next.tipoElemento,
+    safeElement.Campo ??
+      safeElement.campo ??
+      safeElement.valueKey ??
+      safeElement.key,
+    safeElement.TextoFijo ??
+      safeElement.textoFijo ??
+      safeElement.sampleText ??
+      "",
+  );
+  if (legacyRectangle) {
+    next.tipoElemento = "rectangulo";
+  }
   next.TipoElemento = next.tipoElemento;
   next.fontFamily = String(
     resolvePreviewFontFamily(
-      element.tipoFuente ||
-        element.TipoFuente ||
-        element.fontFamily ||
-        fallback.fontFamily ||
+      safeElement.tipoFuente ||
+        safeElement.TipoFuente ||
+        safeElement.fontFamily ||
+        safeFallback.fontFamily ||
         base.fontFamily ||
         "Default",
     ),
   ).trim();
   next.maxLines = Math.max(
     1,
-    parseInt(String(element.maxLines ?? fallback.maxLines ?? 1), 10) || 1,
+    parseInt(String(safeElement.maxLines ?? safeFallback.maxLines ?? 1), 10) ||
+      1,
   );
-  next.zIndex = Number.isFinite(Number(element.zIndex))
-    ? Number(element.zIndex)
+  next.zIndex = Number.isFinite(Number(safeElement.zIndex))
+    ? Number(safeElement.zIndex)
     : Number(base.zIndex ?? 1);
   next.sampleText = String(
-    element.sampleText ?? fallback.sampleText ?? base.sampleText ?? "",
+    safeElement.sampleText ?? safeFallback.sampleText ?? base.sampleText ?? "",
   ).trim();
   next.valueKey = String(
-    element.valueKey ?? fallback.valueKey ?? base.valueKey ?? "",
+    safeElement.valueKey ?? safeFallback.valueKey ?? base.valueKey ?? "",
   ).trim();
   next.formatAsPrice = normalizeBoolean(
-    element.formatAsPrice,
-    fallback.formatAsPrice ?? false,
+    safeElement.formatAsPrice,
+    safeFallback.formatAsPrice ?? false,
   );
   next.showSymbol = normalizeBoolean(
-    element.showSymbol,
-    fallback.showSymbol ?? true,
+    safeElement.showSymbol,
+    safeFallback.showSymbol ?? true,
   );
   next.decimals = Math.max(
     0,
-    parseInt(String(element.decimals ?? fallback.decimals ?? 2), 10) || 0,
+    parseInt(String(safeElement.decimals ?? safeFallback.decimals ?? 2), 10) ||
+      0,
   );
   next.thousandSeparator = normalizeBoolean(
-    element.thousandSeparator,
-    fallback.thousandSeparator ?? true,
+    safeElement.thousandSeparator,
+    safeFallback.thousandSeparator ?? true,
   );
   next.barcodeType = String(
-    element.barcodeType ?? fallback.barcodeType ?? "EAN13",
+    safeElement.barcodeType ?? safeFallback.barcodeType ?? "EAN13",
   )
     .trim()
     .toUpperCase();
   next.showNumber = normalizeBoolean(
-    element.showNumber,
-    fallback.showNumber ?? true,
+    safeElement.showNumber,
+    safeFallback.showNumber ?? true,
   );
   next.separatorThickness = Math.max(
     1,
     parseInt(
-      String(element.separatorThickness ?? fallback.separatorThickness ?? 2),
+      String(
+        safeElement.separatorThickness ?? safeFallback.separatorThickness ?? 2,
+      ),
       10,
     ) || 1,
   );
+  if (legacyRectangle) {
+    next.type = "rectangulo";
+    next.key = next.key || "rectangulo";
+    next.label = next.label || "Rectangulo";
+    next.visible = true;
+    next.Campo = null;
+    next.campo = null;
+    next.valueKey = "";
+    next.sampleText = "";
+    next.TextoFijo = null;
+    next.formatAsPrice = false;
+    next.showSymbol = false;
+    next.maxLines = 1;
+  }
   return next;
 };
 
 const normalizeSqlElement = (element = {}) => {
+  const safeElement =
+    element && typeof element === "object" && !Array.isArray(element)
+      ? element
+      : {};
+  const tipoElemento = normalizeSqlContractType(
+    safeElement.TipoElemento ??
+      safeElement.tipoElemento ??
+      safeElement.type ??
+      "text",
+  );
+  const campo = normalizeSqlContractCampo(
+    tipoElemento,
+    safeElement.Campo ??
+      safeElement.campo ??
+      safeElement.valueKey ??
+      safeElement.key,
+  );
+  const fixedText = String(
+    safeElement.TextoFijo ??
+      safeElement.textoFijo ??
+      safeElement.sampleText ??
+      "",
+  ).trim();
+  const legacyRectangle = isLegacyRectangleElement(
+    safeElement,
+    tipoElemento,
+    campo,
+    fixedText,
+  );
+  const resolvedTipoElemento = legacyRectangle ? "rectangulo" : tipoElemento;
+  const valueKey = normalizeSqlContractValueKey(campo, resolvedTipoElemento);
+  const isBarcodeGraphic =
+    resolvedTipoElemento === "codigobarra" &&
+    isBarcodeFont(
+      safeElement.TipoFuente ??
+        safeElement.tipoFuente ??
+        safeElement.fontFamily,
+    );
+  const isVisible =
+    safeElement.visible !== undefined
+      ? safeElement.visible !== false
+      : safeElement.Visible !== undefined
+        ? Number(safeElement.Visible) !== 0
+        : true;
   return {
     ...createElement({}),
-    ...element,
+    ...safeElement,
     key: String(
-      element.key ?? element.valueKey ?? element.campo ?? element.Campo ?? "",
+      safeElement.key ??
+        safeElement.valueKey ??
+        safeElement.campo ??
+        safeElement.Campo ??
+        "",
     ).trim(),
-    valueKey: String(element.valueKey ?? element.key ?? "").trim(),
-    campo: element.campo ?? element.Campo ?? "",
-    Campo: element.Campo ?? element.campo ?? "",
-    type: element.type || "text",
-    visible: element.visible !== false,
-    x: Number(element.x ?? 0),
-    y: Number(element.y ?? 0),
-    width: Number(element.width ?? 120),
-    height: Number(element.height ?? 30),
-    fontSize: Number(element.fontSize ?? 16),
-    fontWeight: String(element.fontWeight ?? "400"),
-    italic: Boolean(element.italic ?? element.italica),
-    fontStyle: element.italic || element.italica ? "italic" : "normal",
-    tipoElemento: String(
-      element.tipoElemento ?? element.TipoElemento ?? element.type ?? "text",
+    valueKey: String(
+      safeElement.valueKey ??
+        safeElement.key ??
+        safeElement.Campo ??
+        safeElement.campo ??
+        "",
     ).trim(),
-    TipoElemento: String(
-      element.TipoElemento ?? element.tipoElemento ?? element.type ?? "text",
-    ).trim(),
-    tipoFuente: String(element.tipoFuente ?? element.TipoFuente ?? "Default"),
-    TipoFuente: String(element.TipoFuente ?? element.tipoFuente ?? "Default"),
+    type:
+      resolvedTipoElemento === "linea"
+        ? "separator"
+        : resolvedTipoElemento === "rectangulo"
+          ? "rectangulo"
+          : resolvedTipoElemento === "logo"
+            ? "logo"
+            : isBarcodeGraphic
+              ? "barcode"
+              : "text",
+    visible: isVisible,
+    x: Number(safeElement.x ?? safeElement.X ?? 0),
+    y: Number(safeElement.y ?? safeElement.Y ?? 0),
+    width: Number(safeElement.width ?? safeElement.Ancho ?? 120),
+    height: Number(safeElement.height ?? safeElement.Alto ?? 30),
+    fontSize: Number(safeElement.fontSize ?? safeElement.TamanoFuente ?? 16),
+    fontWeight:
+      String(safeElement.fontWeight ?? safeElement.Negrita ?? "400") === "1"
+        ? "700"
+        : String(safeElement.fontWeight ?? "400"),
+    italic: Boolean(
+      safeElement.italic ?? safeElement.italica ?? safeElement.Italica,
+    ),
+    fontStyle:
+      safeElement.italic || safeElement.italica || safeElement.Italica
+        ? "italic"
+        : "normal",
+    tipoElemento: resolvedTipoElemento,
+    TipoElemento: resolvedTipoElemento,
+    tipoFuente: String(
+      safeElement.tipoFuente ?? safeElement.TipoFuente ?? "Default",
+    ),
+    TipoFuente: String(
+      safeElement.TipoFuente ?? safeElement.tipoFuente ?? "Default",
+    ),
     fontFamily: String(
       resolvePreviewFontFamily(
-        element.tipoFuente ??
-          element.TipoFuente ??
-          element.fontFamily ??
+        safeElement.tipoFuente ??
+          safeElement.TipoFuente ??
+          safeElement.fontFamily ??
           "Default",
       ),
     ).trim(),
+    Campo: resolvedTipoElemento === "rectangulo" ? null : campo,
+    campo: resolvedTipoElemento === "rectangulo" ? null : campo,
     align: ["left", "center", "right"].includes(
-      String(element.align ?? "").toLowerCase(),
+      String(safeElement.align ?? safeElement.Alineacion ?? "").toLowerCase(),
     )
-      ? String(element.align).toLowerCase()
+      ? String(safeElement.align ?? safeElement.Alineacion).toLowerCase()
       : "left",
-    uppercase: Boolean(element.uppercase),
-    maxLines: Number(element.maxLines ?? 1),
-    zIndex: Number(element.zIndex ?? 1),
-    sampleText: String(element.sampleText ?? ""),
+    uppercase: Boolean(safeElement.uppercase ?? safeElement.Mayuscula),
+    maxLines: Number(safeElement.maxLines ?? safeElement.MaxLineas ?? 1),
+    zIndex: Number(safeElement.zIndex ?? safeElement.Orden ?? 1),
+    sampleText: resolvedTipoElemento === "rectangulo" ? "" : fixedText,
+    TextoFijo: resolvedTipoElemento === "rectangulo" ? null : fixedText,
     formatAsPrice:
-      String(element.key ?? "").trim() === "price" ||
-      normalizeContractText(element.campo ?? element.Campo ?? "") === "precio",
+      resolvedTipoElemento === "precio" ||
+      normalizeContractText(campo) === "precio",
     showSymbol:
-      String(element.key ?? "").trim() === "price" ||
-      normalizeContractText(element.campo ?? element.Campo ?? "") === "precio",
-    showNumber:
-      String(element.key ?? "").trim() === "barcode"
-        ? element.showNumber === true
-        : true,
+      resolvedTipoElemento === "precio" ||
+      normalizeContractText(campo) === "precio",
+    showNumber: isBarcodeGraphic
+      ? element.showNumber === true || Number(element.ShowNumber) === 1
+      : true,
     barcodeType: String(element.barcodeType ?? element.BarcodeType ?? "EAN13")
       .trim()
       .toUpperCase(),
     separatorThickness: Math.max(
       1,
-      Number(element.separatorThickness ?? element.SeparatorThickness ?? 2) || 2,
+      Number(element.separatorThickness ?? element.SeparatorThickness ?? 2) ||
+        2,
     ),
   };
 };
@@ -819,7 +1583,9 @@ const migrateLegacyFormat = (
       raw.paperHeight ?? fallbackTemplate.paperHeight ?? "auto",
     ),
     copies: String(raw.copies ?? fallbackTemplate.copies ?? "1"),
+    marginLeft: String(raw.marginLeft ?? fallbackTemplate.marginLeft ?? "0"),
     marginTop: String(raw.marginTop ?? fallbackTemplate.marginTop ?? "0"),
+    marginRight: String(raw.marginRight ?? fallbackTemplate.marginRight ?? "0"),
     marginBottom: String(
       raw.marginBottom ?? fallbackTemplate.marginBottom ?? "0",
     ),
@@ -919,61 +1685,168 @@ const normalizeSqlPrintFormat = (
 ) => {
   const rawElements = Array.isArray(raw.elements) ? raw.elements : [];
   const elements = rawElements.map((element) => normalizeSqlElement(element));
+  const fallbackWidthMm = toInt(fallbackTemplate.paperWidth, 80);
+  const widthMm = (() => {
+    const explicitWidth = toInt(
+      raw.AnchoPapelMm ?? raw.anchoPapelMm ?? raw.paperWidthMm,
+      0,
+    );
+    if (explicitWidth > 0) {
+      return explicitWidth;
+    }
+
+    const paperWidth = String(raw.paperWidth ?? "")
+      .trim()
+      .toLowerCase();
+    const customWidth = toInt(
+      raw.customPaperWidth ?? raw.AnchoPapelMm ?? raw.anchoPapelMm,
+      0,
+    );
+    if (paperWidth === "custom" && customWidth > 0) {
+      return customWidth;
+    }
+
+    const parsedPaperWidth = toInt(raw.paperWidth, 0);
+    if (parsedPaperWidth > 0) {
+      return parsedPaperWidth;
+    }
+
+    return fallbackWidthMm;
+  })();
+  const heightMm = (() => {
+    const explicitHeight = toInt(
+      raw.AltoMm ?? raw.altoMm ?? raw.paperHeightMm,
+      0,
+    );
+    if (explicitHeight > 0) {
+      return explicitHeight;
+    }
+
+    const customHeight = toInt(raw.customPaperHeight, 0);
+    if (customHeight > 0) {
+      return customHeight;
+    }
+
+    return 0;
+  })();
 
   return {
     ...fallbackTemplate,
     ...raw,
     __source: "SQL",
-    key: String(raw.key ?? fallbackTemplate.key ?? "").trim(),
-    name: String(raw.name ?? fallbackTemplate.name ?? ""),
-    paperWidth: String(raw.paperWidth ?? fallbackTemplate.paperWidth ?? "80"),
-    customPaperWidth: String(
-      raw.customPaperWidth ?? fallbackTemplate.customPaperWidth ?? "",
+    key: String(
+      raw.key ?? raw.Codigo ?? raw.codigo ?? fallbackTemplate.key ?? "",
+    ).trim(),
+    name: String(raw.name ?? raw.Nombre ?? fallbackTemplate.name ?? ""),
+    description: String(
+      raw.description ?? raw.Descripcion ?? fallbackTemplate.description ?? "",
     ),
-    customPaperHeight: String(
-      raw.customPaperHeight ?? fallbackTemplate.customPaperHeight ?? "",
-    ),
-    paperHeight: String(
-      raw.paperHeight ?? fallbackTemplate.paperHeight ?? "auto",
-    ),
+    paperWidth: widthMm === 58 || widthMm === 80 ? String(widthMm) : "custom",
+    customPaperWidth:
+      widthMm === 58 || widthMm === 80
+        ? ""
+        : String(
+            raw.customPaperWidth ??
+              raw.AnchoPapelMm ??
+              raw.anchoPapelMm ??
+              widthMm ??
+              "",
+          ),
+    customPaperHeight:
+      heightMm > 0
+        ? String(heightMm)
+        : String(
+            raw.customPaperHeight ?? fallbackTemplate.customPaperHeight ?? "",
+          ),
+    paperHeight:
+      heightMm > 0
+        ? "custom"
+        : String(raw.paperHeight ?? fallbackTemplate.paperHeight ?? "auto"),
     copies: String(raw.copies ?? fallbackTemplate.copies ?? "1"),
-    marginTop: String(raw.marginTop ?? fallbackTemplate.marginTop ?? "0"),
+    marginLeft: String(
+      raw.marginLeft ??
+        raw.MargenIzq ??
+        raw.MargenIzqMm ??
+        fallbackTemplate.marginLeft ??
+        "0",
+    ),
+    marginTop: String(
+      raw.marginTop ??
+        raw.MargenSub ??
+        raw.MargenSupMm ??
+        fallbackTemplate.marginTop ??
+        "0",
+    ),
+    marginRight: String(
+      raw.marginRight ??
+        raw.MargenDer ??
+        raw.MargenDerMm ??
+        fallbackTemplate.marginRight ??
+        "0",
+    ),
     marginBottom: String(
-      raw.marginBottom ?? fallbackTemplate.marginBottom ?? "0",
+      raw.marginBottom ??
+        raw.MargenInf ??
+        raw.MargenInfMm ??
+        fallbackTemplate.marginBottom ??
+        "0",
     ),
     alignment: String(raw.alignment ?? fallbackTemplate.alignment ?? "center"),
     showDescription: elements.some(
       (item) =>
-        item.visible && String(item.key ?? "").toLowerCase() === "description",
+        item.visible &&
+        normalizeContractText(
+          item.Campo ?? item.campo ?? item.valueKey ?? item.key ?? "",
+        ) === "descripcion",
     ),
     showPrice: elements.some(
       (item) =>
-        item.visible && String(item.key ?? "").toLowerCase() === "price",
+        item.visible &&
+        normalizeContractText(
+          item.Campo ?? item.campo ?? item.valueKey ?? item.key ?? "",
+        ) === "precio",
     ),
     showBarcode: elements.some(
       (item) =>
-        item.visible && String(item.key ?? "").toLowerCase() === "barcode",
+        item.visible &&
+        normalizeContractText(
+          item.Campo ?? item.campo ?? item.valueKey ?? item.key ?? "",
+        ) === "codigobarra",
     ),
     showStock: elements.some(
       (item) =>
-        item.visible && String(item.key ?? "").toLowerCase() === "stock",
+        item.visible &&
+        normalizeContractText(
+          item.Campo ?? item.campo ?? item.valueKey ?? item.key ?? "",
+        ) === "stock",
     ),
     showDate: elements.some(
-      (item) => item.visible && String(item.key ?? "").toLowerCase() === "date",
+      (item) =>
+        item.visible &&
+        normalizeContractText(
+          item.Campo ?? item.campo ?? item.valueKey ?? item.key ?? "",
+        ) === "fecha",
     ),
     showCompanyName: elements.some(
       (item) =>
-        item.visible && String(item.key ?? "").toLowerCase() === "companyname",
+        item.visible &&
+        normalizeContractText(
+          item.Campo ?? item.campo ?? item.valueKey ?? item.key ?? "",
+        ) === "empresa",
     ),
     showInternalCode: elements.some(
       (item) =>
         item.visible &&
-        ["internalcode", "codigointerno", "codigoarticulo"].includes(
-          String(item.key ?? "").toLowerCase(),
-        ),
+        normalizeContractText(
+          item.Campo ?? item.campo ?? item.valueKey ?? item.key ?? "",
+        ) === "codigoarticulo",
     ),
     showLogo: elements.some(
-      (item) => item.visible && String(item.key ?? "").toLowerCase() === "logo",
+      (item) =>
+        item.visible &&
+        normalizeContractText(
+          item.Campo ?? item.campo ?? item.valueKey ?? item.key ?? "",
+        ) === "logo",
     ),
     boldPrice: Boolean(
       elements.find((item) => String(item.key ?? "").toLowerCase() === "price")
@@ -1046,7 +1919,7 @@ export const normalizePrintConfig = (savedConfig) => {
 };
 
 export const normalizePrintFormats = (value) => {
-  return Object.values(normalizePrintConfig(value));
+  return Object.values(normalizePrintConfig(value) || {});
 };
 
 export const loadPrintFormats = async () => {
@@ -1104,9 +1977,18 @@ export {
   syncPrintFormatsFromSql,
 };
 
-const formatCurrencyValue = (value, element = {}) => {
+const formatCurrencyValue = (value, element = {}, options = {}) => {
   const amount = Number(value ?? 0);
-  const decimals = Math.max(0, Number(element.decimals ?? 2) || 0);
+  const decimals = Math.max(
+    0,
+    Number(
+      options.priceDecimals ??
+        options.articlePriceDecimals ??
+        element.decimals ??
+        cachedArticlePriceDecimals ??
+        DEFAULT_ARTICLE_PRICE_DECIMALS,
+    ) || 0,
+  );
   if (element.showSymbol === false) {
     return amount.toLocaleString("es-AR", {
       minimumFractionDigits: decimals,
@@ -1144,11 +2026,15 @@ const normalizeTemplateToken = (value) =>
     .toLowerCase()
     .replace(/[\s_-]+/g, "");
 
-const resolveTemplateText = (template, element = {}, product = {}) => {
+const templateHasExplicitPriceSymbol = (template = "") =>
+  /\$\s*\{(?:precio|price|valor)\}/i.test(String(template ?? ""));
+
+const resolveTemplateText = (template, element = {}, product = {}, options = {}) => {
   const rawTemplate = String(template ?? "").trim();
   if (!rawTemplate) {
     return "";
   }
+  const explicitPriceSymbol = templateHasExplicitPriceSymbol(rawTemplate);
 
   const companyName = String(product.companyName ?? "").trim();
   const description = String(product.descripcion ?? product.name ?? "").trim();
@@ -1198,9 +2084,30 @@ const resolveTemplateText = (template, element = {}, product = {}) => {
     razonsocial: companyName,
     descripcion: description,
     description: description,
-    precio: formatCurrencyValue(priceValue, element),
-    price: formatCurrencyValue(priceValue, element),
-    valor: formatCurrencyValue(priceValue, element),
+    precio: formatCurrencyValue(
+      priceValue,
+      {
+        ...element,
+        showSymbol: explicitPriceSymbol ? false : element.showSymbol,
+      },
+      options,
+    ),
+    price: formatCurrencyValue(
+      priceValue,
+      {
+        ...element,
+        showSymbol: explicitPriceSymbol ? false : element.showSymbol,
+      },
+      options,
+    ),
+    valor: formatCurrencyValue(
+      priceValue,
+      {
+        ...element,
+        showSymbol: explicitPriceSymbol ? false : element.showSymbol,
+      },
+      options,
+    ),
     code: internalCodeValue || barcodeValue,
   };
 
@@ -1215,93 +2122,8 @@ const resolveTemplateText = (template, element = {}, product = {}) => {
     .trim();
 };
 
-const formatFieldValue = (element, product = {}, fallback = "") => {
-  const key = String(element.valueKey ?? element.key ?? "").trim();
-  const normalizedKey = key.toLowerCase();
-  const lookup = {
-    description: product.descripcion ?? product.name ?? "",
-    price: product.precio ?? product.price1 ?? 0,
-    barcode:
-      product.codigoBarra ??
-      product.CodigoBarra ??
-      product.codigoBarras ??
-      product.CodigoBarras ??
-      product.barcode ??
-      product.codigo ??
-      product.Codigo ??
-      product.code ??
-      "",
-    internalCode:
-      product.codigoInterno ??
-      product.CodigoInterno ??
-      product.codigoArticulo ??
-      product.CodigoArticulo ??
-      product.internalCode ??
-      product.codigo ??
-      product.Codigo ??
-      product.code ??
-      "",
-    stock: product.stock ?? product.Stock ?? "",
-    date: product.fechaActualizacion ?? product.FechaActualizacion ?? "",
-    companyName: product.companyName ?? "",
-    empresa: product.companyName ?? "",
-    descripcion: product.descripcion ?? product.name ?? "",
-    precio: product.precio ?? product.price1 ?? 0,
-    codigobarra:
-      product.codigoBarra ??
-      product.CodigoBarra ??
-      product.codigoBarras ??
-      product.CodigoBarras ??
-      product.barcode ??
-      product.codigo ??
-      product.Codigo ??
-      product.code ??
-      "",
-    codigoarticulo:
-      product.codigoInterno ??
-      product.CodigoInterno ??
-      product.codigoArticulo ??
-      product.CodigoArticulo ??
-      product.internalCode ??
-      product.codigo ??
-      product.Codigo ??
-      product.code ??
-      "",
-    textofijo: element.sampleText ?? "",
-    logo: "ALFA",
-  };
-  const raw = lookup[key] ?? lookup[normalizedKey];
-  const templateValue = resolveTemplateText(
-    element.sampleText,
-    element,
-    product,
-  );
-  if (templateValue) {
-    return element.uppercase ? templateValue.toUpperCase() : templateValue;
-  }
-
-  if (key === "price") {
-    const value = formatCurrencyValue(raw, element);
-    return element.uppercase ? value.toUpperCase() : value;
-  }
-
-  if (key === "date") {
-    const value = formatDateValue(raw);
-    return element.uppercase ? value.toUpperCase() : value;
-  }
-
-  if (raw === undefined || raw === null || raw === "") {
-    if (key === "companyName") {
-      return fallback || "";
-    }
-    return fallback || "";
-  }
-
-  let value = String(raw).trim();
-  if (element.uppercase) {
-    value = value.toUpperCase();
-  }
-  return value || fallback || "";
+const formatFieldValue = (element, product = {}, fallback = "", options = {}) => {
+  return renderElementValue(element, product, fallback, options);
 };
 
 const resolveBarcodeType = (value) => {
@@ -1343,17 +2165,23 @@ export const renderPrintLayout = (
   const rawElements = Array.isArray(format.elements) ? format.elements : [];
   const mappedElements = rawElements
     .map((element, index) => {
-      const item = isSqlSource ? { ...element } : normalizeElement(element);
+      const safeElement =
+        element && typeof element === "object" && !Array.isArray(element)
+          ? element
+          : {};
+      const item = isSqlSource
+        ? { ...safeElement }
+        : normalizeElement(safeElement);
       if (isSqlSource) {
         item.key = String(item.key ?? item.valueKey ?? "").trim();
         item.valueKey = String(item.valueKey ?? item.key ?? "").trim();
-        item.align = String(item.align ?? element.align ?? "left").trim();
+        item.align = String(item.align ?? safeElement.align ?? "left").trim();
         item.type = String(item.type ?? "text").trim();
         item.tipoFuente = String(
           item.tipoFuente ||
-            element.TipoFuente ||
-            element.tipoFuente ||
-            element.fontFamily ||
+            safeElement.TipoFuente ||
+            safeElement.tipoFuente ||
+            safeElement.fontFamily ||
             "Default",
         ).trim();
         item.fontFamily = String(
@@ -1363,11 +2191,17 @@ export const renderPrintLayout = (
         ).trim();
       }
       const rawAlign = String(
-        element.Alineacion ?? element.alineacion ?? element.align ?? "",
+        safeElement.Alineacion ??
+          safeElement.alineacion ??
+          safeElement.align ??
+          "",
       ).trim();
       const normalizedAlign = String(item.align ?? rawAlign ?? "left").trim();
       const rawTipoFuente = String(
-        element.TipoFuente ?? element.tipoFuente ?? element.fontFamily ?? "",
+        safeElement.TipoFuente ??
+          safeElement.tipoFuente ??
+          safeElement.fontFamily ??
+          "",
       ).trim();
       const normalizedTipoFuente = String(
         item.tipoFuente || rawTipoFuente || "Default",
@@ -1408,15 +2242,22 @@ export const renderPrintLayout = (
           1,
           Math.round((Number(item.separatorThickness ?? 2) || 2) * scale),
         ),
+        orden: Number.isFinite(Number(item.orden ?? item.Orden ?? item.zIndex))
+          ? Number(item.orden ?? item.Orden ?? item.zIndex)
+          : index + 1,
+        Orden: Number.isFinite(Number(item.orden ?? item.Orden ?? item.zIndex))
+          ? Number(item.orden ?? item.Orden ?? item.zIndex)
+          : index + 1,
         sunmiFontSize: mapEditorFontSizeToSunmi(
           item.fontSize,
           item.key || item.valueKey || item.type,
           paperWidthMm,
         ),
-        value: formatFieldValue(
+        value: renderElementValue(
           item,
           resolvedProduct,
           options.fallbackText || "",
+          options,
         ),
         barcodeSymbology: resolveBarcodeType(item.barcodeType),
         renderKey: `${String(
@@ -1425,38 +2266,66 @@ export const renderPrintLayout = (
       };
     })
     .filter((item) => item.visible)
+    .filter((item, index, allItems) => {
+      const reason = getDuplicateTextElementReason(item, index, allItems);
+      if (reason && __DEV__) {
+        console.log(
+          "DUPLICADO IGNORADO:",
+          `${String(item.TipoElemento ?? item.tipoElemento ?? item.type ?? "")} | ${String(
+            item.Campo ?? item.campo ?? item.key ?? "",
+          )} | ${String(item.TextoFijo ?? item.textoFijo ?? item.sampleText ?? "")} | ${reason}`,
+        );
+      }
+      return !reason;
+    })
     .sort(
       (a, b) =>
+        a.orden - b.orden ||
         a.zIndex - b.zIndex ||
-        a.y - b.y ||
-        a.x - b.x ||
         String(a.key || "").localeCompare(String(b.key || "")),
     );
 
   if (__DEV__) {
+    console.log(
+      "TEMPLATE SIZE:",
+      `AnchoPapelMm=${paperWidthMm}`,
+      `AltoMm=${String(format.customPaperHeight ?? format.paperHeight ?? "")}`,
+      `canvasWidthPx=${paperWidthPx}`,
+      `canvasHeightPx=${paperHeightPx}`,
+    );
     console.log("[APP_LAYOUT] source", source || "LOCAL");
     console.log("[APP_LAYOUT] raw elements", rawElements.length);
     rawElements.forEach((element) => {
+      const safeElement =
+        element && typeof element === "object" && !Array.isArray(element)
+          ? element
+          : {};
       const campo = String(
-        element.Campo ??
-          element.campo ??
-          element.valueKey ??
-          element.key ??
+        safeElement.Campo ??
+          safeElement.campo ??
+          safeElement.valueKey ??
+          safeElement.key ??
           "Item",
       ).trim();
       const rawAlign = String(
-        element.Alineacion ?? element.alineacion ?? element.align ?? "",
+        safeElement.Alineacion ??
+          safeElement.alineacion ??
+          safeElement.align ??
+          "",
       ).trim();
       const rawTipoFuente = String(
-        element.TipoFuente ?? element.tipoFuente ?? element.fontFamily ?? "",
+        safeElement.TipoFuente ??
+          safeElement.tipoFuente ??
+          safeElement.fontFamily ??
+          "",
       ).trim();
       console.log(
         "[APP_LAYOUT] raw item",
         `Campo ${campo}`,
-        `TipoElemento ${String(element.TipoElemento ?? element.tipoElemento ?? element.type ?? "text")}`,
-        `type ${String(element.type ?? "text")}`,
-        `key ${String(element.key ?? "")}`,
-        `visible ${Boolean(element.visible)}`,
+        `TipoElemento ${String(safeElement.TipoElemento ?? safeElement.tipoElemento ?? safeElement.type ?? "text")}`,
+        `type ${String(safeElement.type ?? "text")}`,
+        `key ${String(safeElement.key ?? "")}`,
+        `visible ${Boolean(safeElement.visible)}`,
         `align ${rawAlign || "left"}`,
         `tipoFuente ${rawTipoFuente || "Default"}`,
       );
@@ -1484,6 +2353,7 @@ export const renderPrintLayout = (
       console.log(
         "[APP_LAYOUT] final item",
         `Campo ${campo}`,
+        `Orden ${String(item.orden ?? item.Orden ?? item.zIndex ?? 0)}`,
         `TipoElemento ${String(item.TipoElemento ?? item.tipoElemento ?? item.type ?? "text")}`,
         `type ${String(item.type ?? "")}`,
         `key ${String(item.key ?? "")}`,
@@ -1493,6 +2363,18 @@ export const renderPrintLayout = (
         `fontFamily ${String(item.fontFamily ?? "sans-serif")}`,
         `italic ${Boolean(item.italic)}`,
         `bold ${String(item.fontWeight ?? "400") === "700"}`,
+      );
+    });
+    console.log("ELEMENTOS RENDERIZADOS:");
+    mappedElements.forEach((item) => {
+      console.log(
+        `${String(item.orden ?? item.Orden ?? item.zIndex ?? 0)} | ${String(
+          item.TipoElemento ?? item.tipoElemento ?? item.type ?? "text",
+        )} | ${String(item.Campo ?? item.campo ?? item.key ?? "")} | ${String(
+          item.TextoFijo ?? item.textoFijo ?? item.sampleText ?? "",
+        )} | ${String(item.x ?? 0)} | ${String(item.y ?? 0)} | ${String(
+          item.width ?? 0,
+        )} | ${String(item.height ?? 0)} | ${String(item.value ?? "")}`,
       );
     });
     console.log("[APP_LAYOUT] final items", mappedElements.length);
@@ -1541,6 +2423,34 @@ export const buildPrintableLayout = (
   return layout;
 };
 
+export const buildRenderedElements = (
+  formatConfig = {},
+  product = {},
+  options = {},
+) => {
+  const layout = renderPrintLayout(formatConfig, product, options);
+  return Array.isArray(layout.items) ? layout.items : [];
+};
+
+export const renderTemplatePreview = (
+  template = {},
+  product = {},
+  options = {},
+) => buildPrintableLayout(template, product, options);
+
+export const renderPreviewFromElements = (
+  renderedElements = [],
+  layout = {},
+) => ({
+  ...layout,
+  items: Array.isArray(renderedElements) ? renderedElements : [],
+});
+
+export const printFromElements = (renderedElements = [], layout = {}) => ({
+  ...layout,
+  items: Array.isArray(renderedElements) ? renderedElements : [],
+});
+
 export const createSampleProduct = () => ({
   descripcion: "Nivea Deo Aerosol B&W Fresh Sin Siliconas X 150 Ml.",
   codigoBarra: "4005900985712",
@@ -1550,3 +2460,180 @@ export const createSampleProduct = () => ({
   fechaActualizacion: new Date().toISOString(),
   companyName: "Nano Distribuciones",
 });
+
+export const getDefaultPrintDeviceConfig = () => ({
+  printableWidthPx: DEFAULT_PRINTABLE_WIDTH_PX,
+  offsetX: DEFAULT_PRINT_OFFSET_X_PX,
+  offsetY: DEFAULT_PRINT_OFFSET_Y_PX,
+  scalePercent: DEFAULT_PRINT_SCALE_PERCENT,
+  testMode: false,
+  autoCenter: false,
+  removeSystemMargin: true,
+  extraTopFeedPx: DEFAULT_PRINT_EXTRA_TOP_FEED_PX,
+  extraBottomFeedPx: DEFAULT_PRINT_EXTRA_BOTTOM_FEED_PX,
+});
+
+export const normalizePrintDeviceConfig = (value = {}) => {
+  const source =
+    value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  return {
+    printableWidthPx: normalizePrintableWidthPx(
+      source.printableWidthPx ?? source.PRINTABLE_WIDTH_PX,
+      DEFAULT_PRINTABLE_WIDTH_PX,
+    ),
+    offsetX: normalizePrintOffsetPx(
+      source.offsetX ?? source.printOffsetX ?? source.PRINT_OFFSET_X_PX,
+      DEFAULT_PRINT_OFFSET_X_PX,
+    ),
+    offsetY: normalizePrintOffsetPx(
+      source.offsetY ?? source.printOffsetY ?? source.PRINT_OFFSET_Y_PX,
+      DEFAULT_PRINT_OFFSET_Y_PX,
+    ),
+    scalePercent: normalizePrintScalePercent(
+      source.scalePercent ??
+        source.printScalePercent ??
+        source.PRINT_SCALE_PERCENT,
+      DEFAULT_PRINT_SCALE_PERCENT,
+    ),
+    testMode: normalizePrintModeFlag(
+      source.testMode ?? source.printTestMode ?? source.PRINT_TEST_MODE,
+      false,
+    ),
+    autoCenter: normalizePrintModeFlag(
+      source.autoCenter ?? source.printAutoCenter ?? source.PRINT_AUTO_CENTER,
+      false,
+    ),
+    removeSystemMargin: normalizePrintModeFlag(
+      source.removeSystemMargin ??
+        source.printRemoveSystemMargin ??
+        source.PRINT_REMOVE_SYSTEM_MARGIN,
+      true,
+    ),
+    extraTopFeedPx: normalizePrintFeedPx(
+      source.extraTopFeedPx ??
+        source.printExtraTopFeedPx ??
+        source.PRINT_EXTRA_TOP_FEED_PX,
+      DEFAULT_PRINT_EXTRA_TOP_FEED_PX,
+    ),
+    extraBottomFeedPx: normalizePrintFeedPx(
+      source.extraBottomFeedPx ??
+        source.printExtraBottomFeedPx ??
+        source.PRINT_EXTRA_BOTTOM_FEED_PX,
+      DEFAULT_PRINT_EXTRA_BOTTOM_FEED_PX,
+    ),
+  };
+};
+
+export const loadPrintDeviceConfig = async () => {
+  const storageKeys = await resolvePrintDeviceStorageKeys();
+  let rawValue = null;
+
+  for (const storageKey of storageKeys) {
+    rawValue = await AsyncStorage.getItem(storageKey).catch(() => null);
+    if (rawValue) {
+      break;
+    }
+  }
+
+  if (rawValue) {
+    try {
+      return normalizePrintDeviceConfig(JSON.parse(rawValue));
+    } catch (error) {
+      if (__DEV__) {
+        console.log(
+          "[PRINT_DEVICE_CONFIG] invalid local payload, falling back to legacy",
+          error?.message || error,
+        );
+      }
+    }
+  }
+
+  const legacyConfig = await readLegacyPrintDeviceConfig().catch(() =>
+    getDefaultPrintDeviceConfig(),
+  );
+  const storageKey = storageKeys[0] || buildPrintDeviceStorageKey("default");
+  await AsyncStorage.setItem(
+    storageKey,
+    JSON.stringify({ version: 1, ...legacyConfig }),
+  ).catch(() => {});
+  return legacyConfig;
+};
+
+export const savePrintDeviceConfig = async (config = {}) => {
+  const normalized = normalizePrintDeviceConfig(config);
+  const storageKeys = await resolvePrintDeviceStorageKeys();
+  const payload = JSON.stringify({
+    version: 1,
+    ...normalized,
+  });
+
+  await Promise.all(
+    storageKeys.map((storageKey) => AsyncStorage.setItem(storageKey, payload)),
+  );
+  return normalized;
+};
+
+export const buildPrintPreviewLayout = (
+  formatConfig = {},
+  product = {},
+  deviceConfig = {},
+) => {
+  const printerConfig = normalizePrintDeviceConfig(deviceConfig);
+  const layout = buildPrintableLayout(formatConfig, product, printerConfig);
+  const printableWidthPx = Math.max(
+    1,
+    printerConfig.printableWidthPx || DEFAULT_PRINTABLE_WIDTH_PX,
+  );
+  const baseWidth = Math.max(1, Number(layout?.paperWidthPx) || 1);
+  const scalePercent = Math.max(
+    10,
+    Math.min(
+      400,
+      Number(printerConfig.scalePercent) || DEFAULT_PRINT_SCALE_PERCENT,
+    ),
+  );
+  const scale = (printableWidthPx / baseWidth) * (scalePercent / 100);
+  const offsetX = Math.round(Number(printerConfig.offsetX) || 0);
+  const offsetY = Math.round(Number(printerConfig.offsetY) || 0);
+  const translatedItems = Array.isArray(layout.items)
+    ? layout.items.map((item) => ({
+        ...item,
+        x: Math.round((Number(item.x ?? 0) || 0) * scale + offsetX),
+        y: Math.round((Number(item.y ?? 0) || 0) * scale + offsetY),
+        width: Math.max(1, Math.round((Number(item.width ?? 0) || 0) * scale)),
+        height: Math.max(
+          1,
+          Math.round((Number(item.height ?? 0) || 0) * scale),
+        ),
+        fontSize: Math.max(
+          8,
+          Math.round((Number(item.fontSize ?? 16) || 16) * scale),
+        ),
+        separatorThickness: Math.max(
+          1,
+          Math.round((Number(item.separatorThickness ?? 2) || 2) * scale),
+        ),
+      }))
+    : [];
+
+  return {
+    ...layout,
+    scale: 1,
+    paperWidthPx: printableWidthPx,
+    paperHeightPx: Math.max(
+      1,
+      Math.round((Number(layout?.paperHeightPx ?? 1) || 1) * scale) +
+        Math.max(0, offsetY),
+    ),
+    items: translatedItems,
+    printableWidthPx,
+    printOffsetX: offsetX,
+    printOffsetY: offsetY,
+    printScalePercent: scalePercent,
+    printTestMode: printerConfig.testMode,
+    printAutoCenter: printerConfig.autoCenter,
+    printRemoveSystemMargin: printerConfig.removeSystemMargin,
+    printExtraTopFeedPx: printerConfig.extraTopFeedPx,
+    printExtraBottomFeedPx: printerConfig.extraBottomFeedPx,
+  };
+};

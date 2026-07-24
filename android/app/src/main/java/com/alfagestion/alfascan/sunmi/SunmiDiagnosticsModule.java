@@ -1,7 +1,11 @@
 package com.alfagestion.alfascan.sunmi;
 
 import android.graphics.Bitmap;
+import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.Paint;
+import android.graphics.RectF;
+import android.graphics.Typeface;
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.Context;
@@ -13,6 +17,10 @@ import android.content.pm.ResolveInfo;
 import android.os.Build;
 import android.os.IBinder;
 import android.util.Log;
+import android.text.Layout;
+import android.text.StaticLayout;
+import android.text.TextPaint;
+import java.lang.reflect.Method;
 
 import com.facebook.react.bridge.Arguments;
 import com.facebook.react.bridge.Promise;
@@ -214,9 +222,27 @@ public class SunmiDiagnosticsModule extends ReactContextBaseJavaModule {
       String companyName = getStringSafe(payload, "companyName");
       int copies = Math.max(1, getIntSafe(payload, "copies", 1));
       int postPrintFeedLines = Math.max(0, getIntSafe(payload, "postPrintFeedLines", 3));
+      int paperWidthPx = Math.max(0, getIntSafe(payload, "paperWidthPx", 0));
+      int paperHeightPx = Math.max(0, getIntSafe(payload, "paperHeightPx", 0));
+      int paperWidthMm = Math.max(0, getIntSafe(payload, "paperWidthMm", 0));
+      int paperHeightMm = Math.max(0, getIntSafe(payload, "paperHeightMm", 0));
+      int printableWidthPx = Math.max(0, getIntSafe(payload, "printableWidthPx", 0));
+      int printScalePercent = Math.max(10, getIntSafe(payload, "printScalePercent", 100));
+      int printOffsetX = getIntSafe(payload, "printOffsetX", 0);
+      int printOffsetY = getIntSafe(payload, "printOffsetY", 0);
+      int printMarginLeftPx = Math.max(0, getIntSafe(payload, "printMarginLeftPx", 0));
+      int printMarginTopPx = Math.max(0, getIntSafe(payload, "printMarginTopPx", 0));
+      int printMarginRightPx = Math.max(0, getIntSafe(payload, "printMarginRightPx", 0));
+      int printMarginBottomPx = Math.max(0, getIntSafe(payload, "printMarginBottomPx", 0));
+      boolean printTestMode = getBooleanSafe(payload, "printTestMode", false);
+      boolean printAutoCenter = getBooleanSafe(payload, "printAutoCenter", false);
+      boolean printRemoveSystemMargin = getBooleanSafe(payload, "printRemoveSystemMargin", true);
+      int printExtraTopFeedPx = Math.max(0, getIntSafe(payload, "printExtraTopFeedPx", 0));
+      int printExtraBottomFeedPx = Math.max(0, getIntSafe(payload, "printExtraBottomFeedPx", 0));
+      boolean printEdgeToEdge = getBooleanSafe(payload, "printEdgeToEdge", false);
       ReadableArray items = payload.hasKey("items") && !payload.isNull("items") ? payload.getArray("items") : null;
       if (items != null && items.size() > 0) {
-        printLayoutItemsInternal(printerService, items, copies, postPrintFeedLines);
+        printLayoutItemsInternal(printerService, items, copies, postPrintFeedLines, paperWidthPx, paperHeightPx, paperWidthMm, paperHeightMm, printableWidthPx, printScalePercent, printOffsetX, printOffsetY, printMarginLeftPx, printMarginTopPx, printMarginRightPx, printMarginBottomPx, printTestMode, printAutoCenter, printRemoveSystemMargin, printExtraTopFeedPx, printExtraBottomFeedPx, printEdgeToEdge);
       } else {
         throw new Exception("El layout de impresión no contiene items.");
       }
@@ -328,6 +354,264 @@ public class SunmiDiagnosticsModule extends ReactContextBaseJavaModule {
       promise.reject("SUNMI_SCALE_TEST_ERROR", e.getMessage(), e);
     }
   }
+  @ReactMethod
+  public void printCalibrationTestPage(ReadableMap payload, Promise promise) {
+    if (printerService == null || !bound) {
+      promise.reject("SERVICE_NOT_CONNECTED", "Servicio no conectado.");
+      return;
+    }
+
+    try {
+      int paperWidthPx = Math.max(1, getIntSafe(payload, "paperWidthPx", 360));
+      int paperHeightPx = Math.max(1, getIntSafe(payload, "paperHeightPx", 240));
+      int paperWidthMm = Math.max(1, getIntSafe(payload, "paperWidthMm", 90));
+      int paperHeightMm = Math.max(1, getIntSafe(payload, "paperHeightMm", 60));
+      int printableWidthPx = Math.max(1, getIntSafe(payload, "printableWidthPx", paperWidthPx));
+      int printScalePercent = Math.max(10, getIntSafe(payload, "printScalePercent", 100));
+      int printOffsetX = getIntSafe(payload, "printOffsetX", 0);
+      int printOffsetY = getIntSafe(payload, "printOffsetY", 0);
+      String deviceModel = firstNonEmpty(
+        getStringSafe(payload, "deviceModel"),
+        getStringSafe(payload, "printerModel"),
+        getStringSafe(payload, "model"),
+        String.valueOf(Build.MODEL)
+      );
+      String formatLabel = firstNonEmpty(
+        getStringSafe(payload, "formatLabel"),
+        getStringSafe(payload, "formatName"),
+        getStringSafe(payload, "formatKey"),
+        "Etiqueta"
+      );
+
+      Log.i(TAG, "[SUNMI_CALIBRATION] start format=" + formatLabel);
+
+      Bitmap labelBitmap = renderCalibrationBitmap(
+        paperWidthPx,
+        paperHeightPx,
+        paperWidthMm,
+        paperHeightMm,
+        printableWidthPx,
+        printScalePercent,
+        printOffsetX,
+        printOffsetY,
+        deviceModel,
+        formatLabel
+      );
+      Bitmap finalBitmap = composeBitmapForPrinter(
+        labelBitmap,
+        printableWidthPx,
+        printOffsetX,
+        printOffsetY,
+        paperWidthMm,
+        paperHeightMm,
+        0,
+        0,
+        0,
+        0,
+        printScalePercent,
+        false,
+        false,
+        true,
+        0,
+        0,
+        true
+      );
+
+      Log.i(TAG, "[SUNMI_CALIBRATION] bitmap template=" + labelBitmap.getWidth() + "x" + labelBitmap.getHeight());
+      Log.i(TAG, "[SUNMI_CALIBRATION] bitmap print=" + finalBitmap.getWidth() + "x" + finalBitmap.getHeight());
+
+      callPrinterCommand(callback -> printerService.printerInit(callback));
+      callPrinterCommand(callback -> printerService.setAlignment(0, callback));
+      callPrinterCommand(callback -> printerService.printBitmap(finalBitmap, callback));
+      callPrinterCommand(callback -> printerService.lineWrap(1, callback));
+
+      WritableMap result = Arguments.createMap();
+      result.putBoolean("printed", true);
+      result.putInt("paperWidthPx", paperWidthPx);
+      result.putInt("paperHeightPx", paperHeightPx);
+      result.putInt("printableWidthPx", printableWidthPx);
+      result.putInt("printScalePercent", printScalePercent);
+      result.putInt("printOffsetX", printOffsetX);
+      result.putInt("printOffsetY", printOffsetY);
+      promise.resolve(result);
+    } catch (Exception e) {
+      lastError = e.getMessage();
+      Log.e(TAG, "[SUNMI_CALIBRATION] error", e);
+      promise.reject("SUNMI_CALIBRATION_ERROR", e.getMessage(), e);
+    }
+  }
+
+  private Bitmap renderCalibrationBitmap(
+    int paperWidthPx,
+    int paperHeightPx,
+    int paperWidthMm,
+    int paperHeightMm,
+    int printableWidthPx,
+    int printScalePercent,
+    int printOffsetX,
+    int printOffsetY,
+    String deviceModel,
+    String formatLabel
+  ) {
+    Bitmap bitmap = Bitmap.createBitmap(Math.max(1, paperWidthPx), Math.max(1, paperHeightPx), Bitmap.Config.ARGB_8888);
+    Canvas canvas = new Canvas(bitmap);
+    canvas.drawColor(Color.WHITE);
+
+    float pxPerMm = resolvePixelsPerMm(paperWidthPx, paperHeightPx, paperWidthMm, paperHeightMm);
+    int width = bitmap.getWidth();
+    int height = bitmap.getHeight();
+
+    Paint border = new Paint(Paint.ANTI_ALIAS_FLAG);
+    border.setColor(Color.BLACK);
+    border.setStyle(Paint.Style.STROKE);
+    border.setStrokeWidth(Math.max(1f, pxPerMm / 2f));
+    canvas.drawRect(new RectF(0, 0, Math.max(1, width - 1), Math.max(1, height - 1)), border);
+
+    drawMmRuler(canvas, width, height, paperWidthMm, paperHeightMm, pxPerMm);
+    drawCornerX(canvas, 0, 0, Math.round(pxPerMm * 6f), border);
+    drawCornerX(canvas, width - 1, 0, Math.round(pxPerMm * 6f), border);
+    drawCornerX(canvas, 0, height - 1, Math.round(pxPerMm * 6f), border);
+    drawCornerX(canvas, width - 1, height - 1, Math.round(pxPerMm * 6f), border);
+
+    int infoWidth = Math.max(140, Math.min(width - 20, Math.round(width * 0.46f)));
+    int infoHeight = Math.max(96, Math.round(height * 0.34f));
+    int infoX = Math.max(10, width - infoWidth - Math.round(pxPerMm * 3f));
+    int infoY = Math.max(Math.round(pxPerMm * 5f), Math.round(pxPerMm * 4f));
+    String infoText =
+      "Modelo:\n" +
+      deviceModel + "\n\n" +
+      "Plantilla:\n" +
+      paperWidthMm + " x " + paperHeightMm + " mm\n\n" +
+      "Bitmap:\n" +
+      width + " x " + height + " px\n\n" +
+      "Printer Width:\n" +
+      printableWidthPx + " dots\n\n" +
+      "Escala:\n" +
+      printScalePercent + " %\n\n" +
+      "Offset X:\n" +
+      printOffsetX + "\n\n" +
+      "Offset Y:\n" +
+      printOffsetY;
+    drawTextBlock(
+      canvas,
+      infoText,
+      infoX,
+      infoY,
+      infoWidth,
+      infoHeight,
+      Math.max(11, Math.round(pxPerMm * 3f)),
+      "left",
+      "Default",
+      true,
+      false,
+      16
+    );
+
+    return bitmap;
+  }
+
+  private float resolvePixelsPerMm(int paperWidthPx, int paperHeightPx, int paperWidthMm, int paperHeightMm) {
+    float total = 0f;
+    int count = 0;
+    if (paperWidthPx > 0 && paperWidthMm > 0) {
+      total += (float) paperWidthPx / (float) paperWidthMm;
+      count += 1;
+    }
+    if (paperHeightPx > 0 && paperHeightMm > 0) {
+      total += (float) paperHeightPx / (float) paperHeightMm;
+      count += 1;
+    }
+    if (count <= 0) {
+      return 4f;
+    }
+    return Math.max(1f, total / count);
+  }
+
+  private void drawMmRuler(Canvas canvas, int width, int height, int paperWidthMm, int paperHeightMm, float pxPerMm) {
+    Paint tickPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    tickPaint.setColor(Color.BLACK);
+    tickPaint.setStyle(Paint.Style.STROKE);
+    tickPaint.setStrokeWidth(Math.max(1f, pxPerMm / 4f));
+    tickPaint.setTextSize(Math.max(10f, pxPerMm * 3f));
+    tickPaint.setFakeBoldText(false);
+
+    int topTickSmall = Math.max(4, Math.round(pxPerMm * 2f));
+    int topTickLarge = Math.max(topTickSmall + 4, Math.round(pxPerMm * 4f));
+    for (int mm = 0; mm <= paperWidthMm; mm += 1) {
+      int x = Math.round(mm * pxPerMm);
+      if (x > width) {
+        continue;
+      }
+      int tickEnd = mm % 10 == 0 ? topTickLarge : topTickSmall;
+      canvas.drawLine(x, 0, x, Math.min(height - 1, tickEnd), tickPaint);
+      if (mm % 10 == 0) {
+        canvas.drawText(String.valueOf(mm), Math.max(0, x + 2), Math.max(topTickLarge + Math.round(pxPerMm * 2f), 12), tickPaint);
+      }
+    }
+
+    int leftTickSmall = Math.max(4, Math.round(pxPerMm * 2f));
+    int leftTickLarge = Math.max(leftTickSmall + 4, Math.round(pxPerMm * 4f));
+    for (int mm = 0; mm <= paperHeightMm; mm += 1) {
+      int y = Math.round(mm * pxPerMm);
+      if (y > height) {
+        continue;
+      }
+      int tickEnd = mm % 10 == 0 ? leftTickLarge : leftTickSmall;
+      canvas.drawLine(0, y, Math.min(width - 1, tickEnd), y, tickPaint);
+      if (mm % 10 == 0) {
+        canvas.drawText(String.valueOf(mm), 2, Math.max(12, y - 2), tickPaint);
+      }
+    }
+  }
+
+  private void drawCornerX(Canvas canvas, int x, int y, int size, Paint paint) {
+    int safeSize = Math.max(4, size);
+    int half = safeSize / 2;
+    canvas.drawLine(
+      Math.max(0, x - half),
+      Math.max(0, y - half),
+      Math.max(0, x + half),
+      Math.max(0, y + half),
+      paint
+    );
+    canvas.drawLine(
+      Math.max(0, x - half),
+      Math.max(0, y + half),
+      Math.max(0, x + half),
+      Math.max(0, y - half),
+      paint
+    );
+  }
+
+  private void applyBitmapPrintWidth(IWoyouService service, int printableWidthPx) {
+    invokeOptionalPrinterIntCommand(service, "setPrintWidth", Math.max(1, printableWidthPx));
+  }
+
+  private void applyBitmapLeftSpace(IWoyouService service, int leftSpacePx) {
+    invokeOptionalPrinterIntCommand(service, "setLeftSpace", Math.max(0, leftSpacePx));
+  }
+
+  private void invokeOptionalPrinterIntCommand(IWoyouService service, String methodName, int value) {
+    if (service == null) {
+      return;
+    }
+
+    try {
+      Method method = service.getClass().getMethod(methodName, int.class, ICallback.class);
+      callPrinterCommand(callback -> {
+        try {
+          method.invoke(service, value, callback);
+        } catch (Exception error) {
+          throw new RuntimeException(error);
+        }
+      });
+    } catch (NoSuchMethodException ignored) {
+      Log.i(TAG, "[SUNMI_LAYOUT] optional method not available: " + methodName);
+    } catch (Exception error) {
+      Log.i(TAG, "[SUNMI_LAYOUT] optional method failed: " + methodName + " " + error.getMessage());
+    }
+  }
+
   private WritableMap buildDeviceInfo() {
     WritableMap map = Arguments.createMap();
     map.putString("manufacturer", String.valueOf(Build.MANUFACTURER));
@@ -542,7 +826,7 @@ public class SunmiDiagnosticsModule extends ReactContextBaseJavaModule {
     callPrinterCommand(callback -> service.lineWrap(2, callback));
   }
 
-  private void printLayoutItemsInternal(IWoyouService service, ReadableArray items, int copies, int postPrintFeedLines) throws Exception {
+  private void printLayoutItemsInternal(IWoyouService service, ReadableArray items, int copies, int postPrintFeedLines, int paperWidthPx, int paperHeightPx, int paperWidthMm, int paperHeightMm, int printableWidthPx, int printScalePercent, int printOffsetX, int printOffsetY, int printMarginLeftPx, int printMarginTopPx, int printMarginRightPx, int printMarginBottomPx, boolean printTestMode, boolean printAutoCenter, boolean printRemoveSystemMargin, int printExtraTopFeedPx, int printExtraBottomFeedPx, boolean printEdgeToEdge) throws Exception {
     int totalCopies = Math.max(1, copies);
     int finalFeedLines = Math.max(0, postPrintFeedLines);
     Log.i(TAG, "[SUNMI_LAYOUT] received items " + items.size());
@@ -551,170 +835,110 @@ public class SunmiDiagnosticsModule extends ReactContextBaseJavaModule {
 
     for (int copy = 0; copy < totalCopies; copy++) {
       if (copy > 0) {
-        callPrinterCommand(callback -> service.lineWrap(2, callback));
+        callPrinterCommand(callback -> service.lineWrap(1, callback));
       }
 
-      int lastBottom = 0;
+      if (paperWidthPx <= 1) {
+        paperWidthPx = 320;
+      }
+      if (paperHeightPx <= 1) {
+        int maxBottom = 0;
+        for (int i = 0; i < items.size(); i++) {
+          ReadableMap item = items.getMap(i);
+          if (item == null) {
+            continue;
+          }
+          maxBottom = Math.max(
+            maxBottom,
+            getIntSafe(item, "y", 0) + getIntSafe(item, "height", 24)
+          );
+        }
+        paperHeightPx = Math.max(240, maxBottom + 24);
+      }
+
+      Log.i(TAG, "[SUNMI_LAYOUT] TEMPLATE SIZE: paperWidthPx=" + paperWidthPx + " paperHeightPx=" + paperHeightPx);
+      Log.i(TAG, "[SUNMI_LAYOUT] PRINTABLE WIDTH PX: " + printableWidthPx);
+      Log.i(TAG, "[SUNMI_LAYOUT] AREA UTIL IMPRESORA: width=" + paperWidthPx + " height=" + paperHeightPx);
+      Log.i(TAG, "IMPRIMIENDO ELEMENTOS:");
       for (int i = 0; i < items.size(); i++) {
         ReadableMap item = items.getMap(i);
         if (item == null) {
           continue;
         }
-
-        boolean hasBarcodeTextCompanion = false;
-        if (i + 1 < items.size()) {
-          ReadableMap nextItem = items.getMap(i + 1);
-          if (nextItem != null) {
-            String nextKey = firstNonEmpty(
-              getStringSafe(nextItem, "key"),
-              getStringSafe(nextItem, "valueKey")
-            ).toLowerCase(Locale.ROOT);
-            hasBarcodeTextCompanion = "barcodetext".equals(nextKey);
-          }
-        }
-
-        int targetTop = getIntSafe(item, "y", 0);
-        int itemHeight = Math.max(1, getIntSafe(item, "height", 24));
-        int gap = Math.max(0, Math.round((targetTop - lastBottom) / 18f));
-        String type = getStringSafe(item, "type");
+        String orden = String.valueOf(getIntSafe(item, "Orden", getIntSafe(item, "orden", i + 1)));
+        String tipoElemento = firstNonEmpty(
+          getStringSafe(item, "TipoElemento"),
+          getStringSafe(item, "tipoElemento"),
+          getStringSafe(item, "type"),
+          "text"
+        );
         String campo = firstNonEmpty(
           getStringSafe(item, "Campo"),
           getStringSafe(item, "campo"),
           getStringSafe(item, "key"),
           getStringSafe(item, "valueKey")
         );
-        Log.i(TAG, "[SUNMI_LAYOUT] item " + i + " Campo " + campo + " type " + type);
-
-        try {
-          if (gap > 0) {
-            callPrinterCommand(callback -> service.lineWrap(gap, callback));
-          }
-
-          String value = getStringSafe(item, "value");
-          String barcodeValue = firstNonEmpty(
-            value,
-            getStringSafe(item, "barcode"),
-            getStringSafe(item, "internalCode"),
-            getStringSafe(item, "code")
-          );
-          String align = getStringSafe(item, "align");
-          boolean italic = getBooleanSafe(item, "italic", false);
-          int editorFontSize = Math.max(10, getIntSafe(item, "fontSize", 16));
-          int sunmiFontSize = Math.max(10, getIntSafe(item, "sunmiFontSize", editorFontSize));
-          int maxLines = Math.max(1, getIntSafe(item, "maxLines", 1));
-          String textFontFamily = firstNonEmpty(
-            getStringSafe(item, "fontFamily"),
-            getStringSafe(item, "tipoFuente"),
-            getStringSafe(item, "TipoFuente")
-          );
-          String normalizedCampo = firstNonEmpty(
-            getStringSafe(item, "Campo"),
-            getStringSafe(item, "campo"),
-            getStringSafe(item, "key"),
-            getStringSafe(item, "valueKey")
-          ).toLowerCase(Locale.ROOT);
-
-          if ("barcode".equalsIgnoreCase(type)) {
-            Log.i(TAG, "[SUNMI_LAYOUT] barcode bitmap mode");
-            if (!barcodeValue.isEmpty()) {
-              boolean showNumber = hasBarcodeTextCompanion
-                ? false
-                : getBooleanSafe(item, "showNumber", true);
-              try {
-                Bitmap barcodeBitmap = createBarcodeBitmap(
-                  barcodeValue,
-                  getStringSafe(item, "barcodeType"),
-                  360,
-                  100
-                );
-                Log.i(TAG, "[SUNMI_LAYOUT] barcode bitmap generated value=" + barcodeValue);
-                callPrinterCommand(callback -> service.setAlignment(resolveAlignmentValue(align), callback));
-                callPrinterCommand(callback -> service.printBitmap(barcodeBitmap, callback));
-                Log.i(TAG, "[SUNMI_LAYOUT] barcode bitmap printed");
-                if (showNumber) {
-                  callPrinterCommand(callback -> service.lineWrap(1, callback));
-                  callPrinterCommand(callback -> service.setAlignment(resolveAlignmentValue(align), callback));
-                  callPrinterCommand(callback -> service.setFontSize((float) Math.max(18, sunmiFontSize), callback));
-                  callPrinterCommand(callback -> service.printText(barcodeValue + "\n", callback));
-                }
-                if (hasBarcodeTextCompanion) {
-                  callPrinterCommand(callback -> service.lineWrap(1, callback));
-                }
-              } catch (Exception barcodeError) {
-                Log.e(TAG, "[SUNMI_LAYOUT] barcode bitmap failed fallback text", barcodeError);
-                callPrinterCommand(callback -> service.setAlignment(resolveAlignmentValue(align), callback));
-                callPrinterCommand(callback -> service.setFontSize((float) Math.max(18, sunmiFontSize), callback));
-                callPrinterCommand(callback -> service.printText("Barra: " + barcodeValue + "\n", callback));
-              }
-              continue;
-            } else {
-              Log.i(TAG, "[SUNMI_LAYOUT] barcode skipped empty value");
-            }
-          } else if ("separator".equalsIgnoreCase(type)) {
-            int alignment = resolveAlignmentValue(align);
-            Log.i(TAG, "[SUNMI] print separator");
-            callPrinterCommand(callback -> service.lineWrap(1, callback));
-            callPrinterCommand(callback -> service.setAlignment(alignment, callback));
-            callPrinterCommand(callback -> service.printText("-\n", callback));
-            callPrinterCommand(callback -> service.lineWrap(2, callback));
-          } else {
-            String text = value.trim();
-            if (!text.isEmpty()) {
-              boolean isDescription =
-                normalizedCampo.contains("descripcion") ||
-                normalizedCampo.contains("description");
-              boolean isCompany =
-                normalizedCampo.contains("empresa") ||
-                normalizedCampo.contains("companyname");
-              boolean isPrice =
-                normalizedCampo.contains("precio") ||
-                normalizedCampo.contains("price");
-              String printableText = text;
-              int textMaxLines = 1;
-              int textMaxChars = 32;
-
-              if (isDescription) {
-                textMaxLines = Math.max(2, maxLines);
-                textMaxChars = 26;
-                printableText = limitWrappedText(text, textMaxChars, textMaxLines);
-                Log.i(TAG, "[SUNMI_LAYOUT] description wrapped maxLines=" + textMaxLines);
-              } else if (isCompany) {
-                textMaxLines = 1;
-                textMaxChars = 28;
-                printableText = limitWrappedText(text, textMaxChars, textMaxLines);
-              } else if (isPrice) {
-                textMaxLines = 1;
-                textMaxChars = 32;
-                printableText = limitWrappedText(text, textMaxChars, textMaxLines);
-              } else {
-                textMaxLines = 1;
-                textMaxChars = 32;
-                printableText = limitWrappedText(text, textMaxChars, textMaxLines);
-              }
-
-              final String textToPrint = printableText;
-              final float fontSizeToPrint = (float) Math.max(18, sunmiFontSize);
-              boolean wantsMonospace = isMonospaceFont(textFontFamily);
-              Log.i(TAG, "[SUNMI_LAYOUT] text campo=" + getStringSafe(item, "Campo") + " valueLength=" + text.length());
-              Log.i(TAG, "[PRINT_LAYOUT] item=" + type + " campo=" + getStringSafe(item, "key") + " editorFontSize=" + editorFontSize + " sunmiFontSize=" + sunmiFontSize);
-              Log.i(TAG, "[SUNMI] print text type=" + type);
-              callPrinterCommand(callback -> service.setAlignment(resolveAlignmentValue(align), callback));
-              if (italic || wantsMonospace) {
-                String nativeFont = wantsMonospace ? "monospace" : "serif";
-                callPrinterCommand(callback -> service.printTextWithFont(textToPrint + "\n", nativeFont, fontSizeToPrint, callback));
-              } else {
-                callPrinterCommand(callback -> service.setFontSize(fontSizeToPrint, callback));
-                callPrinterCommand(callback -> service.printText(textToPrint + "\n", callback));
-              }
-            }
-          }
-        } catch (Exception itemError) {
-          Log.e(TAG, "[SUNMI_LAYOUT] item " + i + " failed, continuing", itemError);
-        } finally {
-          lastBottom = targetTop + itemHeight;
-        }
+        String textoFijo = firstNonEmpty(
+          getStringSafe(item, "TextoFijo"),
+          getStringSafe(item, "textoFijo")
+        );
+        String textoFinal = firstNonEmpty(
+          getStringSafe(item, "value"),
+          textoFijo,
+          getStringSafe(item, "sampleText")
+        );
+        Log.i(
+          TAG,
+          orden + " | " +
+            tipoElemento + " | " +
+            campo + " | " +
+            textoFijo + " | " +
+            getIntSafe(item, "x", 0) + " | " +
+            getIntSafe(item, "y", 0) + " | " +
+            getIntSafe(item, "width", 0) + " | " +
+            getIntSafe(item, "height", 0) + " | " +
+            textoFinal
+        );
+        Log.i(
+          TAG,
+          "[SUNMI_LAYOUT] rect final " +
+            "tipo=" + tipoElemento +
+            " campo=" + campo +
+            " texto=" + textoFinal +
+            " x=" + getIntSafe(item, "x", 0) +
+            " y=" + getIntSafe(item, "y", 0) +
+            " w=" + getIntSafe(item, "width", 0) +
+            " h=" + getIntSafe(item, "height", 0) +
+            " align=" + firstNonEmpty(getStringSafe(item, "align"), getStringSafe(item, "Alineacion"), "left") +
+            " fontSize=" + getIntSafe(item, "sunmiFontSize", getIntSafe(item, "fontSize", 16))
+        );
       }
-
+      Bitmap labelBitmap = renderLayoutBitmap(items, paperWidthPx, paperHeightPx);
+      Bitmap finalBitmap = composeBitmapForPrinter(
+        labelBitmap,
+        printableWidthPx,
+        printOffsetX,
+        printOffsetY,
+        paperWidthMm,
+        paperHeightMm,
+        printMarginLeftPx,
+        printMarginTopPx,
+        printMarginRightPx,
+        printMarginBottomPx,
+        printScalePercent,
+        printTestMode,
+        printAutoCenter,
+        printRemoveSystemMargin,
+        printExtraTopFeedPx,
+        printExtraBottomFeedPx,
+        printEdgeToEdge
+      );
+      Log.i(TAG, "[SUNMI_LAYOUT] bitmap template=" + labelBitmap.getWidth() + "x" + labelBitmap.getHeight());
+      Log.i(TAG, "[SUNMI_LAYOUT] bitmap print=" + finalBitmap.getWidth() + "x" + finalBitmap.getHeight());
+      applyBitmapPrintWidth(service, printableWidthPx);
+      applyBitmapLeftSpace(service, 0);
+      callPrinterCommand(callback -> service.setAlignment(0, callback));
+      callPrinterCommand(callback -> service.printBitmap(finalBitmap, callback));
       callPrinterCommand(callback -> service.lineWrap(1, callback));
     }
     if (finalFeedLines > 0) {
@@ -800,8 +1024,8 @@ public class SunmiDiagnosticsModule extends ReactContextBaseJavaModule {
       throw new WriterException("Barcode vacío.");
     }
 
-    int safeWidth = Math.max(240, width);
-    int safeHeight = Math.max(80, height);
+    int safeWidth = Math.max(1, width);
+    int safeHeight = Math.max(1, height);
     Bitmap bitmap;
     BarcodeFormat format = shouldTryEan13(barcodeType, normalizedValue)
       ? BarcodeFormat.EAN_13
@@ -843,6 +1067,591 @@ public class SunmiDiagnosticsModule extends ReactContextBaseJavaModule {
       }
     }
     return bitmap;
+  }
+
+  private Bitmap createSeparatorBitmap(int width, int thickness) {
+    int safeWidth = Math.max(1, width);
+    int safeThickness = Math.max(1, thickness);
+    Bitmap bitmap = Bitmap.createBitmap(safeWidth, safeThickness, Bitmap.Config.ARGB_8888);
+    Canvas canvas = new Canvas(bitmap);
+    Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    paint.setColor(Color.BLACK);
+    paint.setStyle(Paint.Style.FILL);
+    canvas.drawColor(Color.TRANSPARENT);
+    float top = Math.max(0, (safeThickness - 1) / 2f);
+    canvas.drawRect(new RectF(0, top, safeWidth, top + 1f), paint);
+    return bitmap;
+  }
+
+  private Bitmap createRectangleBitmap(int width, int height, int borderWidth) {
+    int safeWidth = Math.max(1, width);
+    int safeHeight = Math.max(1, height);
+    int safeBorder = Math.max(1, borderWidth);
+    Bitmap bitmap = Bitmap.createBitmap(safeWidth, safeHeight, Bitmap.Config.ARGB_8888);
+    Canvas canvas = new Canvas(bitmap);
+    Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    paint.setColor(Color.BLACK);
+    paint.setStyle(Paint.Style.STROKE);
+    paint.setStrokeWidth(safeBorder);
+    canvas.drawColor(Color.TRANSPARENT);
+    RectF rect = new RectF(
+      safeBorder / 2f,
+      safeBorder / 2f,
+      safeWidth - (safeBorder / 2f),
+      safeHeight - (safeBorder / 2f)
+    );
+    canvas.drawRect(rect, paint);
+    return bitmap;
+  }
+
+  private Bitmap renderLayoutBitmap(ReadableArray items, int paperWidthPx, int paperHeightPx) {
+    int safeWidth = Math.max(1, paperWidthPx);
+    int safeHeight = Math.max(1, paperHeightPx);
+    Bitmap bitmap = Bitmap.createBitmap(safeWidth, safeHeight, Bitmap.Config.ARGB_8888);
+    Canvas canvas = new Canvas(bitmap);
+    canvas.drawColor(Color.WHITE);
+
+    for (int i = 0; i < items.size(); i++) {
+      ReadableMap item = items.getMap(i);
+      if (item == null) {
+        continue;
+      }
+
+      boolean visible = getBooleanSafe(item, "visible", true);
+      if (!visible) {
+        continue;
+      }
+
+      String tipoElemento = firstNonEmpty(
+        getStringSafe(item, "TipoElemento"),
+        getStringSafe(item, "tipoElemento"),
+        getStringSafe(item, "type")
+      ).toLowerCase(Locale.ROOT);
+      String type = firstNonEmpty(
+        getStringSafe(item, "type"),
+        getStringSafe(item, "TipoElemento"),
+        getStringSafe(item, "tipoElemento")
+      ).toLowerCase(Locale.ROOT);
+      String normalizedType = firstNonEmpty(tipoElemento, type);
+
+      if ("rectangulo".equals(normalizedType)) {
+        drawRectangleItem(canvas, item);
+        continue;
+      }
+
+      if (isLegacyRectangleItem(item, normalizedType)) {
+        drawRectangleItem(canvas, item);
+        continue;
+      }
+
+      if ("linea".equals(normalizedType) || "separator".equals(normalizedType)) {
+        drawSeparatorItem(canvas, item);
+        continue;
+      }
+
+      if ("logo".equals(normalizedType)) {
+        drawLogoItem(canvas, item);
+        continue;
+      }
+
+      if ("barcode".equals(normalizedType) || "codigobarra".equals(normalizedType)) {
+        drawBarcodeItem(canvas, item);
+        continue;
+      }
+
+      drawTextItem(canvas, item);
+    }
+
+    return bitmap;
+  }
+
+  private Bitmap composeBitmapForPrinter(
+    Bitmap source,
+    int printableWidthPx,
+    int offsetX,
+    int offsetY,
+    int paperWidthMm,
+    int paperHeightMm,
+    int marginLeftPx,
+    int marginTopPx,
+    int marginRightPx,
+    int marginBottomPx,
+    int scalePercent,
+    boolean printTestMode,
+    boolean autoCenter,
+    boolean removeSystemMargin,
+    int extraTopFeedPx,
+    int extraBottomFeedPx,
+    boolean edgeToEdge
+  ) {
+    if (source == null) {
+      return null;
+    }
+
+    Log.i(
+      TAG,
+        "[SUNMI_LAYOUT] bitmap source=" + source.getWidth() + "x" + source.getHeight() +
+        " printableWidthPx=" + printableWidthPx +
+        " offsetX=" + offsetX +
+        " offsetY=" + offsetY +
+        " paperWidthMm=" + paperWidthMm +
+        " paperHeightMm=" + paperHeightMm +
+        " marginLeftPx=" + marginLeftPx +
+        " marginTopPx=" + marginTopPx +
+        " marginRightPx=" + marginRightPx +
+        " marginBottomPx=" + marginBottomPx +
+        " scalePercent=" + scalePercent +
+        " testMode=" + printTestMode +
+        " autoCenter=" + autoCenter +
+        " removeSystemMargin=" + removeSystemMargin +
+        " extraTopFeedPx=" + extraTopFeedPx +
+        " extraBottomFeedPx=" + extraBottomFeedPx +
+        " edgeToEdge=" + edgeToEdge
+    );
+
+    float scaleFactor = Math.max(0.1f, Math.min(4.0f, scalePercent / 100f));
+    Bitmap sourceToDraw = source;
+    if (Math.abs(scaleFactor - 1f) > 0.0001f) {
+      int scaledWidth = Math.max(1, Math.round(source.getWidth() * scaleFactor));
+      int scaledHeight = Math.max(1, Math.round(source.getHeight() * scaleFactor));
+      sourceToDraw = Bitmap.createScaledBitmap(source, scaledWidth, scaledHeight, true);
+    }
+
+    int effectiveMarginLeftPx = removeSystemMargin ? 0 : marginLeftPx;
+    int drawX = effectiveMarginLeftPx + offsetX;
+    int drawY = marginTopPx + offsetY + extraTopFeedPx + Math.max(12, Math.round(sourceToDraw.getHeight() * 0.06f));
+    if (!removeSystemMargin && autoCenter) {
+      drawX += Math.max(0, (printableWidthPx - sourceToDraw.getWidth()) / 2);
+    }
+    int leftInset = Math.max(0, drawX);
+    int topInset = Math.max(0, drawY);
+    int canvasWidth = edgeToEdge
+      ? Math.max(1, sourceToDraw.getWidth() + leftInset + Math.max(0, marginRightPx))
+      : removeSystemMargin
+        ? Math.max(1, sourceToDraw.getWidth() + leftInset + Math.max(0, marginRightPx))
+        : Math.max(1, Math.max(sourceToDraw.getWidth() + leftInset + Math.max(0, marginRightPx), printableWidthPx));
+    int canvasHeight = edgeToEdge
+      ? Math.max(1, sourceToDraw.getHeight() + topInset + Math.max(0, marginBottomPx) + Math.max(0, extraBottomFeedPx))
+      : Math.max(1, sourceToDraw.getHeight() + topInset + Math.max(0, marginBottomPx) + Math.max(0, extraBottomFeedPx));
+    Bitmap bitmap = Bitmap.createBitmap(canvasWidth, canvasHeight, Bitmap.Config.ARGB_8888);
+    Canvas canvas = new Canvas(bitmap);
+    Paint background = new Paint(Paint.ANTI_ALIAS_FLAG);
+    background.setColor(Color.WHITE);
+    canvas.drawRect(new RectF(0, 0, canvasWidth, canvasHeight), background);
+
+    canvas.save();
+    canvas.translate(drawX, drawY);
+    canvas.drawBitmap(sourceToDraw, 0, 0, null);
+    canvas.restore();
+
+    Log.i(
+      TAG,
+        "[SUNMI_LAYOUT] print offset px x=" + offsetX +
+        " y=" + offsetY +
+        " canvasWidth=" + canvasWidth +
+        " canvasHeight=" + canvasHeight +
+        " testMode=" + printTestMode
+    );
+
+    if (printTestMode) {
+      int footerHeight = Math.max(120, Math.round(Math.max(1f, sourceToDraw.getHeight() * 0.28f)));
+      Bitmap calibrated = Bitmap.createBitmap(canvasWidth, canvasHeight + footerHeight, Bitmap.Config.ARGB_8888);
+      Canvas calibratedCanvas = new Canvas(calibrated);
+      calibratedCanvas.drawColor(Color.WHITE);
+      calibratedCanvas.drawBitmap(bitmap, 0, 0, null);
+      drawCalibrationOverlay(
+        calibratedCanvas,
+        canvasWidth,
+        canvasHeight + footerHeight,
+        sourceToDraw.getWidth(),
+        sourceToDraw.getHeight(),
+        paperWidthMm,
+        paperHeightMm,
+        drawX,
+        drawY,
+        scalePercent,
+        footerHeight
+      );
+      return calibrated;
+    }
+
+    return bitmap;
+  }
+
+  private void drawCalibrationOverlay(Canvas canvas, int width, int height, int bitmapWidth, int bitmapHeight, int paperWidthMm, int paperHeightMm, int offsetX, int offsetY, int scalePercent, int footerHeight) {
+    float pxPerMm = resolvePixelsPerMm(bitmapWidth, bitmapHeight, paperWidthMm, paperHeightMm);
+
+    Paint border = new Paint(Paint.ANTI_ALIAS_FLAG);
+    border.setColor(Color.BLACK);
+    border.setStyle(Paint.Style.STROKE);
+    border.setStrokeWidth(2f);
+    int labelBottom = Math.max(0, bitmapHeight - 1);
+    canvas.drawRect(new RectF(0, 0, Math.max(1, bitmapWidth - 1), Math.max(1, labelBottom)), border);
+    canvas.drawLine(0, 0, 0, Math.max(1, labelBottom), border);
+    canvas.drawLine(Math.max(0, bitmapWidth - 1), 0, Math.max(0, bitmapWidth - 1), Math.max(1, labelBottom), border);
+    canvas.drawLine(0, 0, Math.max(1, bitmapWidth - 1), 0, border);
+    canvas.drawLine(0, Math.max(0, labelBottom), Math.max(1, bitmapWidth - 1), Math.max(0, labelBottom), border);
+    drawCrosshair(canvas, 0, 0, Math.max(12, Math.round(pxPerMm * 6f)), border);
+    drawCrosshair(canvas, Math.max(0, bitmapWidth - 1), 0, Math.max(12, Math.round(pxPerMm * 6f)), border);
+    drawCrosshair(canvas, 0, labelBottom, Math.max(12, Math.round(pxPerMm * 6f)), border);
+    drawCrosshair(canvas, Math.max(0, bitmapWidth - 1), labelBottom, Math.max(12, Math.round(pxPerMm * 6f)), border);
+
+    drawMmRuler(canvas, bitmapWidth, bitmapHeight, Math.max(1, paperWidthMm), Math.max(1, paperHeightMm), pxPerMm);
+
+    Paint footerTitlePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    footerTitlePaint.setColor(Color.BLACK);
+    footerTitlePaint.setTextSize(Math.max(14f, pxPerMm * 3f));
+    footerTitlePaint.setFakeBoldText(true);
+
+    Paint footerBodyPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    footerBodyPaint.setColor(Color.BLACK);
+    footerBodyPaint.setTextSize(Math.max(11f, pxPerMm * 2.4f));
+
+    int footerTop = Math.max(0, bitmapHeight);
+    int footerPadding = Math.max(12, Math.round(pxPerMm * 3f));
+    int lineHeight = Math.max(18, Math.round(pxPerMm * 4.2f));
+    int textX = footerPadding;
+    int textY = footerTop + footerPadding + Math.max(14, Math.round(pxPerMm * 3f));
+
+    canvas.drawLine(0, footerTop, Math.max(1, width - 1), footerTop, border);
+    canvas.drawText("Modelo: " + String.valueOf(Build.MODEL), textX, textY, footerTitlePaint);
+    textY += lineHeight;
+    canvas.drawText(
+      "Etiqueta: " + Math.max(1, Math.round((float) bitmapWidth / Math.max(1f, pxPerMm))) + " x " + Math.max(1, Math.round((float) bitmapHeight / Math.max(1f, pxPerMm))) + " mm",
+      textX,
+      textY,
+      footerBodyPaint
+    );
+    textY += lineHeight;
+    canvas.drawText("Bitmap: " + bitmapWidth + " x " + bitmapHeight + " px", textX, textY, footerBodyPaint);
+    textY += lineHeight;
+    canvas.drawText("Printer Width: " + width + " dots", textX, textY, footerBodyPaint);
+    textY += lineHeight;
+    canvas.drawText("Escala: " + scalePercent + "%", textX, textY, footerBodyPaint);
+    textY += lineHeight;
+    canvas.drawText("Offset X: " + offsetX, textX, textY, footerBodyPaint);
+    textY += lineHeight;
+    canvas.drawText("Offset Y: " + offsetY, textX, textY, footerBodyPaint);
+  }
+
+  private void drawCrosshair(Canvas canvas, int x, int y, int size, Paint paint) {
+    int safeSize = Math.max(4, size);
+    int half = safeSize / 2;
+    canvas.drawLine(Math.max(0, x - half), y, Math.max(0, x + half), y, paint);
+    canvas.drawLine(x, Math.max(0, y - half), x, Math.max(0, y + half), paint);
+  }
+
+  private void drawTextItem(Canvas canvas, ReadableMap item) {
+    int x = Math.max(0, getIntSafe(item, "x", 0));
+    int y = Math.max(0, getIntSafe(item, "y", 0));
+    int width = Math.max(1, getIntSafe(item, "width", 120));
+    int height = Math.max(1, getIntSafe(item, "height", 36));
+    int fontSize = Math.max(10, getIntSafe(item, "fontSize", getIntSafe(item, "sunmiFontSize", 16)));
+    int maxLines = Math.max(1, getIntSafe(item, "maxLines", 1));
+    boolean uppercase = getBooleanSafe(item, "uppercase", false) || getBooleanSafe(item, "Mayuscula", false);
+    boolean italic = getBooleanSafe(item, "italic", false) || getBooleanSafe(item, "Italica", false);
+    String fontWeight = getStringSafe(item, "fontWeight");
+    boolean bold = getBooleanSafe(item, "bold", false)
+      || getBooleanSafe(item, "Negrita", false)
+      || "700".equals(fontWeight)
+      || "bold".equalsIgnoreCase(fontWeight);
+    String align = firstNonEmpty(
+      getStringSafe(item, "align"),
+      getStringSafe(item, "Alineacion"),
+      "left"
+    ).toLowerCase(Locale.ROOT);
+    String fontFamily = firstNonEmpty(
+      getStringSafe(item, "fontFamily"),
+      getStringSafe(item, "tipoFuente"),
+      getStringSafe(item, "TipoFuente"),
+      "Default"
+    );
+    String text = firstNonEmpty(
+      getStringSafe(item, "value"),
+      getStringSafe(item, "TextoFijo"),
+      getStringSafe(item, "textoFijo"),
+      getStringSafe(item, "sampleText")
+    );
+    if (uppercase) {
+      text = text.toUpperCase(Locale.ROOT);
+    }
+    if (text.isEmpty()) {
+      return;
+    }
+
+    TextPaint paint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    paint.setColor(Color.BLACK);
+    paint.setTextSize(fontSize);
+    paint.setTypeface(resolveTypeface(fontFamily, bold, italic));
+    paint.setFakeBoldText(bold);
+    if (italic) {
+      paint.setTextSkewX(-0.25f);
+    }
+
+    Layout.Alignment alignment = resolveLayoutAlignment(align);
+    StaticLayout layout = buildStaticLayout(
+      text,
+      paint,
+      width,
+      alignment,
+      maxLines,
+      Math.max(0f, fontSize * 0.18f)
+    );
+
+    canvas.save();
+    canvas.translate(x, y);
+    canvas.clipRect(0, 0, width, height);
+    layout.draw(canvas);
+    canvas.restore();
+  }
+
+  private void drawBarcodeItem(Canvas canvas, ReadableMap item) {
+    int x = Math.max(0, getIntSafe(item, "x", 0));
+    int y = Math.max(0, getIntSafe(item, "y", 0));
+    int width = Math.max(1, getIntSafe(item, "width", 240));
+    int height = Math.max(1, getIntSafe(item, "height", 100));
+    int fontSize = Math.max(10, getIntSafe(item, "fontSize", getIntSafe(item, "sunmiFontSize", 16)));
+    String align = firstNonEmpty(
+      getStringSafe(item, "align"),
+      getStringSafe(item, "Alineacion"),
+      "center"
+    ).toLowerCase(Locale.ROOT);
+    String barcodeValue = firstNonEmpty(
+      getStringSafe(item, "value"),
+      getStringSafe(item, "barcode"),
+      getStringSafe(item, "internalCode"),
+      getStringSafe(item, "code")
+    );
+    if (barcodeValue.isEmpty()) {
+      return;
+    }
+
+    boolean showNumber = getBooleanSafe(item, "showNumber", true);
+    int barcodeHeight = showNumber ? Math.max(1, height - Math.max(14, Math.round(fontSize * 1.35f)) - 2) : height;
+    int numberHeight = showNumber ? Math.max(14, Math.round(fontSize * 1.35f)) : 0;
+
+    try {
+      Bitmap barcodeBitmap = createBarcodeBitmap(
+        barcodeValue,
+        getStringSafe(item, "barcodeType"),
+        width,
+        barcodeHeight
+      );
+      canvas.drawBitmap(barcodeBitmap, x, y, null);
+    } catch (Exception error) {
+      Log.e(TAG, "[SUNMI_LAYOUT] barcode bitmap failed", error);
+      drawTextBlock(canvas, barcodeValue, x, y, width, height, fontSize, align, "Default", false, false, 1);
+      return;
+    }
+
+    if (showNumber) {
+      drawTextBlock(
+        canvas,
+        barcodeValue,
+        x,
+        y + Math.max(1, barcodeHeight),
+        width,
+        Math.max(1, numberHeight),
+        Math.max(10, fontSize),
+        "center",
+        "Default",
+        false,
+        false,
+        1
+      );
+    }
+  }
+
+  private void drawSeparatorItem(Canvas canvas, ReadableMap item) {
+    int x = Math.max(0, getIntSafe(item, "x", 0));
+    int y = Math.max(0, getIntSafe(item, "y", 0));
+    int width = Math.max(1, getIntSafe(item, "width", 200));
+    int thickness = Math.max(1, getIntSafe(item, "separatorThickness", 2));
+    Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    paint.setColor(Color.BLACK);
+    paint.setStyle(Paint.Style.FILL);
+    float top = y + Math.max(0, (thickness - 1) / 2f);
+    canvas.drawRect(new RectF(x, top, x + width, top + 1f), paint);
+  }
+
+  private void drawRectangleItem(Canvas canvas, ReadableMap item) {
+    int x = Math.max(0, getIntSafe(item, "x", 0));
+    int y = Math.max(0, getIntSafe(item, "y", 0));
+    int width = Math.max(1, getIntSafe(item, "width", 120));
+    int height = Math.max(1, getIntSafe(item, "height", 60));
+    int borderWidth = Math.max(1, getIntSafe(item, "borderWidth", getIntSafe(item, "separatorThickness", 2)));
+    Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    paint.setColor(Color.BLACK);
+    paint.setStyle(Paint.Style.STROKE);
+    paint.setStrokeWidth(borderWidth);
+    RectF rect = new RectF(
+      x + (borderWidth / 2f),
+      y + (borderWidth / 2f),
+      x + width - (borderWidth / 2f),
+      y + height - (borderWidth / 2f)
+    );
+    canvas.drawRect(rect, paint);
+  }
+
+  private void drawLogoItem(Canvas canvas, ReadableMap item) {
+    int x = Math.max(0, getIntSafe(item, "x", 0));
+    int y = Math.max(0, getIntSafe(item, "y", 0));
+    int width = Math.max(1, getIntSafe(item, "width", 120));
+    int height = Math.max(1, getIntSafe(item, "height", 40));
+    drawTextBlock(
+      canvas,
+      firstNonEmpty(getStringSafe(item, "value"), getStringSafe(item, "sampleText"), "Alfa"),
+      x,
+      y,
+      width,
+      height,
+      Math.max(12, getIntSafe(item, "fontSize", getIntSafe(item, "sunmiFontSize", 16))),
+      firstNonEmpty(getStringSafe(item, "align"), "center"),
+      firstNonEmpty(getStringSafe(item, "tipoFuente"), getStringSafe(item, "TipoFuente"), "Default"),
+      getBooleanSafe(item, "bold", false),
+      getBooleanSafe(item, "italic", false),
+      Math.max(1, getIntSafe(item, "maxLines", 1))
+    );
+  }
+
+  private boolean isLegacyRectangleItem(ReadableMap item, String normalizedType) {
+    if (!"texto".equals(normalizedType) && !"text".equals(normalizedType)) {
+      return false;
+    }
+
+    String campo = firstNonEmpty(
+      getStringSafe(item, "Campo"),
+      getStringSafe(item, "campo"),
+      getStringSafe(item, "key"),
+      getStringSafe(item, "valueKey")
+    ).toLowerCase(Locale.ROOT);
+    String textoFijo = firstNonEmpty(
+      getStringSafe(item, "TextoFijo"),
+      getStringSafe(item, "textoFijo")
+    );
+    int width = Math.max(0, getIntSafe(item, "width", 0));
+    int height = Math.max(0, getIntSafe(item, "height", 0));
+
+    return "textofijo".equals(campo) && textoFijo.isEmpty() && width >= 80 && height >= 20;
+  }
+
+  private void drawTextBlock(
+    Canvas canvas,
+    String text,
+    int x,
+    int y,
+    int width,
+    int height,
+    int fontSize,
+    String align,
+    String fontFamily,
+    boolean bold,
+    boolean italic,
+    int maxLines
+  ) {
+    String value = String.valueOf(text == null ? "" : text).trim();
+    if (value.isEmpty()) {
+      return;
+    }
+
+    TextPaint paint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    paint.setColor(Color.BLACK);
+    paint.setTextSize(Math.max(10, fontSize));
+    paint.setTypeface(resolveTypeface(fontFamily, bold, italic));
+    paint.setFakeBoldText(bold);
+    if (italic) {
+      paint.setTextSkewX(-0.25f);
+    }
+
+    Layout.Alignment alignment = resolveLayoutAlignment(align);
+    StaticLayout layout = buildStaticLayout(
+      value,
+      paint,
+      width,
+      alignment,
+      Math.max(1, maxLines),
+      Math.max(0f, fontSize * 0.18f)
+    );
+
+    canvas.save();
+    canvas.translate(x, y);
+    canvas.clipRect(0, 0, width, height);
+    layout.draw(canvas);
+    canvas.restore();
+  }
+
+  private StaticLayout buildStaticLayout(
+    String text,
+    TextPaint paint,
+    int width,
+    Layout.Alignment alignment,
+    int maxLines,
+    float lineSpacingExtra
+  ) {
+    int safeWidth = Math.max(1, width);
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+      return StaticLayout.Builder.obtain(text, 0, text.length(), paint, safeWidth)
+        .setAlignment(alignment)
+        .setIncludePad(true)
+        .setLineSpacing(Math.max(0f, lineSpacingExtra), 1f)
+        .setMaxLines(Math.max(1, maxLines))
+        .build();
+    }
+
+    return new StaticLayout(
+      text,
+      paint,
+      safeWidth,
+      alignment,
+      1f,
+      Math.max(0f, lineSpacingExtra),
+      false
+    );
+  }
+
+  private Layout.Alignment resolveLayoutAlignment(String align) {
+    String normalized = String.valueOf(align == null ? "" : align)
+      .trim()
+      .toLowerCase(Locale.ROOT);
+    if ("right".equals(normalized)) {
+      return Layout.Alignment.ALIGN_OPPOSITE;
+    }
+    if ("center".equals(normalized)) {
+      return Layout.Alignment.ALIGN_CENTER;
+    }
+    return Layout.Alignment.ALIGN_NORMAL;
+  }
+
+  private Typeface resolveTypeface(String fontFamily, boolean bold, boolean italic) {
+    String normalized = String.valueOf(fontFamily == null ? "" : fontFamily)
+      .trim()
+      .toLowerCase(Locale.ROOT);
+    int style = Typeface.NORMAL;
+    if (bold && italic) {
+      style = Typeface.BOLD_ITALIC;
+    } else if (bold) {
+      style = Typeface.BOLD;
+    } else if (italic) {
+      style = Typeface.ITALIC;
+    }
+
+    if (normalized.contains("mono") || normalized.contains("barcode") || normalized.contains("courier") || normalized.contains("consolas")) {
+      return Typeface.create(Typeface.MONOSPACE, style);
+    }
+    if (normalized.contains("serif")) {
+      return Typeface.create(Typeface.SERIF, style);
+    }
+    if (normalized.contains("sans")) {
+      return Typeface.create(Typeface.SANS_SERIF, style);
+    }
+    return Typeface.create(Typeface.DEFAULT, style);
+  }
+
+  private int estimateMaxChars(int width, int fontSize) {
+    int safeWidth = Math.max(1, width);
+    int safeFontSize = Math.max(10, fontSize);
+    int estimated = Math.round(safeWidth / Math.max(4f, safeFontSize * 0.55f));
+    return Math.max(6, estimated);
   }
 
   private String getStringSafe(ReadableMap map, String key) {

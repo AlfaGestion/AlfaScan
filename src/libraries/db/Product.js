@@ -2,6 +2,20 @@ import SQLite from "@db/SQLiteCompat";
 import { BaseModel, types } from "expo-sqlite-orm";
 import CatalogService from "@services/catalogService";
 
+const executeLocalQuery = async (sql, params = []) =>
+  Product.repository.databaseLayer
+    .executeSql(sql, params)
+    .then(({ rows }) => rows);
+
+const normalizeSearchText = (value) =>
+  String(value ?? "")
+    .trim()
+    .replace(/\s+/g, "")
+    .replace(/[^0-9a-z]/gi, "")
+    .toLowerCase();
+
+const normalizeExactText = (value) => String(value ?? "").trim();
+
 export default class Product extends BaseModel {
   constructor(obj) {
     super(obj);
@@ -84,120 +98,95 @@ export default class Product extends BaseModel {
 
   static async findLikeName(name, classPrice = 1, limit = 20, lista = '') {
     const config = await CatalogService.getCatalogConfig();
+    const search = normalizeExactText(name).toLowerCase();
+    if (!search) {
+      return [];
+    }
+
     if (config.mode === "ONLINE") {
       const rows = await CatalogService.findCatalogLikeName({
-        name,
+        name: search,
         classPrice,
         limit,
-        page: 1,
       });
       return Product.maskStockRows(rows, config.useStockColumn);
     }
 
-    const page = 1;
-    const search = String(name ?? "").toLowerCase();
-    const searchLike = `%${search}%`;
-    let sql;
-    if (lista == '' || lista == null || lista == undefined) {
-      sql = `Select cant_propuesta, code, codigoArticulo, codigoBarras, codigoBarra, codigoBarra1, codigoBarra2, codigoBarra3, codigoBarra4, codigoBarraDun, name, descripcion, precio, stock, fechaActualizacion, id, price${classPrice} from products
-    where (lower(name) like ? or lower(code) like ? or lower(codigoBarras) like ? or lower(codigoBarra1) like ? or lower(codigoBarra2) like ? or lower(codigoBarra3) like ? or lower(codigoBarra4) like ? or lower(codigoBarraDun) like ?)
-    order by name ASC limit ${limit} offset ${(page - 1) * limit}`;
-    } else {
-      sql = `Select cant_propuesta, code, codigoArticulo, codigoBarras, codigoBarra, codigoBarra1, codigoBarra2, codigoBarra3, codigoBarra4, codigoBarraDun, name, descripcion, precio, stock, fechaActualizacion, id, price${classPrice} from products_listas
-    where lista='${lista}' and (lower(name) like ? or lower(code) like ? or lower(codigoBarras) like ? or lower(codigoBarra1) like ? or lower(codigoBarra2) like ? or lower(codigoBarra3) like ? or lower(codigoBarra4) like ? or lower(codigoBarraDun) like ?)
-    order by name ASC limit ${limit} offset ${(page - 1) * limit}`;
-    }
-    const rows = await this.repository.databaseLayer.executeSql(sql, [searchLike, searchLike, searchLike, searchLike, searchLike, searchLike, searchLike, searchLike]).then(({ rows }) => rows);
+    const searchLike = `${search}%`;
+    const select = `Select cant_propuesta, code, codigoArticulo, codigoBarras, codigoBarra, codigoBarra1, codigoBarra2, codigoBarra3, codigoBarra4, codigoBarraDun, name, descripcion, precio, stock, fechaActualizacion, id, price${classPrice} from ${lista == '' || lista == null || lista == undefined ? "products" : "products_listas"}`;
+    const where = lista == '' || lista == null || lista == undefined
+      ? `where (
+          lower(name) like ? or
+          lower(descripcion) like ? or
+          lower(code) like ? or
+          lower(codigoArticulo) like ?
+        )`
+      : `where lista=? and (
+          lower(name) like ? or
+          lower(descripcion) like ? or
+          lower(code) like ? or
+          lower(codigoArticulo) like ?
+        )`;
+    const order = `order by name ASC limit ${Math.max(1, Number(limit) || 20)}`;
+    const params = lista == '' || lista == null || lista == undefined
+      ? [searchLike, searchLike, searchLike, searchLike]
+      : [String(lista), searchLike, searchLike, searchLike, searchLike];
+    const rows = await executeLocalQuery(`${select} ${where} ${order}`, params);
     return Product.maskStockRows(rows, config.useStockColumn);
   }
 
   static async findByCode(code, lista = '') {
     const config = await CatalogService.getCatalogConfig();
+    const rawCode = normalizeExactText(code);
+    if (!rawCode) return [];
+
     if (config.mode === "ONLINE") {
       const rows = await CatalogService.findCatalogByCode({
-        code,
+        code: rawCode,
         classPrice: 1,
       });
       return Product.maskStockRows(rows, config.useStockColumn);
     }
 
-    const rawCode = String(code ?? "").trim();
-    const searchCode = rawCode;
-    const searchCodeLower = rawCode.toLowerCase();
-    const normalizedCode = rawCode.replace(/\s+/g, "").replace(/[^0-9a-z]/gi, "");
-    const normalizedCodeLower = normalizedCode.toLowerCase();
-    if (!searchCode) return [];
-
+    const normalizedCode = normalizeSearchText(rawCode);
     const select = `SELECT cant_propuesta, code, codigoArticulo, codigoBarras, codigoBarra, codigoBarra1, codigoBarra2, codigoBarra3, codigoBarra4, codigoBarraDun, name, descripcion, precio, stock, fechaActualizacion, id, price1, price2, price3, price4, price5, price6, price7, price8, price9, price10`;
-    const barcodeWhere = `(
-      lower(trim(code)) = ? OR lower(replace(trim(code), ' ', '')) = ? OR
-      lower(trim(codigoBarras)) = ? OR lower(replace(trim(codigoBarras), ' ', '')) = ? OR
-      lower(trim(codigoBarra1)) = ? OR lower(replace(trim(codigoBarra1), ' ', '')) = ? OR
-      lower(trim(codigoBarra2)) = ? OR lower(replace(trim(codigoBarra2), ' ', '')) = ? OR
-      lower(trim(codigoBarra3)) = ? OR lower(replace(trim(codigoBarra3), ' ', '')) = ? OR
-      lower(trim(codigoBarra4)) = ? OR lower(replace(trim(codigoBarra4), ' ', '')) = ? OR
-      lower(trim(codigoBarraDun)) = ? OR lower(replace(trim(codigoBarraDun), ' ', '')) = ?
-    )`;
+    const exactQueries = lista != '' && lista != null && lista != undefined
+      ? [
+          { sql: `${select} FROM products_listas WHERE lista=? AND code = ? LIMIT 1`, params: [String(lista), rawCode] },
+          { sql: `${select} FROM products_listas WHERE lista=? AND codigoArticulo = ? LIMIT 1`, params: [String(lista), rawCode] },
+          { sql: `${select} FROM products_listas WHERE lista=? AND codigoBarras = ? LIMIT 1`, params: [String(lista), rawCode] },
+          { sql: `${select} FROM products_listas WHERE lista=? AND codigoBarra = ? LIMIT 1`, params: [String(lista), rawCode] },
+        ]
+      : [
+          { sql: `${select} FROM products WHERE code = ? LIMIT 1`, params: [rawCode] },
+          { sql: `${select} FROM products WHERE codigoArticulo = ? LIMIT 1`, params: [rawCode] },
+          { sql: `${select} FROM products WHERE codigoBarras = ? LIMIT 1`, params: [rawCode] },
+          { sql: `${select} FROM products WHERE codigoBarra = ? LIMIT 1`, params: [rawCode] },
+        ];
 
-    if (lista != '' && lista != null && lista != undefined) {
-      const sqlListas = `
-        ${select}
-        FROM products_listas
-        WHERE lista=? AND ${barcodeWhere}
-        ORDER BY name ASC LIMIT 1`;
-
-      let rowsListas = await this.repository.databaseLayer.executeSql(sqlListas, [lista, searchCodeLower, normalizedCodeLower, searchCodeLower, normalizedCodeLower, searchCodeLower, normalizedCodeLower, searchCodeLower, normalizedCodeLower, searchCodeLower, normalizedCodeLower, searchCodeLower, normalizedCodeLower, searchCodeLower, normalizedCodeLower]).then(({ rows }) => rows);
-      if (rowsListas && rowsListas.length > 0) {
-        return Product.maskStockRows(rowsListas, config.useStockColumn);
-      }
-
-      if (normalizedCode && normalizedCode !== searchCode) {
-        const sqlListasNorm = `
-          ${select}
-          FROM products_listas
-          WHERE lista=? AND (
-            replace(replace(codigoBarras,'-',''),' ','') = ? OR
-            replace(replace(codigoBarra1,'-',''),' ','') = ? OR
-            replace(replace(codigoBarra2,'-',''),' ','') = ? OR
-            replace(replace(codigoBarra3,'-',''),' ','') = ? OR
-            replace(replace(codigoBarra4,'-',''),' ','') = ? OR
-            replace(replace(codigoBarraDun,'-',''),' ','') = ?
-          )
-          ORDER BY name ASC LIMIT 1`;
-        rowsListas = await this.repository.databaseLayer.executeSql(sqlListasNorm, [lista, normalizedCode, normalizedCode, normalizedCode, normalizedCode, normalizedCode, normalizedCode]).then(({ rows }) => rows);
-        if (rowsListas && rowsListas.length > 0) {
-          return Product.maskStockRows(rowsListas, config.useStockColumn);
-        }
-      }
-    }
-
-    const sql = `
-      ${select}
-      FROM products
-      WHERE ${barcodeWhere}
-      ORDER BY name ASC LIMIT 1`;
-
-    let rows = await this.repository.databaseLayer.executeSql(sql, [searchCodeLower, normalizedCodeLower, searchCodeLower, normalizedCodeLower, searchCodeLower, normalizedCodeLower, searchCodeLower, normalizedCodeLower, searchCodeLower, normalizedCodeLower, searchCodeLower, normalizedCodeLower, searchCodeLower, normalizedCodeLower]).then(({ rows }) => rows);
-    if (rows && rows.length > 0) {
-      return Product.maskStockRows(rows, config.useStockColumn);
-    }
-
-    if (normalizedCode && normalizedCode !== searchCode) {
-      const sqlNorm = `
-        ${select}
-        FROM products
-        WHERE (
-          replace(replace(codigoBarras,'-',''),' ','') = ? OR
-          replace(replace(codigoBarra1,'-',''),' ','') = ? OR
-          replace(replace(codigoBarra2,'-',''),' ','') = ? OR
-          replace(replace(codigoBarra3,'-',''),' ','') = ? OR
-          replace(replace(codigoBarra4,'-',''),' ','') = ? OR
-          replace(replace(codigoBarraDun,'-',''),' ','') = ?
-        )
-        ORDER BY name ASC LIMIT 1`;
-      rows = await this.repository.databaseLayer.executeSql(sqlNorm, [normalizedCode, normalizedCode, normalizedCode, normalizedCode, normalizedCode, normalizedCode]).then(({ rows }) => rows);
+    for (const query of exactQueries) {
+      const rows = await executeLocalQuery(query.sql, query.params);
       if (rows && rows.length > 0) {
         return Product.maskStockRows(rows, config.useStockColumn);
+      }
+    }
+
+    if (normalizedCode && normalizedCode !== rawCode.toLowerCase()) {
+      const normalizedQueries = lista != '' && lista != null && lista != undefined
+        ? [
+            { sql: `${select} FROM products_listas WHERE lista=? AND replace(replace(codigoBarras,'-',''),' ','') = ? LIMIT 1`, params: [String(lista), normalizedCode] },
+            { sql: `${select} FROM products_listas WHERE lista=? AND replace(replace(codigoBarra,'-',''),' ','') = ? LIMIT 1`, params: [String(lista), normalizedCode] },
+          ]
+        : [
+            { sql: `${select} FROM products WHERE replace(replace(codigoBarras,'-',''),' ','') = ? LIMIT 1`, params: [normalizedCode] },
+            { sql: `${select} FROM products WHERE replace(replace(codigoBarra,'-',''),' ','') = ? LIMIT 1`, params: [normalizedCode] },
+          ];
+
+      for (const query of normalizedQueries) {
+        const rows = await executeLocalQuery(query.sql, query.params);
+        if (rows && rows.length > 0) {
+          return Product.maskStockRows(rows, config.useStockColumn);
+        }
       }
     }
 
@@ -227,43 +216,57 @@ export default class Product extends BaseModel {
 
   static async findByBarcodeExactLocal(barcode, lista = '') {
     const config = await CatalogService.getCatalogConfig();
-    const rawBarcode = String(barcode ?? "").trim();
-    const normalizedBarcode = rawBarcode.replace(/\s+/g, "").replace(/[^0-9a-z]/gi, "").toLowerCase();
+    const rawBarcode = normalizeExactText(barcode);
     if (!rawBarcode) return [];
 
+    if (config.mode === "ONLINE") {
+      const rows = await CatalogService.findCatalogByBarcodeExact({
+        barcode: rawBarcode,
+        classPrice: 1,
+      });
+      return Product.maskStockRows(rows, config.useStockColumn);
+    }
+
+    const normalizedBarcode = normalizeSearchText(rawBarcode);
     const select = `SELECT cant_propuesta, code, codigoArticulo, codigoBarras, codigoBarra, codigoBarra1, codigoBarra2, codigoBarra3, codigoBarra4, codigoBarraDun, name, descripcion, precio, stock, fechaActualizacion, id, price1, price2, price3, price4, price5, price6, price7, price8, price9, price10`;
-    const barcodeWhere = `(
-      lower(trim(codigoBarras)) = ? OR lower(replace(trim(codigoBarras), ' ', '')) = ? OR
-      lower(trim(codigoBarra)) = ? OR lower(replace(trim(codigoBarra), ' ', '')) = ? OR
-      lower(trim(codigoBarra1)) = ? OR lower(replace(trim(codigoBarra1), ' ', '')) = ? OR
-      lower(trim(codigoBarra2)) = ? OR lower(replace(trim(codigoBarra2), ' ', '')) = ? OR
-      lower(trim(codigoBarra3)) = ? OR lower(replace(trim(codigoBarra3), ' ', '')) = ? OR
-      lower(trim(codigoBarra4)) = ? OR lower(replace(trim(codigoBarra4), ' ', '')) = ? OR
-      lower(trim(codigoBarraDun)) = ? OR lower(replace(trim(codigoBarraDun), ' ', '')) = ?
-    )`;
+    const exactQueries = lista != '' && lista != null && lista != undefined
+      ? [
+          { sql: `${select} FROM products_listas WHERE lista=? AND codigoBarras = ? LIMIT 1`, params: [String(lista), rawBarcode] },
+          { sql: `${select} FROM products_listas WHERE lista=? AND codigoBarra = ? LIMIT 1`, params: [String(lista), rawBarcode] },
+          { sql: `${select} FROM products_listas WHERE lista=? AND code = ? LIMIT 1`, params: [String(lista), rawBarcode] },
+          { sql: `${select} FROM products_listas WHERE lista=? AND codigoArticulo = ? LIMIT 1`, params: [String(lista), rawBarcode] },
+        ]
+      : [
+          { sql: `${select} FROM products WHERE codigoBarras = ? LIMIT 1`, params: [rawBarcode] },
+          { sql: `${select} FROM products WHERE codigoBarra = ? LIMIT 1`, params: [rawBarcode] },
+          { sql: `${select} FROM products WHERE code = ? LIMIT 1`, params: [rawBarcode] },
+          { sql: `${select} FROM products WHERE codigoArticulo = ? LIMIT 1`, params: [rawBarcode] },
+        ];
 
-    if (lista != '' && lista != null && lista != undefined) {
-      const sqlListas = `
-        ${select}
-        FROM products_listas
-        WHERE lista=? AND ${barcodeWhere}
-        ORDER BY name ASC LIMIT 1`;
-
-      let rowsListas = await this.repository.databaseLayer.executeSql(sqlListas, [lista, rawBarcode.toLowerCase(), normalizedBarcode, rawBarcode.toLowerCase(), normalizedBarcode, rawBarcode.toLowerCase(), normalizedBarcode, rawBarcode.toLowerCase(), normalizedBarcode, rawBarcode.toLowerCase(), normalizedBarcode, rawBarcode.toLowerCase(), normalizedBarcode, rawBarcode.toLowerCase(), normalizedBarcode]).then(({ rows }) => rows);
-      if (rowsListas && rowsListas.length > 0) {
-        return Product.maskStockRows(rowsListas, config.useStockColumn);
+    for (const query of exactQueries) {
+      const rows = await executeLocalQuery(query.sql, query.params);
+      if (rows && rows.length > 0) {
+        return Product.maskStockRows(rows, config.useStockColumn);
       }
     }
 
-    const sql = `
-      ${select}
-      FROM products
-      WHERE ${barcodeWhere}
-      ORDER BY name ASC LIMIT 1`;
+    if (normalizedBarcode && normalizedBarcode !== rawBarcode.toLowerCase()) {
+      const normalizedQueries = lista != '' && lista != null && lista != undefined
+        ? [
+            { sql: `${select} FROM products_listas WHERE lista=? AND replace(replace(codigoBarras,'-',''),' ','') = ? LIMIT 1`, params: [String(lista), normalizedBarcode] },
+            { sql: `${select} FROM products_listas WHERE lista=? AND replace(replace(codigoBarra,'-',''),' ','') = ? LIMIT 1`, params: [String(lista), normalizedBarcode] },
+          ]
+        : [
+            { sql: `${select} FROM products WHERE replace(replace(codigoBarras,'-',''),' ','') = ? LIMIT 1`, params: [normalizedBarcode] },
+            { sql: `${select} FROM products WHERE replace(replace(codigoBarra,'-',''),' ','') = ? LIMIT 1`, params: [normalizedBarcode] },
+          ];
 
-    const rows = await this.repository.databaseLayer.executeSql(sql, [rawBarcode.toLowerCase(), normalizedBarcode, rawBarcode.toLowerCase(), normalizedBarcode, rawBarcode.toLowerCase(), normalizedBarcode, rawBarcode.toLowerCase(), normalizedBarcode, rawBarcode.toLowerCase(), normalizedBarcode, rawBarcode.toLowerCase(), normalizedBarcode, rawBarcode.toLowerCase(), normalizedBarcode]).then(({ rows }) => rows);
-    if (rows && rows.length > 0) {
-      return Product.maskStockRows(rows, config.useStockColumn);
+      for (const query of normalizedQueries) {
+        const rows = await executeLocalQuery(query.sql, query.params);
+        if (rows && rows.length > 0) {
+          return Product.maskStockRows(rows, config.useStockColumn);
+        }
+      }
     }
 
     return [];
@@ -274,6 +277,8 @@ export default class Product extends BaseModel {
       "CREATE INDEX IF NOT EXISTS idx_products_code ON products(code)",
       "CREATE INDEX IF NOT EXISTS idx_products_barcode ON products(codigoBarras)",
       "CREATE INDEX IF NOT EXISTS idx_products_codigobarra ON products(codigoBarra)",
+      "CREATE INDEX IF NOT EXISTS idx_products_codigoarticulo ON products(codigoArticulo)",
+      "CREATE INDEX IF NOT EXISTS idx_products_descripcion ON products(descripcion)",
       "CREATE INDEX IF NOT EXISTS idx_products_barcode1 ON products(codigoBarra1)",
       "CREATE INDEX IF NOT EXISTS idx_products_barcode2 ON products(codigoBarra2)",
       "CREATE INDEX IF NOT EXISTS idx_products_barcode3 ON products(codigoBarra3)",
@@ -282,6 +287,8 @@ export default class Product extends BaseModel {
       "CREATE INDEX IF NOT EXISTS idx_products_listas_lista_code ON products_listas(lista, code)",
       "CREATE INDEX IF NOT EXISTS idx_products_listas_lista_barcode ON products_listas(lista, codigoBarras)",
       "CREATE INDEX IF NOT EXISTS idx_products_listas_lista_codigobarra ON products_listas(lista, codigoBarra)",
+      "CREATE INDEX IF NOT EXISTS idx_products_listas_lista_codigoarticulo ON products_listas(lista, codigoArticulo)",
+      "CREATE INDEX IF NOT EXISTS idx_products_listas_lista_descripcion ON products_listas(lista, descripcion)",
       "CREATE INDEX IF NOT EXISTS idx_products_listas_lista_barcode1 ON products_listas(lista, codigoBarra1)",
       "CREATE INDEX IF NOT EXISTS idx_products_listas_lista_barcode2 ON products_listas(lista, codigoBarra2)",
       "CREATE INDEX IF NOT EXISTS idx_products_listas_lista_barcode3 ON products_listas(lista, codigoBarra3)",
