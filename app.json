@@ -45,10 +45,10 @@
         "postPrintFeedLines": 3
       },
       "eas": {
-        "projectId": "1449bcd3-b8db-4693-a147-a2e3774bed9c"
+        "projectId": "a94d3569-35b1-4b43-86cd-bb68b7f6d06f"
       }
     },
-    "owner": "alfaapp",
+    "owner": "marcoslromero23",
     "plugins": [
       "@react-native-community/datetimepicker",
       "expo-build-properties",

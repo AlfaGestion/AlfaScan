@@ -32,6 +32,6 @@
     "@babel/core": "^7.9.0"
   },
   "private": true,
-  "name": "AlfaDeposito",
+  "name": "alfascan",
   "version": "1.0.0"
 }
